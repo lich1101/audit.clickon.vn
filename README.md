@@ -5,7 +5,8 @@ Clickon Audit là SaaS quản lý credit và audit website.
 - `web/`: Next.js App Router, React, TailwindCSS, Firebase Authentication, Firestore realtime
 - `app/`: Laravel API, MySQL, queue worker, OpenAI audit pipeline
 - `firestore.rules`: rule bảo mật Firestore
-- `deploy/nginx/audit.clickon.vn.conf`: file mẫu Nginx cho Ubuntu
+- `deploy/nginx/audit.clickon.vn.conf`: Nginx host proxy **trực tiếp** tới Next.js `3000` + Laravel `8000` (khi không dùng Nginx trong Docker)
+- `deploy/nginx/audit.clickon.vn.host-to-docker.conf`: Nginx host proxy tới **Nginx Docker** (`127.0.0.1:18080` mặc định) — khuyến nghị khi chạy `docker-compose.prod.yml`
 - `docker-compose.prod.yml`: stack Docker production cho `web`, `api`, `queue`, `mysql`
 - `deploy/env/docker.prod.example`: file env mẫu cho Docker production
 - `deploy/scripts/prod-first-run.sh`: script chạy lần đầu cho stack production
@@ -63,12 +64,11 @@ npm run dev
 Hướng dẫn này giả định:
 
 - Ubuntu `22.04` hoặc `24.04`
-- code đặt tại `/var/www/clickon-audit`
+- code đặt tại `/var/www/clickon-audit` hoặc `/var/www/audit.clickon.vn` (thay `<repo>` bên dưới cho đúng đường dẫn)
 - domain public là `audit.clickon.vn`
-- frontend đi qua Nginx tới `127.0.0.1:3000`
-- Laravel API đi qua Nginx tới `127.0.0.1:8000` với prefix `/backend`
-- `web`, `api`, `queue`, `mysql` chạy hoàn toàn bằng Docker Compose production
-- Nginx trên host chỉ làm reverse proxy và SSL termination
+- `docker-compose.prod.yml`: có service **nginx** bên trong Docker; mặc định chỉ bind `127.0.0.1:18080` để **không đụng** Nginx site khác trên cùng máy
+- Nginx trên host: bật SSL (Certbot) và `proxy_pass` vào `127.0.0.1:18080` — xem file `deploy/nginx/audit.clickon.vn.host-to-docker.conf`
+- (Tuỳ chọn) Nếu không dùng Nginx trong Docker: publish cổng `web`/`api` và dùng `audit.clickon.vn.conf` như cũ
 
 ## 1. Chuẩn bị DNS
 
@@ -212,42 +212,90 @@ Sau đó thêm tiền tố `base64:` và dán vào `APP_KEY` trong `deploy/env/d
 Build và chạy stack Docker production:
 
 ```bash
-cd /var/www/clickon-audit
+cd /var/www/<repo>
 bash deploy/scripts/prod-first-run.sh
 ```
 
-Chạy migrate:
+Kiểm tra container:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env ps
 ```
 
-Kiểm tra services:
+Kiểm tra Nginx **trong Docker** (mặc định `127.0.0.1:18080`, xem `NGINX_HTTP_PORT` / `NGINX_BIND` trong `docker.prod.env`):
 
 ```bash
-curl -I http://127.0.0.1:3000
-curl -I http://127.0.0.1:8000
+curl -sI -H 'Host: audit.clickon.vn' http://127.0.0.1:18080/
+curl -sI -H 'Host: audit.clickon.vn' http://127.0.0.1:18080/backend/up
 ```
 
-## 9. Cấu hình Nginx
+Nếu bạn **không** dùng Nginx trong Docker mà publish thẳng `web`/`api` ra host, thay `18080` bằng `3000`/`8000` tương ứng (không khuyến nghị với `docker-compose.prod.yml` hiện tại).
+
+## 9. Cấu hình Nginx host (public + SSL)
+
+Có **hai** cách; chỉ chọn **một** để tránh proxy lệch cổng.
+
+### Cách A — Khuyến nghị: stack `docker-compose.prod.yml` (Nginx trong Docker)
+
+1. Đảm bảo stack đã chạy và cổng upstream đúng (mặc định `18080`).
+2. Trên host, dùng file proxy **một** tầng lên Docker:
 
 ```bash
-sudo cp /var/www/clickon-audit/deploy/nginx/audit.clickon.vn.conf /etc/nginx/sites-available/audit.clickon.vn.conf
-sudo ln -s /etc/nginx/sites-available/audit.clickon.vn.conf /etc/nginx/sites-enabled/audit.clickon.vn.conf
+sudo cp /var/www/<repo>/deploy/nginx/audit.clickon.vn.host-to-docker.conf /etc/nginx/sites-available/audit.clickon.vn.conf
+sudo ln -sf /etc/nginx/sites-available/audit.clickon.vn.conf /etc/nginx/sites-enabled/audit.clickon.vn.conf
+```
+
+Nếu bạn đổi `NGINX_HTTP_PORT` trong `docker.prod.env`, sửa dòng `proxy_pass http://127.0.0.1:18080` trong file trên cho khớp.
+
+3. Kiểm tra và nạp lại Nginx host:
+
+```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-File này route như sau:
+### Cách B — Không có Nginx trong Docker: proxy thẳng tới Next + Laravel
 
-- `/` -> Next.js `127.0.0.1:3000`
-- `/backend/` -> Laravel `127.0.0.1:8000`
+Chỉ khi bạn tự publish `127.0.0.1:3000` và `127.0.0.1:8000` (ví dụ chỉnh compose / chạy process ngoài Docker):
 
-Kiểm tra:
+```bash
+sudo cp /var/www/<repo>/deploy/nginx/audit.clickon.vn.conf /etc/nginx/sites-available/audit.clickon.vn.conf
+sudo ln -sf /etc/nginx/sites-available/audit.clickon.vn.conf /etc/nginx/sites-enabled/audit.clickon.vn.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Xử lý khi **vẫn thấy site khác** (ví dụ "ChatPlus", app không phải Clickon Audit)
+
+Điều này gần như luôn do **Nginx host** đang phục vụ `default_server` hoặc **chưa có** `server_name audit.clickon.vn` trùng hostname bạn gõ trên trình duyệt.
+
+1. Kiểm tra DNS trỏ đúng máy bạn đang cấu hình:
+
+```bash
+dig +short audit.clickon.vn
+```
+
+2. Liệt kê các `server` đang listen 80/443 và `server_name`:
+
+```bash
+sudo nginx -T 2>/dev/null | grep -E 'listen |server_name|default_server'
+```
+
+3. Đảm bảo **chỉ một** vhost xử lý `audit.clickon.vn` và **không** có site khác là `default_server` cho IP đó trừ khi bạn cố ý.
+
+4. Thử HTTP với Host header (từ máy chủ):
+
+```bash
+curl -sI -H 'Host: audit.clickon.vn' http://127.0.0.1/
+```
+
+Nếu lệnh này vẫn ra header/cache của app khác → file trong `/etc/nginx/sites-enabled/` chưa đúng hoặc thứ tự include sai; sửa xong `sudo nginx -t && sudo systemctl reload nginx`.
+
+Kiểm tra từ ngoài (sau khi DNS đúng):
 
 ```bash
 curl -I http://audit.clickon.vn
-curl -I http://audit.clickon.vn/backend/api/credits/balance
+curl -I http://audit.clickon.vn/backend/up
 ```
 
 ## 10. Cài SSL bằng Certbot
@@ -255,6 +303,8 @@ curl -I http://audit.clickon.vn/backend/api/credits/balance
 ```bash
 sudo certbot --nginx -d audit.clickon.vn
 ```
+
+Nếu trình duyệt vẫn báo **Not secure** / gạch đỏ `https://`: thường là **chưa** chạy Certbot trên đúng `server_name audit.clickon.vn`, hoặc Certbot gắn cert cho **site khác**. Kiểm tra bằng `sudo nginx -T | grep -A2 ssl_certificate` sau khi cài chứng chỉ.
 
 Chọn redirect HTTP sang HTTPS khi Certbot hỏi.
 

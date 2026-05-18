@@ -1,5 +1,13 @@
 COMPOSE_PROJECT_NAME=clickon-audit
 
+# Cô lập với dự án khác trên cùng máy (mặc định an toàn):
+# - NGINX_BIND=127.0.0.1  chỉ lắng nghe localhost; Nginx hệ thống giữ nguyên cổng 80/443.
+# - NGINX_HTTP_PORT=18080  stack lộ ra http://127.0.0.1:18080 — thêm server block Nginx host
+#   proxy_pass http://127.0.0.1:18080; cho audit.clickon.vn (SSL terminate tại host nếu cần).
+# Máy chỉ chạy mỗi audit: có thể dùng NGINX_BIND=0.0.0.0 và NGINX_HTTP_PORT=80.
+# NGINX_BIND=127.0.0.1
+# NGINX_HTTP_PORT=18080
+
 APP_NAME=Clickon Audit API
 APP_ENV=production
 APP_KEY=base64:replace-me

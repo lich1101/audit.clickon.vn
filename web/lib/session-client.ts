@@ -1,5 +1,7 @@
 "use client";
 
+import type { AppUser } from "@/types";
+
 async function readSessionError(response: Response, fallbackMessage: string) {
   try {
     const data = (await response.json()) as { message?: string };
@@ -26,6 +28,14 @@ export async function syncClientSession(idToken: string) {
   if (!response.ok) {
     throw new Error(await readSessionError(response, "Không thể tạo phiên đăng nhập."));
   }
+
+  const data = (await response.json()) as { user?: AppUser };
+
+  if (!data.user) {
+    throw new Error("Phiên đăng nhập không trả về hồ sơ người dùng.");
+  }
+
+  return data.user;
 }
 
 export async function clearClientSession() {

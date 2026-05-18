@@ -32,7 +32,7 @@ export function LoginForm() {
     try {
       setSubmitting(true);
       const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
-      await syncClientSession(await credential.user.getIdToken());
+      await syncClientSession(await credential.user.getIdToken(true));
       const redirectPath = searchParams.get("redirect");
       const destination = redirectPath?.startsWith("/") ? redirectPath : "/dashboard";
       toast.success("Đăng nhập thành công.");

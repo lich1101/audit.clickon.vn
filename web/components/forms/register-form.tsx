@@ -42,7 +42,7 @@ export function RegisterForm() {
         displayName: values.displayName,
         role: "user"
       });
-      await syncClientSession(await credential.user.getIdToken());
+      await syncClientSession(await credential.user.getIdToken(true));
       toast.success("Tài khoản đã được tạo.");
       router.replace("/dashboard");
       router.refresh();

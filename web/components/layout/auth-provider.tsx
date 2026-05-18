@@ -44,8 +44,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         setLoading(true);
-        const token = await nextUser.getIdToken();
-        await syncClientSession(token);
+        const token = await nextUser.getIdToken(true);
+        const sessionProfile = await syncClientSession(token);
+        setProfile(sessionProfile);
+        setLoading(false);
 
         if (disposed) {
           return;
@@ -67,8 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return;
             }
 
-            setProfile(null);
-            setError(snapshotError.message || "Không thể đọc hồ sơ người dùng.");
+            setProfile((current) => current ?? sessionProfile);
+            setError(null);
             setLoading(false);
           }
         );

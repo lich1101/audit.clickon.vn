@@ -24,7 +24,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <LoadingState title="Đang xác thực..." description="Đang kiểm tra phiên đăng nhập của bạn." />;
   }
 
-  if (error || !profile) {
+  if (!profile) {
     return (
       <div className="flex min-h-screen items-center justify-center p-6">
         <div className="premium-surface max-w-md space-y-4 p-8 text-center">

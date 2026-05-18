@@ -22,5 +22,14 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build mysql api
 echo "==> Running database migrations"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile tools run --rm artisan migrate --force
 
+set -a
+source "$ENV_FILE"
+set +a
+
+if [[ "${AUTO_SEED_ADMIN:-0}" == "1" ]] && [[ -n "${ADMIN_SEED_EMAIL:-}" ]] && [[ -n "${ADMIN_SEED_PASSWORD:-}" ]]; then
+  echo "==> Auto seeding admin account"
+  "$ROOT_DIR/deploy/scripts/prod-seed-admin.sh"
+fi
+
 echo "==> Current container status"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps

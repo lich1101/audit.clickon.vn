@@ -316,6 +316,33 @@ sudo certbot renew --dry-run
 
 ## 11. Seed admin đầu tiên
 
+Bạn có 2 cách:
+
+### Cách 1. Tạo luôn tài khoản quản trị mới
+
+```bash
+cd /var/www/clickon-audit
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:create-admin admin@audit.clickon.vn 'StrongPassword123!' --name='Clickon Audit Admin'
+```
+
+Hoặc dùng script:
+
+```bash
+cd /var/www/clickon-audit
+bash deploy/scripts/prod-seed-admin.sh
+```
+
+Script này sẽ đọc:
+
+- `ADMIN_SEED_EMAIL`
+- `ADMIN_SEED_PASSWORD`
+- `ADMIN_SEED_NAME`
+- `AUTO_SEED_ADMIN`
+
+trong `deploy/env/docker.prod.env`.
+
+### Cách 2. Promote một user Firebase có sẵn thành admin
+
 1. Mở `https://audit.clickon.vn/register`
 2. Đăng ký tài khoản đầu tiên
 3. Lấy `uid` của user trong Firebase Authentication
@@ -326,10 +353,12 @@ cd /var/www/clickon-audit
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <firebase_uid> <email>
 ```
 
-Lệnh này sẽ upsert `users/{uid}` với:
+Lệnh này sẽ upsert `users/{uid}` trong Firestore với:
 
 - `role = admin`
 - `credits = 0`
+
+Tài liệu Docker chi tiết, gồm cả rebuild website sau khi sửa code, nằm ở [docker.md](</Users/macbook/Desktop/php/web audit/docker.md>).
 
 ## 12. Kiểm tra sau deploy
 

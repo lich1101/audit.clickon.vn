@@ -336,23 +336,37 @@ class FirestoreService
         throw new RuntimeException('Unable to commit credit mutation after multiple retries.');
     }
 
-    public function seedAdmin(string $uid, string $email): void
+    public function seedAdmin(string $uid, string $email, ?string $displayName = null): void
     {
         $now = now();
+        $existing = $this->getUser($uid);
+        $currentCredits = (int) ($existing['credits'] ?? 0);
+        $createdAt = $existing['createdAt'] ?? $now;
+        $payload = [
+            'uid' => $uid,
+            'email' => $email,
+            'role' => 'admin',
+            'credits' => $currentCredits,
+            'createdAt' => $createdAt,
+            'updatedAt' => $now,
+        ];
+
+        if ($displayName !== null && trim($displayName) !== '') {
+            $payload['displayName'] = trim($displayName);
+        }
+
+        $fieldPaths = ['uid', 'email', 'role', 'credits', 'createdAt', 'updatedAt'];
+
+        if (array_key_exists('displayName', $payload)) {
+            $fieldPaths[] = 'displayName';
+        }
 
         Http::withHeaders($this->authHeaders())
             ->acceptJson()
             ->patch("{$this->baseUrl()}/users/{$uid}", [
-                'fields' => $this->encodeFields([
-                    'uid' => $uid,
-                    'email' => $email,
-                    'role' => 'admin',
-                    'credits' => 0,
-                    'createdAt' => $now,
-                    'updatedAt' => $now,
-                ]),
+                'fields' => $this->encodeFields($payload),
                 'updateMask' => [
-                    'fieldPaths' => ['uid', 'email', 'role', 'credits', 'createdAt', 'updatedAt'],
+                    'fieldPaths' => $fieldPaths,
                 ],
             ])
             ->throw();

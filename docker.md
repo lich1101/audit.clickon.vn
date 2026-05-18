@@ -17,6 +17,19 @@ Tài liệu này áp dụng cho stack production hiện tại:
 - `web`
 - `nginx`
 
+Hiểu đúng về kiến trúc hiện tại:
+
+- **Tất cả app services** đều chạy trong Docker:
+  - `mysql`
+  - `api`
+  - `queue`
+  - `web`
+  - `nginx`
+- Nginx **trong Docker** là reverse proxy nội bộ/public của stack.
+- Nginx **trên host** chỉ là phương án **tuỳ chọn** nếu bạn muốn:
+  - SSL/Certbot trên máy chủ
+  - hoặc đang có nhiều website dùng chung một Nginx host
+
 File chính:
 
 - [docker-compose.prod.yml](</Users/macbook/Desktop/php/web audit/docker-compose.prod.yml>)
@@ -26,6 +39,57 @@ File chính:
 - [deploy/scripts/prod-seed-admin.sh](</Users/macbook/Desktop/php/web audit/deploy/scripts/prod-seed-admin.sh>)
 
 ## 1. Chuẩn bị
+
+## Chọn mode chạy
+
+### Mode A. Docker-only
+
+Phù hợp khi:
+
+- máy chủ này chỉ chạy `Clickon Audit`
+- bạn muốn public trực tiếp bằng chính `nginx` container
+
+Thiết lập trong `deploy/env/docker.prod.env`:
+
+```bash
+NGINX_BIND=0.0.0.0
+NGINX_HTTP_PORT=80
+```
+
+Khi đó:
+
+- truy cập public sẽ đi thẳng vào `nginx` container
+- không cần Nginx host để reverse proxy HTTP
+
+Lưu ý:
+
+- mode này mới chỉ xử lý HTTP
+- nếu bạn cần HTTPS thật với Let's Encrypt mà vẫn muốn 100% Docker, tôi nên đổi stack sang `caddy` hoặc thêm `certbot`/`traefik` container riêng
+
+### Mode B. Docker + host Nginx
+
+Phù hợp khi:
+
+- máy chủ đang chạy nhiều site
+- bạn muốn SSL/Certbot trên host
+- bạn không muốn container chiếm cổng `80/443`
+
+Thiết lập trong `deploy/env/docker.prod.env`:
+
+```bash
+NGINX_BIND=127.0.0.1
+NGINX_HTTP_PORT=18080
+```
+
+Khi đó:
+
+- `nginx` trong Docker chỉ lắng nghe nội bộ
+- Nginx host sẽ `proxy_pass` tới `127.0.0.1:18080`
+
+Phần bên dưới của tài liệu vẫn dùng được cho cả hai mode. Khác biệt chủ yếu là:
+
+- Docker-only: public trực tiếp cổng `80` từ container
+- Docker + host Nginx: public qua Nginx host
 
 Copy env production:
 

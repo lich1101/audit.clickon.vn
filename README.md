@@ -5,8 +5,8 @@ Clickon Audit là SaaS quản lý credit và audit website.
 - `web/`: Next.js App Router, React, TailwindCSS, Firebase Authentication, Firestore realtime
 - `app/`: Laravel API, MySQL, queue worker, OpenAI audit pipeline
 - `firestore.rules`: rule bảo mật Firestore
-- `deploy/nginx/audit.clickon.vn.conf`: Nginx host proxy **trực tiếp** tới Next.js `3000` + Laravel `8000` (khi không dùng Nginx trong Docker)
-- `deploy/nginx/audit.clickon.vn.host-to-docker.conf`: Nginx host proxy tới **Nginx Docker** (`127.0.0.1:18080` mặc định) — khuyến nghị khi chạy `docker-compose.prod.yml`
+- `deploy/nginx/audit.clickon.vn.conf`: Nginx host proxy **trực tiếp** tới Next.js `3000` + Laravel `8000` (mode cũ, không phải mode Docker stack khuyến nghị)
+- `deploy/nginx/audit.clickon.vn.host-to-docker.conf`: Nginx host proxy tới **Nginx Docker** (`127.0.0.1:18080` mặc định) khi bạn muốn SSL/public qua host
 - `docker-compose.prod.yml`: stack Docker production cho `web`, `api`, `queue`, `mysql`
 - `deploy/env/docker.prod.example`: file env mẫu cho Docker production
 - `deploy/scripts/prod-first-run.sh`: script chạy lần đầu cho stack production
@@ -19,6 +19,13 @@ Clickon Audit là SaaS quản lý credit và audit website.
 - Frontend chạy tại `https://audit.clickon.vn`
 - Laravel API chạy sau reverse proxy tại `https://audit.clickon.vn/backend`
 - Next.js route nội bộ vẫn dùng bình thường tại `/api/...`
+- Tất cả app services production đều có thể chạy trong Docker:
+  - `mysql`
+  - `api`
+  - `queue`
+  - `web`
+  - `nginx`
+- Nginx host chỉ là lựa chọn thêm cho public SSL / multi-site, không phải bắt buộc của app stack
 - Laravel queue xử lý từng `audit run` theo từng URL
 - Firestore realtime sync:
   - `users`

@@ -60,13 +60,13 @@ export function LoginForm() {
         <form className="flex flex-col gap-5" onSubmit={onSubmit}>
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" placeholder="you@company.com" {...form.register("email")} />
+            <Input id="email" type="email" autoComplete="email" placeholder="you@company.com" {...form.register("email")} />
             {form.formState.errors.email ? <p className="text-sm text-destructive">{form.formState.errors.email.message}</p> : null}
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="password">Mật khẩu</Label>
-            <Input id="password" type="password" placeholder="••••••••" {...form.register("password")} />
+            <Input id="password" type="password" autoComplete="current-password" placeholder="••••••••" {...form.register("password")} />
             {form.formState.errors.password ? <p className="text-sm text-destructive">{form.formState.errors.password.message}</p> : null}
           </div>
 

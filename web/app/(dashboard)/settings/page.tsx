@@ -1,6 +1,7 @@
 "use client";
 
 import { SettingsForm } from "@/components/forms/settings-form";
+import { LoadingState } from "@/components/dashboard/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -8,7 +9,7 @@ export default function SettingsPage() {
   const { profile } = useAuth();
 
   if (!profile) {
-    return null;
+    return <LoadingState title="Đang tải hồ sơ..." description="Đang chuẩn bị trang cài đặt." />;
   }
 
   return (

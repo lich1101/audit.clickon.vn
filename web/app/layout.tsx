@@ -6,7 +6,10 @@ import { Providers } from "@/components/layout/providers";
 
 export const metadata: Metadata = {
   title: "Clickon Audit",
-  description: "SaaS quản lý credit và audit website với Firebase realtime và Laravel API."
+  description: "SaaS quản lý credit và audit website với Firebase realtime và Laravel API.",
+  icons: {
+    icon: "/favicon.svg"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

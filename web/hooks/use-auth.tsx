@@ -9,6 +9,7 @@ export type AuthContextValue = {
   firebaseUser: User | null;
   profile: AppUser | null;
   loading: boolean;
+  error: string | null;
 };
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

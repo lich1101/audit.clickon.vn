@@ -3,6 +3,7 @@
 import { Menu, Moon, Search, Sun } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,14 @@ import { useAuth } from "@/hooks/use-auth";
 
 export function Topbar() {
   const { profile } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isDark = mounted && resolvedTheme === "dark";
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-xl">
@@ -41,8 +49,14 @@ export function Topbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-3">
-          <Button variant="outline" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}
+            disabled={!mounted}
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+          >
+            {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
 
           <DropdownMenu>

@@ -68,19 +68,19 @@ export function RegisterForm() {
         <form className="flex flex-col gap-5" onSubmit={onSubmit}>
           <div className="flex flex-col gap-2">
             <Label htmlFor="displayName">Tên hiển thị</Label>
-            <Input id="displayName" placeholder="Nguyen Van A" {...form.register("displayName")} />
+            <Input id="displayName" autoComplete="name" placeholder="Nguyen Van A" {...form.register("displayName")} />
             {form.formState.errors.displayName ? <p className="text-sm text-destructive">{form.formState.errors.displayName.message}</p> : null}
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="register-email">Email</Label>
-            <Input id="register-email" type="email" placeholder="you@company.com" {...form.register("email")} />
+            <Input id="register-email" type="email" autoComplete="email" placeholder="you@company.com" {...form.register("email")} />
             {form.formState.errors.email ? <p className="text-sm text-destructive">{form.formState.errors.email.message}</p> : null}
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="register-password">Mật khẩu</Label>
-            <Input id="register-password" type="password" placeholder="••••••••" {...form.register("password")} />
+            <Input id="register-password" type="password" autoComplete="new-password" placeholder="••••••••" {...form.register("password")} />
             {form.formState.errors.password ? <p className="text-sm text-destructive">{form.formState.errors.password.message}</p> : null}
           </div>
 

@@ -2,10 +2,9 @@
 
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
-import { createOrUpdateUserProfile, listenToUser } from "@/lib/firestore";
+import { listenToUser } from "@/lib/firestore";
 import { clearClientSession, syncClientSession } from "@/lib/session-client";
 import { AuthContext } from "@/hooks/use-auth";
 import type { AppUser } from "@/types";
@@ -14,17 +13,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
+      setError("Firebase chưa được cấu hình.");
       setLoading(false);
       return;
     }
 
     let unsubscribeProfile: (() => void) | undefined;
+    let disposed = false;
+
+    const clearProfileListener = () => {
+      unsubscribeProfile?.();
+      unsubscribeProfile = undefined;
+    };
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
+      clearProfileListener();
       setFirebaseUser(nextUser);
+      setError(null);
 
       if (!nextUser) {
         setProfile(null);
@@ -34,36 +43,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await createOrUpdateUserProfile({
-          uid: nextUser.uid,
-          email: nextUser.email ?? "",
-          displayName: nextUser.displayName ?? undefined
-        });
+        setLoading(true);
         const token = await nextUser.getIdToken();
         await syncClientSession(token);
+
+        if (disposed) {
+          return;
+        }
 
         unsubscribeProfile = listenToUser(
           nextUser.uid,
           (nextProfile) => {
+            if (disposed) {
+              return;
+            }
+
             setProfile(nextProfile);
+            setError(nextProfile ? null : "Không tìm thấy hồ sơ người dùng.");
             setLoading(false);
           },
-          (error) => {
-            toast.error(error.message);
+          (snapshotError) => {
+            if (disposed) {
+              return;
+            }
+
+            setProfile(null);
+            setError(snapshotError.message || "Không thể đọc hồ sơ người dùng.");
             setLoading(false);
           }
         );
-      } catch (error) {
+      } catch (sessionError) {
+        if (disposed) {
+          return;
+        }
+
+        setProfile(null);
+        setError(sessionError instanceof Error ? sessionError.message : "Không thể đồng bộ phiên đăng nhập.");
         setLoading(false);
-        toast.error(error instanceof Error ? error.message : "Không thể đồng bộ phiên đăng nhập.");
       }
     });
 
     return () => {
+      disposed = true;
       unsubscribeAuth();
-      unsubscribeProfile?.();
+      clearProfileListener();
     };
   }, []);
 
-  return <AuthContext.Provider value={{ firebaseUser, profile, loading }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ firebaseUser, profile, loading, error }}>{children}</AuthContext.Provider>;
 }

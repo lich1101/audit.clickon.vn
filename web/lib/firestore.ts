@@ -273,13 +273,15 @@ export async function createOrUpdateUserProfile(input: {
 }) {
   const userRef = doc(db, "users", input.uid);
   const current = await getDoc(userRef);
+  const currentData = current.exists() ? current.data() : null;
 
   const payload = {
+    uid: input.uid,
     email: input.email,
     displayName: input.displayName ?? "",
-    role: input.role ?? "user",
-    credits: current.exists() ? Number(current.data().credits ?? 0) : 0,
-    createdAt: current.exists() ? current.data().createdAt : serverTimestamp(),
+    role: input.role ?? (currentData?.role === "admin" ? "admin" : "user"),
+    credits: currentData ? Number(currentData.credits ?? 0) : 0,
+    createdAt: currentData ? currentData.createdAt : serverTimestamp(),
     updatedAt: serverTimestamp()
   };
 

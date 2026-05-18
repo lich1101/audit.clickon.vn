@@ -6,24 +6,9 @@ import { toast } from "sonner";
 
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { createOrUpdateUserProfile, listenToUser } from "@/lib/firestore";
+import { clearClientSession, syncClientSession } from "@/lib/session-client";
 import { AuthContext } from "@/hooks/use-auth";
 import type { AppUser } from "@/types";
-
-async function syncSession(idToken: string) {
-  await fetch("/api/auth/session", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ idToken })
-  });
-}
-
-async function clearSession() {
-  await fetch("/api/auth/logout", {
-    method: "POST"
-  });
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
@@ -43,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!nextUser) {
         setProfile(null);
-        await clearSession().catch(() => undefined);
+        await clearClientSession().catch(() => undefined);
         setLoading(false);
         return;
       }
@@ -55,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           displayName: nextUser.displayName ?? undefined
         });
         const token = await nextUser.getIdToken();
-        await syncSession(token);
+        await syncClientSession(token);
 
         unsubscribeProfile = listenToUser(
           nextUser.uid,

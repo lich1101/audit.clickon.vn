@@ -9,6 +9,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
+import { createOrUpdateUserProfile } from "@/lib/firestore";
+import { syncClientSession } from "@/lib/session-client";
 import { registerSchema, type RegisterValues } from "@/lib/validators";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,8 +36,16 @@ export function RegisterForm() {
       await updateProfile(credential.user, {
         displayName: values.displayName
       });
+      await createOrUpdateUserProfile({
+        uid: credential.user.uid,
+        email: credential.user.email ?? values.email,
+        displayName: values.displayName,
+        role: "user"
+      });
+      await syncClientSession(await credential.user.getIdToken());
       toast.success("Tài khoản đã được tạo.");
       router.replace("/dashboard");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể tạo tài khoản.");
     } finally {

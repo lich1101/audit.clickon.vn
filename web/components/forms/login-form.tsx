@@ -9,6 +9,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
+import { syncClientSession } from "@/lib/session-client";
 import { loginSchema, type LoginValues } from "@/lib/validators";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,9 +31,13 @@ export function LoginForm() {
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       setSubmitting(true);
-      await signInWithEmailAndPassword(auth, values.email, values.password);
+      const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      await syncClientSession(await credential.user.getIdToken());
+      const redirectPath = searchParams.get("redirect");
+      const destination = redirectPath?.startsWith("/") ? redirectPath : "/dashboard";
       toast.success("Đăng nhập thành công.");
-      router.replace(searchParams.get("redirect") || "/dashboard");
+      router.replace(destination);
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Đăng nhập thất bại.");
     } finally {

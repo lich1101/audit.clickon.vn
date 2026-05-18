@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && currentUser().data.role == "admin";
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function ownsWebsite(websiteId) {
+      return isAdmin() || get(/databases/$(database)/documents/websites/$(websiteId)).data.userId == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email is string
+        && request.resource.data.role == "user"
+        && request.resource.data.credits == 0;
+
+      allow read: if isOwner(uid) || isAdmin();
+
+      allow update: if isAdmin()
+        || (
+          isOwner(uid)
+          && request.resource.data.uid == resource.data.uid
+          && !request.resource.data.diff(resource.data).changedKeys().hasAny(["credits", "role", "createdAt"])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /websites/{websiteId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if signedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
+      allow update, delete: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+    }
+
+    match /websiteAudits/{auditId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if signedIn() && (
+        isAdmin()
+        || (request.resource.data.userId == request.auth.uid && ownsWebsite(request.resource.data.websiteId))
+      );
+      allow update, delete: if signedIn() && (
+        isAdmin()
+        || (resource.data.userId == request.auth.uid && ownsWebsite(resource.data.websiteId))
+      );
+    }
+
+    match /plans/{planId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.isActive == true);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /creditLogs/{logId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /auditRuns/{runId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /auditRunItems/{itemId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+  }
+}

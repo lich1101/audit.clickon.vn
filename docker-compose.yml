@@ -1,0 +1,59 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: clickon_audit
+      MYSQL_USER: clickon
+      MYSQL_PASSWORD: clickon
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./app
+      dockerfile: docker/php/Dockerfile
+    working_dir: /var/www/html
+    env_file:
+      - ./app/.env
+    volumes:
+      - ./app:/var/www/html
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: php artisan serve --host=0.0.0.0 --port=8000
+
+  queue:
+    build:
+      context: ./app
+      dockerfile: docker/php/Dockerfile
+    working_dir: /var/www/html
+    env_file:
+      - ./app/.env
+    volumes:
+      - ./app:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: php artisan queue:work --tries=1 --timeout=300
+
+  composer:
+    image: composer:2
+    working_dir: /var/www/html
+    env_file:
+      - ./app/.env
+    volumes:
+      - ./app:/var/www/html
+
+volumes:
+  mysql_data:

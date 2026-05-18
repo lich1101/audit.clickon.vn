@@ -1,0 +1,14 @@
+.DS_Store
+.idea
+.vscode
+*.tsbuildinfo
+
+deploy/env/docker.prod.env
+app/storage/app/firebase-service-account.json
+
+web/.env.local
+web/.next
+web/node_modules
+web/out
+
+app/.env

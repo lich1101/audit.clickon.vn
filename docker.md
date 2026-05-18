@@ -119,6 +119,8 @@ Nếu muốn seed admin nhanh bằng script, điền thêm:
 app/storage/app/firebase-service-account.json
 ```
 
+File này được mount cho cả `api`, `queue` và `web`. `web` cũng cần nó vì route `POST /api/auth/session` dùng Firebase Admin để tạo session cookie.
+
 ## 2. Chạy lần đầu
 
 ```bash

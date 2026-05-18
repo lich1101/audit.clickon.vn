@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { getRoleCookieOptions, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
 import { sessionSchema } from "@/lib/validators";
 
 export async function POST(request: Request) {
   try {
+    const adminAuth = getAdminAuth();
+    const adminDb = getAdminDb();
     const body = await request.json();
     const { idToken } = sessionSchema.parse(body);
     const decoded = await adminAuth.verifyIdToken(idToken);
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
       {
         message: error instanceof Error ? error.message : "Unable to create session."
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }

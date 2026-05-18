@@ -187,6 +187,8 @@ Copy file JSON vào:
 /var/www/clickon-audit/app/storage/app/firebase-service-account.json
 ```
 
+Lưu ý: file này không chỉ dùng cho Laravel. Container `web` của Next.js cũng dùng cùng credential để xử lý `/api/auth/session` và xác thực session cookie.
+
 ## 7. Firebase cấu hình production
 
 Trong Firebase Console:

@@ -130,6 +130,50 @@ Nếu bạn đã có sẵn một Firebase UID và chỉ muốn promote role admi
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <uid> <email> --name='Clickon Audit Admin'
 ```
 
+### Lỗi thường gặp khi seed admin
+
+#### Lỗi `Audit: command not found`
+
+Nguyên nhân:
+
+- file `deploy/env/docker.prod.env` có biến chứa khoảng trắng nhưng không quote đúng
+- ví dụ:
+  - `APP_NAME=Clickon Audit API`
+
+Nên sửa thành:
+
+```bash
+APP_NAME="Clickon Audit API"
+```
+
+Ngoài ra script hiện tại đã được sửa để không `source` toàn bộ env file nữa, nên lỗi này sẽ không còn lặp lại nếu bạn cập nhật code mới.
+
+#### Lỗi `Cannot use SplFileObject with directories`
+
+Nguyên nhân gần như chắc chắn:
+
+- đường dẫn `app/storage/app/firebase-service-account.json` trên host đang là **thư mục**
+- trong khi ứng dụng cần một **file JSON**
+
+Kiểm tra:
+
+```bash
+ls -ld app/storage/app/firebase-service-account.json
+```
+
+Nếu thấy đó là thư mục, sửa bằng:
+
+```bash
+rm -rf app/storage/app/firebase-service-account.json
+cp /path/to/your/firebase-service-account.json app/storage/app/firebase-service-account.json
+```
+
+Kiểm tra lại:
+
+```bash
+test -f app/storage/app/firebase-service-account.json && echo OK
+```
+
 ## 4. Rebuild website sau khi sửa code frontend
 
 Trường hợp bạn chỉ sửa `web/`:

@@ -22,6 +22,9 @@ fi
 echo "==> Building and starting production containers"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build mysql api queue web nginx
 
+echo "==> Rebuilding artisan image (profile tools)"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build artisan
+
 echo "==> Running database migrations"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile tools run --rm artisan migrate --force
 

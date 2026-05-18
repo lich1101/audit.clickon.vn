@@ -25,6 +25,21 @@ class FirestoreService
         ];
     }
 
+    /**
+     * Firestore REST expects update masks as repeated query params:
+     * updateMask.fieldPaths=a&updateMask.fieldPaths=b
+     *
+     * @param  array<int, string>  $fieldPaths
+     */
+    private function appendUpdateMask(string $url, array $fieldPaths): string
+    {
+        $query = collect(array_values(array_unique($fieldPaths)))
+            ->map(fn (string $fieldPath): string => 'updateMask.fieldPaths='.rawurlencode($fieldPath))
+            ->implode('&');
+
+        return $query === '' ? $url : "{$url}?{$query}";
+    }
+
     private function projectId(): string
     {
         $projectId = env('FIREBASE_PROJECT_ID');
@@ -363,11 +378,8 @@ class FirestoreService
 
         Http::withHeaders($this->authHeaders())
             ->acceptJson()
-            ->patch("{$this->baseUrl()}/users/{$uid}", [
+            ->patch($this->appendUpdateMask("{$this->baseUrl()}/users/{$uid}", $fieldPaths), [
                 'fields' => $this->encodeFields($payload),
-                'updateMask' => [
-                    'fieldPaths' => $fieldPaths,
-                ],
             ])
             ->throw();
     }
@@ -407,9 +419,8 @@ class FirestoreService
     {
         Http::withHeaders($this->authHeaders())
             ->acceptJson()
-            ->patch("{$this->baseUrl()}/{$collection}/{$documentId}", [
+            ->patch($this->appendUpdateMask("{$this->baseUrl()}/{$collection}/{$documentId}", array_keys($payload)), [
                 'fields' => $this->encodeFields($payload),
-                'updateMask' => $this->buildUpdateMask(array_keys($payload)),
             ])
             ->throw();
     }

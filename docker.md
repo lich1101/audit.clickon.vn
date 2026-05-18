@@ -9,7 +9,7 @@ Tài liệu này tập trung vào vận hành Docker cho `Clickon Audit`, đặc
 - seed tài khoản quản trị
 - xem log, migrate và xử lý lỗi thường gặp
 
-Tài liệu này áp dụng cho stack production hiện tại:
+Tài liệu này áp dụng cho stack production hiện tại — **toàn bộ dịch vụ ứng dụng chỉ chạy trong Docker**:
 
 - `mysql`
 - `api`
@@ -17,79 +17,71 @@ Tài liệu này áp dụng cho stack production hiện tại:
 - `web`
 - `nginx`
 
-Hiểu đúng về kiến trúc hiện tại:
+Trên host **không cần** cài PHP, Node.js, MySQL hay Nginx riêng để chạy app (chỉ cần **Docker Engine** + plugin **Compose**).
 
-- **Tất cả app services** đều chạy trong Docker:
-  - `mysql`
-  - `api`
-  - `queue`
-  - `web`
-  - `nginx`
-- Nginx **trong Docker** là reverse proxy nội bộ/public của stack.
-- Nginx **trên host** chỉ là phương án **tuỳ chọn** nếu bạn muốn:
-  - SSL/Certbot trên máy chủ
-  - hoặc đang có nhiều website dùng chung một Nginx host
+- **Nginx trong Docker** là reverse proxy của stack (chia `/` → Next.js, `/backend/` → Laravel).
+- **Apache / Nginx trên host** chỉ là **tuỳ chọn** khi bạn muốn dùng chung máy với site khác hoặc SSL (Certbot) tại host — xem **Mode B**.
 
-File chính:
+Tài liệu dùng đường dẫn tương đối trong repo:
 
-- [docker-compose.prod.yml](</Users/macbook/Desktop/php/web audit/docker-compose.prod.yml>)
-- [deploy/env/docker.prod.example](</Users/macbook/Desktop/php/web audit/deploy/env/docker.prod.example>)
-- [deploy/scripts/prod-first-run.sh](</Users/macbook/Desktop/php/web audit/deploy/scripts/prod-first-run.sh>)
-- [deploy/scripts/prod-update.sh](</Users/macbook/Desktop/php/web audit/deploy/scripts/prod-update.sh>)
-- [deploy/scripts/prod-seed-admin.sh](</Users/macbook/Desktop/php/web audit/deploy/scripts/prod-seed-admin.sh>)
+- [`docker-compose.prod.yml`](./docker-compose.prod.yml)
+- [`deploy/env/docker.prod.example`](./deploy/env/docker.prod.example)
+- [`deploy/scripts/prod-first-run.sh`](./deploy/scripts/prod-first-run.sh)
+- [`deploy/scripts/prod-update.sh`](./deploy/scripts/prod-update.sh)
+- [`deploy/scripts/prod-seed-admin.sh`](./deploy/scripts/prod-seed-admin.sh)
 
-## 1. Chuẩn bị
+## 1. Chuẩn bị — chọn chế độ publish cổng
 
-## Chọn mode chạy
+### Mode A — Chỉ Docker (Docker-only)
 
-### Mode A. Docker-only
+Dùng khi VPS **chủ yếu chỉ chạy Clickon Audit** và bạn muốn traffic vào **thẳng container `nginx`** (HTTP), **không** cần Apache/Nginx host làm reverse proxy.
 
-Phù hợp khi:
-
-- máy chủ này chỉ chạy `Clickon Audit`
-- bạn muốn public trực tiếp bằng chính `nginx` container
-
-Thiết lập trong `deploy/env/docker.prod.env`:
+**1.** Trong `deploy/env/docker.prod.env`:
 
 ```bash
 NGINX_BIND=0.0.0.0
 NGINX_HTTP_PORT=80
 ```
 
-Khi đó:
+**2.** Đảm bảo cổng 80 **chưa** bị dịch vụ khác chiếm:
 
-- truy cập public sẽ đi thẳng vào `nginx` container
-- không cần Nginx host để reverse proxy HTTP
+```bash
+sudo ss -ltnp | grep ':80 '
+```
 
-Lưu ý:
+Nếu thấy `apache2` hoặc `nginx` của hệ thống, cần tắt site đó, đổi cổng, hoặc chuyển sang **Mode B**.
 
-- mode này mới chỉ xử lý HTTP
-- nếu bạn cần HTTPS thật với Let's Encrypt mà vẫn muốn 100% Docker, tôi nên đổi stack sang `caddy` hoặc thêm `certbot`/`traefik` container riêng
+**3.** Firewall (nếu dùng `ufw`):
 
-### Mode B. Docker + host Nginx
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+```
 
-Phù hợp khi:
+**4.** Truy cập: `http://<domain hoặc IP>/` — stack Docker xử lý toàn bộ.
 
-- máy chủ đang chạy nhiều site
-- bạn muốn SSL/Certbot trên host
-- bạn không muốn container chiếm cổng `80/443`
+**HTTPS:** file compose hiện tại chỉ có Nginx container listen **HTTP (80)**. Để HTTPS bạn có thể:
 
-Thiết lập trong `deploy/env/docker.prod.env`:
+- dùng **Cloudflare / load balancer** terminate SSL rồi forward HTTP về cổng 80 VPS; hoặc
+- mở rộng stack (Caddy, Traefik, v.v. — ngoài phạm vi mặc định); hoặc
+- dùng **Mode B**: SSL trên host, proxy vào Docker (không còn “thuần một lớp container” cho TLS).
+
+### Mode B — Docker + reverse trên host (Apache/Nginx)
+
+Dùng khi **cùng máy** còn site khác, hoặc bạn muốn **Certbot/SSL trên host**, **không** để container chiếm `80/443` công khai.
+
+Trong `deploy/env/docker.prod.env`:
 
 ```bash
 NGINX_BIND=127.0.0.1
 NGINX_HTTP_PORT=18080
 ```
 
-Khi đó:
+Host cấu hình `proxy_pass http://127.0.0.1:18080/` (toàn bộ URI) — tham khảo `deploy/nginx/audit.clickon.vn.host-to-docker.conf`.
 
-- `nginx` trong Docker chỉ lắng nghe nội bộ
-- Nginx host sẽ `proxy_pass` tới `127.0.0.1:18080`
+Các mục từ mục 2 trở đi áp dụng cho **cả hai mode**; khác nhau chỉ chỗ publish cổng như trên.
 
-Phần bên dưới của tài liệu vẫn dùng được cho cả hai mode. Khác biệt chủ yếu là:
-
-- Docker-only: public trực tiếp cổng `80` từ container
-- Docker + host Nginx: public qua Nginx host
+---
 
 Copy env production:
 

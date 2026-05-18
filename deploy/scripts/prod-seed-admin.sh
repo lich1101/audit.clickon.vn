@@ -22,7 +22,7 @@ fi
 EMAIL="${1:-$(read_env_value "$ENV_FILE" "ADMIN_SEED_EMAIL" || true)}"
 PASSWORD="${2:-$(read_env_value "$ENV_FILE" "ADMIN_SEED_PASSWORD" || true)}"
 NAME="${3:-$(read_env_value "$ENV_FILE" "ADMIN_SEED_NAME" || true)}"
-UID="$(read_env_value "$ENV_FILE" "ADMIN_SEED_UID" || true)"
+ADMIN_UID="$(read_env_value "$ENV_FILE" "ADMIN_SEED_UID" || true)"
 
 if [[ -z "$NAME" ]]; then
   NAME="Clickon Audit Admin"
@@ -53,8 +53,8 @@ fi
 
 ARGS=(clickon:create-admin "$EMAIL" "$PASSWORD" "--name=$NAME")
 
-if [[ -n "$UID" ]]; then
-  ARGS+=("--uid=$UID")
+if [[ -n "$ADMIN_UID" ]]; then
+  ARGS+=("--uid=$ADMIN_UID")
 fi
 
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile tools run --rm artisan "${ARGS[@]}"

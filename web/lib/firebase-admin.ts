@@ -38,6 +38,12 @@ function readServiceAccountFile() {
 }
 
 function resolveServiceAccount(): ServiceAccount {
+  const fileAccount = readServiceAccountFile();
+
+  if (fileAccount?.projectId && fileAccount.clientEmail && fileAccount.privateKey) {
+    return fileAccount;
+  }
+
   const envAccount = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
@@ -46,12 +52,6 @@ function resolveServiceAccount(): ServiceAccount {
 
   if (envAccount.projectId && envAccount.clientEmail && envAccount.privateKey) {
     return envAccount;
-  }
-
-  const fileAccount = readServiceAccountFile();
-
-  if (fileAccount?.projectId && fileAccount.clientEmail && fileAccount.privateKey) {
-    return fileAccount;
   }
 
   throw new Error(

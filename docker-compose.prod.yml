@@ -68,7 +68,7 @@ services:
     environment:
       LARAVEL_API_URL: ${LARAVEL_API_URL:-http://api:8000}
     volumes:
-      - ./app/storage/app/firebase-service-account.json:/app/storage/app/firebase-service-account.json:ro
+      - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
     depends_on:
       api:
         condition: service_started

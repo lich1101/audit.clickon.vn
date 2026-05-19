@@ -23,7 +23,7 @@ export async function exportAuditRunToExcel(run: AuditRun) {
     "Định hướng chỉnh sửa nội dung theo Audit": item.contentRevisionDirection ?? "",
     "Nhận định audit": item.auditFindings.join(" | "),
     "Trạng thái": item.status,
-    "Nguồn crawl": item.extractionSource ?? "",
+    "Nguồn dữ liệu": item.extractionSource ?? "",
     "Tiêu đề trang": item.pageTitle ?? "",
     "Meta description": item.metaDescription ?? "",
     "Canonical": item.canonicalUrl ?? ""

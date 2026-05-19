@@ -72,6 +72,11 @@ class TokenBillingService
 
     public function estimateMinimumCreditsForUrl(string $provider, ?string $model): int
     {
+        return $this->estimateMinimumCreditsForBatchRun($provider, $model);
+    }
+
+    public function estimateMinimumCreditsForBatchRun(string $provider, ?string $model): int
+    {
         $modelName = $model ?: $this->defaultModelForProvider($provider);
         $pricing = $this->resolvePricing($provider, $modelName);
 

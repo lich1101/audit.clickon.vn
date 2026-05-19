@@ -45,7 +45,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
   const [urlResults, setUrlResults] = useState<WebsiteAuditUrlResult[]>([]);
-  const [systemAi, setSystemAi] = useState<PublicAuditSettings>({ aiProvider: "openai", aiModel: null });
+  const [systemAi, setSystemAi] = useState<PublicAuditSettings>({ aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -84,7 +84,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       setAudit(board.audit);
       setRun(board.run);
       setUrlResults(board.urlResults ?? []);
-      setSystemAi(board.systemAi ?? { aiProvider: "openai", aiModel: null });
+      setSystemAi(board.systemAi ?? { aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 });
     } catch (error) {
       if (!options?.silent) {
         setWebsite(null);
@@ -168,6 +168,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const progressPercent = progressFor(run);
   const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
   const displayError = run?.lastError ?? firstItemError;
+  const activeUrls = (run?.items ?? []).filter((item) => item.status === "fetching" || item.status === "analyzing").length;
+  const queuedUrls = (run?.items ?? []).filter((item) => item.status === "queued").length;
+  const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
+  const minCreditsPerRun = Math.max(0, Number(systemAi.minCreditsPerRun ?? systemAi.minCreditsPerUrl ?? 0));
+  const requiredCredits = selectedUrls.length ? minCreditsPerRun : 0;
+  const currentCredits = profile?.credits ?? 0;
+  const hasEnoughCredits = requiredCredits === 0 || currentCredits >= requiredCredits;
 
   async function persistUrlList(nextUrls: string[]) {
     if (!audit || !website || !profile) {
@@ -244,6 +251,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     if (isRunActive) {
       toast.error("Đang có audit run đang chạy. Hãy dừng run hiện tại trước.");
+      return;
+    }
+
+    if (!hasEnoughCredits) {
+      toast.error(`Không đủ credit. Cần tối thiểu ${requiredCredits} credit cho batch ${selectedUrls.length} URL, hiện có ${currentCredits}.`);
       return;
     }
 
@@ -333,17 +345,23 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             {` · AI ${systemAi.aiProvider}${systemAi.aiModel ? ` / ${systemAi.aiModel}` : ""} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
+          {selectedUrls.length ? (
+            <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
+              Cần tối thiểu {requiredCredits} credit cho batch {selectedUrls.length} URL; hiện có {currentCredits} credit.
+            </p>
+          ) : null}
           {run ? (
             <div className="space-y-1.5">
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
               <p className="text-xs text-muted-foreground">
-                Run #{run.publicId.slice(-8)} · {run.processedUrls}/{run.totalUrls} URL · {progressPercent}%
+                Run #{run.publicId.slice(-8)} · {run.processedUrls}/{run.totalUrls} hoàn tất · {activeUrls} đang chạy · {queuedUrls} chờ xử lý · {progressPercent}%
+                {isPreparingRun ? " · Đang chuẩn bị batch URL-only" : ""}
               </p>
             </div>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0}>
+          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0 || !hasEnoughCredits}>
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
           </Button>

@@ -62,20 +62,18 @@ class AuditRunService
 
         $settings = $this->auditSettingsService->getAuditSettings();
         $targetUrls = array_values(array_unique($payload['targetUrls']));
-        $minPerUrl = $this->tokenBillingService->estimateMinimumCreditsForUrl($settings['aiProvider'], $settings['aiModel']);
-        $requiredCredits = count($targetUrls) * $minPerUrl;
+        $requiredCredits = $this->minimumCreditsPerRun($settings['aiProvider'], $settings['aiModel']);
 
         if ($this->creditService->getBalance($userUid) < $requiredCredits) {
-            throw new RuntimeException("Không đủ credit. Cần tối thiểu {$requiredCredits} credit cho ".count($targetUrls).' URL (ước tính theo model hiện tại).');
+            throw new RuntimeException("Không đủ credit. Cần tối thiểu {$requiredCredits} credit để khởi chạy batch audit ".count($targetUrls).' URL (ước tính theo model hiện tại).');
         }
 
         $activeRun = AuditRun::query()
-            ->where('user_uid', $userUid)
             ->whereIn('status', ['queued', 'processing'])
             ->first();
 
         if ($activeRun) {
-            throw new RuntimeException('Bạn đang có một audit run đang chạy. Mỗi tài khoản chỉ chạy một dự án audit tại một thời điểm.');
+            throw new RuntimeException('Hệ thống đang có một audit run đang chạy. Mỗi lần chỉ chạy một dự án audit để tránh quá tải quota AI.');
         }
 
         /** @var AuditRun $run */
@@ -115,14 +113,19 @@ class AuditRunService
             return $run->fresh('items');
         });
 
-        $this->syncRunIfEnabled($run);
-        foreach ($run->items as $item) {
-            $this->syncItemIfEnabled($item);
-        }
-
         ProcessAuditRunJob::dispatch($run->id);
 
         return $run;
+    }
+
+    public function minimumCreditsPerUrl(string $provider, ?string $model): int
+    {
+        return $this->minimumCreditsPerRun($provider, $model);
+    }
+
+    public function minimumCreditsPerRun(string $provider, ?string $model): int
+    {
+        return $this->tokenBillingService->estimateMinimumCreditsForBatchRun($provider, $model);
     }
 
     public function prepareCategoryContexts(AuditRun $run): void
@@ -162,6 +165,123 @@ class AuditRunService
         ])->save();
 
         $this->syncRunIfEnabled($run->fresh());
+    }
+
+    public function processBatchUrlOnly(AuditRun $run): void
+    {
+        $run = $run->fresh('items');
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()->orderBy('position')->get();
+
+        if ($items->isEmpty()) {
+            $this->markRunFailed($run, 'Audit run does not have any URL items.');
+
+            return;
+        }
+
+        $run->items()
+            ->where('status', 'queued')
+            ->update([
+                'status' => 'analyzing',
+                'extraction_source' => 'url_only_batch',
+                'updated_at' => now(),
+            ]);
+
+        $freshRun = $run->fresh('items');
+
+        foreach ($freshRun?->items ?? [] as $item) {
+            $this->syncItemIfEnabled($item);
+        }
+
+        try {
+            $analysis = $this->seoAiAuditService->analyzeBatchUrlOnly(
+                targetUrls: $items->pluck('target_url')->values()->all(),
+                categories: $run->categories ?? [],
+                checklistText: $run->checklist_text,
+                provider: $run->ai_provider ?? 'openai',
+                model: $run->ai_model,
+                auditRunId: $run->id,
+            );
+        } catch (RuntimeException $exception) {
+            if ($exception->getMessage() === 'Audit run stopped.') {
+                return;
+            }
+
+            $this->markRunFailed($run, $exception->getMessage());
+
+            return;
+        }
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $firstItem = $items->first();
+
+        if ($firstItem) {
+            foreach ($analysis['usageEvents'] ?? [] as $usage) {
+                if (! is_array($usage)) {
+                    continue;
+                }
+
+                try {
+                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_ai_call'), $usage);
+                } catch (RuntimeException $exception) {
+                    $this->markRunFailed($run, $exception->getMessage());
+
+                    return;
+                }
+            }
+        }
+
+        $resultList = collect($analysis['items'] ?? [])
+            ->filter(fn (mixed $item): bool => is_array($item))
+            ->values();
+        $resultsByUrl = $resultList
+            ->filter(fn (mixed $item): bool => is_array($item) && isset($item['targetUrl']))
+            ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
+
+        foreach ($items->values() as $index => $item) {
+            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+
+            if (! is_array($result)) {
+                $item->forceFill([
+                    'status' => 'failed',
+                    'error_message' => 'Batch AI response did not include this URL.',
+                    'completed_at' => now(),
+                ])->save();
+                $this->syncItemIfEnabled($item->fresh('run'));
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+                continue;
+            }
+
+            $item->forceFill([
+                'status' => 'completed',
+                'extraction_source' => 'url_only_batch',
+                'page_title' => $result['pageTitle'] ?? null,
+                'primary_keyword' => $result['primaryKeyword'] ?? null,
+                'category_name' => $result['categoryName'] ?? null,
+                'category_url' => $result['categoryUrl'] ?? null,
+                'category_match_reason' => $result['categoryMatchReason'] ?? null,
+                'audit_score' => max(0, min(100, (int) ($result['auditScore'] ?? 0))),
+                'audit_findings' => implode("\n", array_filter($result['auditFindings'] ?? [], 'is_string')),
+                'audit_recommendations' => implode("\n", array_filter($result['auditRecommendations'] ?? [], 'is_string')),
+                'content_revision_direction' => is_string($result['contentRevisionDirection'] ?? null) ? $result['contentRevisionDirection'] : null,
+                'prompt_snapshots' => $analysis['promptSnapshots'] ?? [],
+                'error_message' => null,
+                'completed_at' => now(),
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
+
+        $this->refreshRunProgress($run);
     }
 
     public function markRunProcessing(AuditRun $run): void
@@ -231,10 +351,6 @@ class AuditRunService
 
         $run = $run->fresh('items');
         $this->syncRunIfEnabled($run);
-
-        foreach ($run->items as $item) {
-            $this->syncItemIfEnabled($item);
-        }
     }
 
     public function processItem(AuditRunItem $item): void

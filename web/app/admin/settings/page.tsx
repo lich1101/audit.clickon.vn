@@ -55,14 +55,14 @@ export default function AdminAuditSettingsPage() {
   }
 
   if (loading) {
-    return <LoadingState title="Đang tải cấu hình audit..." description="Lấy provider, model và giới hạn song song từ hệ thống." />;
+    return <LoadingState title="Đang tải cấu hình audit..." description="Lấy provider, model và cấu hình batch từ hệ thống." />;
   }
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit Settings"
-        description="Chỉ admin được cấu hình model AI và số dòng URL chạy song song. Người dùng không thể thay đổi các giá trị này."
+        description="Chỉ admin được cấu hình provider/model AI và thông số vận hành batch audit. Người dùng không thể thay đổi các giá trị này."
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Audit Settings" }
@@ -111,12 +111,14 @@ export default function AdminAuditSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Song song xử lý URL</CardTitle>
-          <CardDescription>Số dòng URL tối đa được xử lý đồng thời trong một audit run. Giới hạn cứng: 10.</CardDescription>
+          <CardTitle>Thông số batch legacy</CardTitle>
+          <CardDescription>
+            Batch URL-only hiện chạy một job cho toàn bộ URL đã chọn. Giá trị này chỉ giữ tương thích cho flow xử lý từng dòng cũ.
+          </CardDescription>
         </CardHeader>
         <CardContent className="max-w-sm">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="max-parallel">Số dòng chạy song song</Label>
+            <Label htmlFor="max-parallel">Giới hạn song song legacy</Label>
             <Input
               id="max-parallel"
               type="number"
@@ -130,7 +132,7 @@ export default function AdminAuditSettingsPage() {
                 }))
               }
             />
-            <p className="text-xs text-muted-foreground">Khuyến nghị 2–5 tùy tài nguyên server và quota AI.</p>
+            <p className="text-xs text-muted-foreground">Flow batch mới không nhân request AI theo số URL; mỗi run chỉ gọi AI theo từng bước batch.</p>
           </div>
         </CardContent>
       </Card>
@@ -139,7 +141,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Bảng giá credit theo model (token)</CardTitle>
           <CardDescription>
-            Mỗi URL audit gọi 2 lần AI. Credit trừ theo token thực tế: (input/1000 × giá input) + (output/1000 × giá output), tối thiểu mỗi lần gọi.
+            Mỗi batch audit gọi 2 lần AI: bước 2 cho toàn bộ URL và bước 3 cho toàn bộ URL. Credit trừ theo token thực tế, tối thiểu mỗi lần gọi.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">

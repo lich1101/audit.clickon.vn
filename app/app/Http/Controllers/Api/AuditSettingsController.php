@@ -19,11 +19,15 @@ class AuditSettingsController extends Controller
     public function showPublic(Request $request)
     {
         $settings = $this->auditSettingsService->getAuditSettings();
+        $minimumCreditsPerRun = $this->tokenBillingService->estimateMinimumCreditsForBatchRun($settings['aiProvider'], $settings['aiModel']);
 
         return response()->json([
             'data' => [
                 'aiProvider' => $settings['aiProvider'],
                 'aiModel' => $settings['aiModel'],
+                'maxParallelItems' => $settings['maxParallelItems'],
+                'minCreditsPerRun' => $minimumCreditsPerRun,
+                'minCreditsPerUrl' => $minimumCreditsPerRun,
             ],
         ]);
     }

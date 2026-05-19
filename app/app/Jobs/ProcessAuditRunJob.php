@@ -29,13 +29,7 @@ class ProcessAuditRunJob implements ShouldQueue
         }
 
         $auditRunService->markRunProcessing($run);
-        $auditRunService->prepareCategoryContexts($run);
-
-        if ($auditRunService->isRunCancelled($run->fresh())) {
-            return;
-        }
-
-        $auditRunService->dispatchNextItems($run->fresh('items'));
+        $auditRunService->processBatchUrlOnly($run->fresh('items'));
     }
 
     public function failed(\Throwable $exception): void
@@ -43,7 +37,11 @@ class ProcessAuditRunJob implements ShouldQueue
         $run = AuditRun::query()->find($this->runId);
 
         if ($run) {
-            app(AuditRunService::class)->markRunFailed($run, $exception->getMessage());
+            $auditRunService = app(AuditRunService::class);
+
+            if (! $auditRunService->isRunCancelled($run)) {
+                $auditRunService->markRunFailed($run, $exception->getMessage());
+            }
         }
     }
 }

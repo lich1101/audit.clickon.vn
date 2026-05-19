@@ -77,7 +77,7 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
               <ShieldCheck className="size-4 text-primary" />
               Bảng điều khiển quản trị
             </div>
-            <p className="mt-2 text-xs leading-5">Cấu hình AI, song song xử lý và vận hành hệ thống.</p>
+            <p className="mt-2 text-xs leading-5">Cấu hình AI, prompt batch và vận hành hệ thống.</p>
           </div>
         </div>
       )}

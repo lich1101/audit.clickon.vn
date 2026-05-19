@@ -52,7 +52,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
       : null,
     run: response.data.run ? normalizeAuditRun(response.data.run) : null,
     urlResults: Array.isArray(response.data.urlResults) ? response.data.urlResults : [],
-    systemAi: response.data.systemAi ?? { aiProvider: "openai", aiModel: null }
+    systemAi: response.data.systemAi ?? { aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 }
   };
 }
 

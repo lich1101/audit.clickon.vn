@@ -11,6 +11,7 @@ use App\Services\AuditSettingsService;
 use App\Services\WebsiteAuditUrlResultService;
 use App\Services\WebsiteDataService;
 use Illuminate\Http\Request;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -95,6 +96,7 @@ class AuditRunController extends Controller
             ->all();
 
         $systemSettings = $this->auditSettingsService->getAuditSettings();
+        $minimumCreditsPerRun = $this->auditRunService->minimumCreditsPerRun($systemSettings['aiProvider'], $systemSettings['aiModel']);
 
         return response()->json([
             'data' => [
@@ -109,6 +111,9 @@ class AuditRunController extends Controller
                 'systemAi' => [
                     'aiProvider' => $systemSettings['aiProvider'],
                     'aiModel' => $systemSettings['aiModel'],
+                    'maxParallelItems' => $systemSettings['maxParallelItems'],
+                    'minCreditsPerRun' => $minimumCreditsPerRun,
+                    'minCreditsPerUrl' => $minimumCreditsPerRun,
                 ],
             ],
         ]);
@@ -132,11 +137,20 @@ class AuditRunController extends Controller
 
     public function store(StoreAuditRunRequest $request)
     {
-        $run = $this->auditRunService->createRun(
-            userUid: (string) $request->attributes->get('firebase_uid'),
-            userEmail: (string) $request->attributes->get('firebase_email'),
-            payload: $request->validated(),
-        );
+        try {
+            $run = $this->auditRunService->createRun(
+                userUid: (string) $request->attributes->get('firebase_uid'),
+                userEmail: (string) $request->attributes->get('firebase_email'),
+                payload: $request->validated(),
+            );
+        } catch (RuntimeException $exception) {
+            $message = $exception->getMessage();
+            $status = str_contains($message, 'đang chạy') ? 409 : 422;
+
+            return response()->json([
+                'message' => $message,
+            ], $status);
+        }
 
         return response()->json([
             'message' => 'Audit run queued successfully.',

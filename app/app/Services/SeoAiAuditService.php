@@ -70,6 +70,59 @@ TEXT;
     }
 
     /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshots: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    public function analyzeBatchUrlOnly(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText = null,
+        string $provider = 'openai',
+        ?string $model = null,
+        ?int $auditRunId = null,
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $keywordAndCategory = $this->analyzeBatchKeywordAndCategory($provider, $resolvedModel, $targetUrls, $categories, $auditRunId);
+
+        $this->assertAuditRunActive($auditRunId);
+
+        $audit = $this->analyzeBatchOnpage($provider, $resolvedModel, $targetUrls, $categories, $checklistText, $keywordAndCategory['items'], $auditRunId);
+
+        $itemsByUrl = collect($keywordAndCategory['items'])
+            ->keyBy(fn (array $item): string => (string) ($item['targetUrl'] ?? ''));
+
+        $items = array_map(function (array $auditItem) use ($itemsByUrl): array {
+            $targetUrl = (string) ($auditItem['targetUrl'] ?? '');
+            $keywordItem = $itemsByUrl->get($targetUrl, []);
+
+            return [
+                'targetUrl' => $targetUrl,
+                'primaryKeyword' => $this->stringOrNull($auditItem['primaryKeyword'] ?? $keywordItem['primaryKeyword'] ?? null),
+                'categoryName' => $this->stringOrNull($auditItem['categoryName'] ?? $keywordItem['categoryName'] ?? null),
+                'categoryUrl' => $this->stringOrNull($auditItem['categoryUrl'] ?? $keywordItem['categoryUrl'] ?? null),
+                'categoryMatchReason' => $this->stringOrNull($auditItem['categoryMatchReason'] ?? $keywordItem['categoryMatchReason'] ?? null),
+                'auditScore' => max(0, min(100, (int) ($auditItem['auditScore'] ?? 0))),
+                'auditFindings' => $this->normalizeStringList($auditItem['auditFindings'] ?? []),
+                'auditRecommendations' => $this->normalizeStringList($auditItem['auditRecommendations'] ?? []),
+                'contentRevisionDirection' => $this->stringOrNull($auditItem['contentRevisionDirection'] ?? null),
+            ];
+        }, $audit['items']);
+
+        return [
+            'items' => $items,
+            'promptSnapshots' => [
+                'keywordCategory' => $keywordAndCategory['promptSnapshot'],
+                'onpageAudit' => $audit['promptSnapshot'],
+            ],
+            'usageEvents' => [
+                $keywordAndCategory['usage'],
+                $audit['usage'],
+            ],
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $page
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
@@ -108,6 +161,76 @@ TEXT;
             'categoryMatchReason' => $this->stringOrNull($data['categoryMatchReason'] ?? null),
             'promptSnapshot' => $this->promptSnapshot('keyword_category_mapping', $provider, $model, $prompts),
             'usage' => array_merge($response['usage'], ['step' => 'keyword_category_mapping']),
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
+     */
+    private function analyzeBatchKeywordAndCategory(string $provider, ?string $model, array $targetUrls, array $categories, ?int $auditRunId = null): array
+    {
+        $categoryPayload = array_map(
+            fn (array $category): array => [
+                'name' => $category['name'] ?? null,
+                'url' => $category['url'] ?? null,
+            ],
+            $categories
+        );
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_KEYWORD_CATEGORY_MAPPING, [
+            'url' => '',
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'categories_json' => $categoryPayload,
+            'category_contexts_json' => $categoryPayload,
+            'page_json' => ['mode' => 'url_only_batch', 'targetUrls' => $targetUrls],
+            'article_content' => '',
+        ]);
+
+        $batchContract = implode("\n", [
+            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
+            'Mode: URL-only batch. Process all selected URLs in one response.',
+            'Do not claim that page HTML/content/title/meta/headings were crawled.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}',
+        ]);
+        $prompts['system'] .= "\n\n".$batchContract;
+        $prompts['developer'] = $prompts['system'];
+        $prompts['user'] .= "\n\n".implode("\n", [
+            $batchContract,
+            'Target URLs JSON:',
+            json_encode($targetUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Allowed categories JSON:',
+            json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        ]);
+
+        $response = $this->requestJson(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $this->batchKeywordCategorySchema(),
+            auditRunId: $auditRunId,
+        );
+
+        $data = $response['data'];
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+
+        return [
+            'items' => array_values(array_filter(array_map(
+                fn (mixed $item): ?array => is_array($item) ? [
+                    'targetUrl' => $this->stringOrNull($item['targetUrl'] ?? null),
+                    'primaryKeyword' => $this->stringOrNull($item['primaryKeyword'] ?? null),
+                    'categoryName' => $this->stringOrNull($item['categoryName'] ?? null),
+                    'categoryUrl' => $this->stringOrNull($item['categoryUrl'] ?? null),
+                    'categoryMatchReason' => $this->stringOrNull($item['categoryMatchReason'] ?? null),
+                ] : null,
+                $items
+            ))),
+            'promptSnapshot' => $this->promptSnapshot('keyword_category_mapping', $provider, $model, $prompts),
+            'usage' => array_merge($response['usage'], ['step' => 'batch_keyword_category_mapping']),
         ];
     }
 
@@ -158,6 +281,95 @@ TEXT;
             'contentRevisionDirection' => $this->stringOrNull($data['contentRevisionDirection'] ?? null),
             'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
             'usage' => array_merge($response['usage'], ['step' => 'onpage_audit']),
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $keywordCategoryItems
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
+     */
+    private function analyzeBatchOnpage(
+        string $provider,
+        ?string $model,
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        array $keywordCategoryItems,
+        ?int $auditRunId = null,
+    ): array {
+        $categoryPayload = array_map(
+            fn (array $category): array => [
+                'name' => $category['name'] ?? null,
+                'url' => $category['url'] ?? null,
+            ],
+            $categories
+        );
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_ONPAGE_AUDIT, [
+            'url' => '',
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'categories_json' => $categoryPayload,
+            'keyword_category_results_json' => $keywordCategoryItems,
+            'primary_keyword' => '',
+            'category_json' => [],
+            'category_contexts_json' => [],
+            'page_json' => ['mode' => 'url_only_batch', 'targetUrls' => $targetUrls],
+            'article_content' => '',
+            'checklist' => trim($checklistText ?: self::defaultChecklist()),
+        ]);
+
+        $batchContract = implode("\n", [
+            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
+            'Mode: URL-only batch. Process all selected URLs in one response.',
+            'Backend did not crawl content, title, meta, headings, images or internal links.',
+            'For unverified checklist criteria, state "không kiểm chứng được" instead of inventing evidence.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+        ]);
+        $prompts['system'] .= "\n\n".$batchContract;
+        $prompts['developer'] = $prompts['system'];
+        $prompts['user'] .= "\n\n".implode("\n", [
+            $batchContract,
+            'Target URLs JSON:',
+            json_encode($targetUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Allowed categories JSON:',
+            json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Keyword/category results JSON:',
+            json_encode($keywordCategoryItems, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        ]);
+
+        $response = $this->requestJson(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $this->batchOnpageSchema(),
+            auditRunId: $auditRunId,
+        );
+
+        $data = $response['data'];
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+
+        return [
+            'items' => array_values(array_filter(array_map(
+                fn (mixed $item): ?array => is_array($item) ? [
+                    'targetUrl' => $this->stringOrNull($item['targetUrl'] ?? null),
+                    'primaryKeyword' => $this->stringOrNull($item['primaryKeyword'] ?? null),
+                    'categoryName' => $this->stringOrNull($item['categoryName'] ?? null),
+                    'categoryUrl' => $this->stringOrNull($item['categoryUrl'] ?? null),
+                    'categoryMatchReason' => $this->stringOrNull($item['categoryMatchReason'] ?? null),
+                    'auditScore' => max(0, min(100, (int) ($item['auditScore'] ?? 0))),
+                    'auditFindings' => $this->normalizeStringList($item['auditFindings'] ?? []),
+                    'auditRecommendations' => $this->normalizeStringList($item['auditRecommendations'] ?? []),
+                    'contentRevisionDirection' => $this->stringOrNull($item['contentRevisionDirection'] ?? null),
+                ] : null,
+                $items
+            ))),
+            'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
+            'usage' => array_merge($response['usage'], ['step' => 'batch_onpage_audit']),
         ];
     }
 
@@ -497,7 +709,7 @@ TEXT;
             $message = trim(preg_replace('/\s+/', ' ', (string) $message) ?? (string) $message);
 
             if ($exception->response->status() === 429) {
-                throw new RuntimeException("{$provider} rate limit (429): {$message}. Hãy giảm số URL chạy đồng thời trong Admin > Audit Settings, đổi model nhẹ hơn hoặc chờ quota reset.");
+                throw new RuntimeException("{$provider} rate limit (429): {$message}. Hãy giảm số URL trong một batch, đổi model nhẹ hơn hoặc chờ quota reset.");
             }
 
             throw new RuntimeException("{$provider} API lỗi HTTP {$exception->response->status()}: {$message}");
@@ -651,6 +863,33 @@ TEXT;
     /**
      * @return array<string, mixed>
      */
+    private function batchKeywordCategorySchema(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'items' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'targetUrl' => ['type' => 'string'],
+                            'primaryKeyword' => ['type' => 'string'],
+                            'categoryName' => ['type' => 'string'],
+                            'categoryUrl' => ['type' => 'string'],
+                            'categoryMatchReason' => ['type' => 'string'],
+                        ],
+                        'required' => ['targetUrl', 'primaryKeyword', 'categoryName', 'categoryUrl', 'categoryMatchReason'],
+                    ],
+                ],
+            ],
+            'required' => ['items'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function onpageSchema(): array
     {
         return [
@@ -668,6 +907,43 @@ TEXT;
                 'contentRevisionDirection' => ['type' => 'string'],
             ],
             'required' => ['auditScore', 'auditFindings', 'auditRecommendations', 'contentRevisionDirection'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function batchOnpageSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'items' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'targetUrl' => ['type' => 'string'],
+                            'primaryKeyword' => ['type' => 'string'],
+                            'categoryName' => ['type' => 'string'],
+                            'categoryUrl' => ['type' => 'string'],
+                            'categoryMatchReason' => ['type' => 'string'],
+                            'auditScore' => ['type' => 'integer'],
+                            'auditFindings' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string'],
+                            ],
+                            'auditRecommendations' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string'],
+                            ],
+                            'contentRevisionDirection' => ['type' => 'string'],
+                        ],
+                        'required' => ['targetUrl', 'auditScore', 'auditFindings', 'auditRecommendations', 'contentRevisionDirection'],
+                    ],
+                ],
+            ],
+            'required' => ['items'],
         ];
     }
 }

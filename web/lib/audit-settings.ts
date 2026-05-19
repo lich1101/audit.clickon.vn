@@ -22,6 +22,9 @@ export type AuditSystemSettings = {
 export type PublicAuditSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
+  maxParallelItems?: number;
+  minCreditsPerRun?: number;
+  minCreditsPerUrl?: number;
 };
 
 export async function fetchPublicAuditSettings() {

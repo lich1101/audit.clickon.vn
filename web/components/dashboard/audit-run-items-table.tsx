@@ -102,7 +102,7 @@ export function AuditRunItemsTable({
                       <p className="font-medium break-all">{item.targetUrl}</p>
                       {item.pageTitle ? <p className="text-xs text-muted-foreground">{item.pageTitle}</p> : null}
                       {item.extractionSource ? (
-                        <p className="text-xs text-muted-foreground">Nguồn crawl: {item.extractionSource}</p>
+                        <p className="text-xs text-muted-foreground">Nguồn dữ liệu: {item.extractionSource}</p>
                       ) : null}
                     </div>
                   </TableCell>

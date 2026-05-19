@@ -16,52 +16,46 @@ import { laravelRequest } from "@/lib/laravel";
 import type { AuditPromptTemplate } from "@/types";
 
 const variables = [
-  { token: "{{url}}", description: "URL mục tiêu của dòng đang chạy." },
-  { token: "{{page_json}}", description: "JSON đã crawl của bài viết: title, meta, headings, metrics, content excerpt." },
-  { token: "{{article_content}}", description: "Text nội dung bài viết đã extract bằng Jina/HTML." },
-  { token: "{{category_contexts_json}}", description: "Danh sách danh mục kèm nội dung danh mục đã crawl." },
-  { token: "{{categories_json}}", description: "Danh sách tên danh mục và URL danh mục." },
-  { token: "{{primary_keyword}}", description: "Từ khóa SEO chính đã tạo ở bước 2." },
-  { token: "{{category_json}}", description: "Danh mục đã gán cho URL ở bước 2." },
+  { token: "{{target_urls_json}}", description: "Toàn bộ URL đã chọn trong run, dạng JSON array." },
+  { token: "{{target_urls_text}}", description: "Toàn bộ URL đã chọn, mỗi URL một dòng." },
+  { token: "{{categories_json}}", description: "Danh sách tên danh mục và URL danh mục được phép chọn." },
+  { token: "{{keyword_category_results_json}}", description: "Kết quả batch bước 2: URL, keyword chính, danh mục, URL danh mục." },
   { token: "{{checklist}}", description: "Checklist AuditSEO người dùng nhập hoặc mặc định backend." }
 ];
 
 const sampleVariables: Record<string, unknown> = {
-  url: "https://hoctienganhtaiphilippines.vn/hoc-bong-philinter-philippines/",
-  page_json: {
-    url: "https://hoctienganhtaiphilippines.vn/hoc-bong-philinter-philippines/",
-    title: "Học bổng Philinter Philippines",
-    metaDescription: "Thông tin học bổng và ưu đãi khi học tiếng Anh tại Philinter Cebu.",
-    headings: { h1: ["Học bổng Philinter Philippines"], h2: ["Điều kiện nhận học bổng", "Khóa học phù hợp"] },
-    metrics: { wordCount: 1260, imageCount: 8, h1Count: 1 },
-    source: "jina",
-    contentExcerpt: "Nội dung bài viết đã crawl..."
-  },
-  article_content: "Nội dung bài viết đã crawl từ URL mục tiêu, bao gồm tiêu đề, đoạn mô tả và phần thân bài...",
-  category_contexts_json: [
-    {
-      name: "Trường Anh ngữ Philinter",
-      url: "https://hoctienganhtaiphilippines.vn/truong-philinter/",
-      title: "Trường Anh ngữ Philinter Cebu",
-      contentExcerpt: "Nội dung danh mục Philinter đã crawl..."
-    },
-    {
-      name: "Học bổng du học Philippines 2026",
-      url: "https://hoctienganhtaiphilippines.vn/hoc-bong-du-hoc-philippines/",
-      title: "Học bổng du học Philippines 2026",
-      contentExcerpt: "Danh sách ưu đãi và học bổng du học Philippines..."
-    }
+  target_urls_json: [
+    "https://hoctienganhtaiphilippines.vn/uu-dai-du-hoc-philippines-tai-ims/",
+    "https://hoctienganhtaiphilippines.vn/khoa-hoc-tieng-anh-thuong-mai-tai-philippines/",
+    "https://hoctienganhtaiphilippines.vn/hoc-bong-philinter-philippines/"
   ],
+  target_urls_text: [
+    "https://hoctienganhtaiphilippines.vn/uu-dai-du-hoc-philippines-tai-ims/",
+    "https://hoctienganhtaiphilippines.vn/khoa-hoc-tieng-anh-thuong-mai-tai-philippines/",
+    "https://hoctienganhtaiphilippines.vn/hoc-bong-philinter-philippines/"
+  ].join("\n"),
   categories_json: [
+    { name: "Trường Anh ngữ IMS", url: "https://hoctienganhtaiphilippines.vn/truong-anh-ngu-ims/" },
+    { name: "Khóa ESL – Tiếng Anh giao tiếp", url: "https://hoctienganhtaiphilippines.vn/khoa-hoc-esl-tieng-anh-can-ban-tai-philippines-5179/" },
     { name: "Trường Anh ngữ Philinter", url: "https://hoctienganhtaiphilippines.vn/truong-philinter/" },
     { name: "Học bổng du học Philippines 2026", url: "https://hoctienganhtaiphilippines.vn/hoc-bong-du-hoc-philippines/" }
   ],
-  primary_keyword: "học bổng Philinter Philippines",
-  category_json: {
-    categoryName: "Trường Anh ngữ Philinter",
-    categoryUrl: "https://hoctienganhtaiphilippines.vn/truong-philinter/",
-    categoryMatchReason: "URL nói trực tiếp về học bổng của Philinter, phù hợp nhất với silo trường Philinter."
-  },
+  keyword_category_results_json: [
+    {
+      targetUrl: "https://hoctienganhtaiphilippines.vn/uu-dai-du-hoc-philippines-tai-ims/",
+      primaryKeyword: "ưu đãi du học Philippines tại IMS",
+      categoryName: "Trường Anh ngữ IMS",
+      categoryUrl: "https://hoctienganhtaiphilippines.vn/truong-anh-ngu-ims/",
+      categoryMatchReason: "Slug nói trực tiếp về ưu đãi tại IMS, phù hợp nhất với silo trường IMS."
+    },
+    {
+      targetUrl: "https://hoctienganhtaiphilippines.vn/hoc-bong-philinter-philippines/",
+      primaryKeyword: "học bổng Philinter Philippines",
+      categoryName: "Trường Anh ngữ Philinter",
+      categoryUrl: "https://hoctienganhtaiphilippines.vn/truong-philinter/",
+      categoryMatchReason: "Slug nói trực tiếp về học bổng Philinter."
+    }
+  ],
   checklist: "Điểm kỹ thuật SEO: 18/24 | Điểm nội dung: 4/6 | Hướng: Audit Content — xem checklist chuẩn Clickon (25 tiêu chí, tổng 30đ) trong deploy/checklist hoặc resources/audit/seo-checklist.txt"
 };
 
@@ -95,10 +89,10 @@ export default function AdminAuditPromptsPage() {
   const stepHints = useMemo(
     () =>
       new Map([
-        ["primary_keyword", "Chạy đầu tiên cho từng URL để chọn đúng một từ khóa SEO chính."],
-        ["category_mapping", "Chạy sau khi đã có từ khóa chính để gán đúng một danh mục phù hợp nhất."],
-        ["keyword_category_mapping", "Bước 2 chạy cho từng URL: đọc bài viết + danh mục đã crawl để trả keyword chính và danh mục phù hợp."],
-        ["onpage_audit", "Chạy cuối cùng để chấm điểm, tạo findings, recommendations và định hướng sửa nội dung."]
+        ["primary_keyword", "Legacy: không dùng trong batch flow hiện tại."],
+        ["category_mapping", "Legacy: không dùng trong batch flow hiện tại."],
+        ["keyword_category_mapping", "Bước 2 chạy một lần cho toàn bộ URL đã chọn: dùng URL + danh mục để trả keyword chính và danh mục cho từng dòng."],
+        ["onpage_audit", "Bước 3 chạy một lần cho toàn bộ URL đã chọn: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng."]
       ]),
     []
   );
@@ -164,7 +158,7 @@ export default function AdminAuditPromptsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit prompts"
-        description="Cấu hình prompt admin cho từng bước AI khi xử lý từng dòng URL trong một audit run."
+        description="Cấu hình prompt admin cho batch AI: bước 2 gom tất cả URL đã chọn, bước 3 audit tất cả URL đã chọn."
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Audit Prompts" }]}
       />
 

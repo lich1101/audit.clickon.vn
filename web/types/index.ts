@@ -122,7 +122,7 @@ export type AuditRunItem = {
   position: number;
   targetUrl: string;
   status: AuditRunItemStatus;
-  extractionSource?: "jina" | "html" | "url_only" | string | null;
+  extractionSource?: "jina" | "html" | "url_only" | "url_only_batch" | string | null;
   pageTitle?: string | null;
   metaDescription?: string | null;
   canonicalUrl?: string | null;

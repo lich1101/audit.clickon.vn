@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAuditRunRequest;
 use App\Models\AuditRun;
+use App\Models\WebsiteAuditUrlResult;
 use App\Services\AuditRunService;
-use App\Services\FirestoreService;
+use App\Services\AuditSettingsService;
+use App\Services\WebsiteAuditUrlResultService;
+use App\Services\WebsiteDataService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -15,13 +18,15 @@ class AuditRunController extends Controller
 {
     public function __construct(
         private readonly AuditRunService $auditRunService,
-        private readonly FirestoreService $firestoreService,
+        private readonly WebsiteDataService $websiteDataService,
+        private readonly WebsiteAuditUrlResultService $urlResultService,
+        private readonly AuditSettingsService $auditSettingsService,
     ) {
     }
 
     public function indexByWebsite(Request $request, string $websiteId)
     {
-        $website = $this->firestoreService->getWebsite($websiteId);
+        $website = $this->websiteDataService->getWebsite($websiteId);
 
         if (! $website) {
             throw new NotFoundHttpException('Website not found.');
@@ -45,7 +50,7 @@ class AuditRunController extends Controller
 
     public function board(Request $request, string $websiteId)
     {
-        $website = $this->firestoreService->getWebsite($websiteId);
+        $website = $this->websiteDataService->getWebsite($websiteId);
 
         if (! $website) {
             throw new NotFoundHttpException('Website not found.');
@@ -53,10 +58,17 @@ class AuditRunController extends Controller
 
         $this->authorizeWebsiteAccess($request, $website);
 
-        $audit = $this->firestoreService->getWebsiteAuditByWebsiteId($websiteId);
+        $audit = $this->websiteDataService->getAuditByWebsiteId($websiteId);
 
         /** @var AuditRun|null $latestRun */
-        $latestRun = AuditRun::query()
+        $activeRun = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('status', ['queued', 'processing'])
+            ->orderByDesc('created_at')
+            ->with(['items' => fn ($query) => $query->orderBy('position')])
+            ->first();
+
+        $latestRun = $activeRun ?? AuditRun::query()
             ->where('website_id', $websiteId)
             ->orderByDesc('created_at')
             ->with(['items' => fn ($query) => $query->orderBy('position')])
@@ -74,6 +86,16 @@ class AuditRunController extends Controller
             ];
         }
 
+        $urlResults = WebsiteAuditUrlResult::query()
+            ->where('website_id', $websiteId)
+            ->orderBy('target_url')
+            ->get()
+            ->map(fn (WebsiteAuditUrlResult $result): array => $this->urlResultService->serialize($result))
+            ->values()
+            ->all();
+
+        $systemSettings = $this->auditSettingsService->getAuditSettings();
+
         return response()->json([
             'data' => [
                 'website' => [
@@ -83,6 +105,11 @@ class AuditRunController extends Controller
                 ],
                 'audit' => $audit ? $this->serializeAuditDocument($audit) : null,
                 'run' => $runPayload,
+                'urlResults' => $urlResults,
+                'systemAi' => [
+                    'aiProvider' => $systemSettings['aiProvider'],
+                    'aiModel' => $systemSettings['aiModel'],
+                ],
             ],
         ]);
     }
@@ -99,12 +126,6 @@ class AuditRunController extends Controller
             'articleUrls' => is_array($audit['articleUrls'] ?? null) ? array_values($audit['articleUrls']) : [],
             'categories' => is_array($audit['categories'] ?? null) ? array_values($audit['categories']) : [],
             'checklistText' => isset($audit['checklistText']) ? (string) $audit['checklistText'] : null,
-            'aiProvider' => in_array($audit['aiProvider'] ?? null, ['openai', 'gemini', 'gemini_deep_research'], true)
-                ? $audit['aiProvider']
-                : 'openai',
-            'aiModel' => isset($audit['aiModel']) && $audit['aiModel'] !== ''
-                ? (string) $audit['aiModel']
-                : null,
             'updatedAt' => is_string($audit['updatedAt'] ?? null) ? $audit['updatedAt'] : now()->toIso8601String(),
         ];
     }

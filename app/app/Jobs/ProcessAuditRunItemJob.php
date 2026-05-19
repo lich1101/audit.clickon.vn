@@ -36,7 +36,7 @@ class ProcessAuditRunItemJob implements ShouldQueue
         $item = AuditRunItem::query()->with('run')->find($this->itemId);
 
         if ($item) {
-            app(AuditRunService::class)->markItemFailed($item, $exception->getMessage());
+            app(AuditRunService::class)->markItemFailed($item, $exception->getMessage(), stopEntireRun: false);
         }
     }
 }

@@ -16,5 +16,8 @@ const DropdownMenuContent = ({ className, sideOffset = 8, ...props }: DropdownMe
 const DropdownMenuItem = ({ className, ...props }: DropdownMenuPrimitive.DropdownMenuItemProps) => (
   <DropdownMenuPrimitive.Item className={cn("flex cursor-pointer items-center rounded-xl px-3 py-2 text-sm outline-none transition hover:bg-secondary focus:bg-secondary", className)} {...props} />
 );
+const DropdownMenuSeparator = ({ className, ...props }: DropdownMenuPrimitive.DropdownMenuSeparatorProps) => (
+  <DropdownMenuPrimitive.Separator className={cn("-mx-2 my-2 h-px bg-border", className)} {...props} />
+);
 
-export { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger };
+export { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger };

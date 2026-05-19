@@ -23,8 +23,6 @@ class StoreAuditRunRequest extends FormRequest
             'categories.*.name' => ['required_with:categories', 'string', 'max:255'],
             'categories.*.url' => ['required_with:categories', 'url', 'max:2048'],
             'checklistText' => ['nullable', 'string', 'max:50000'],
-            'aiProvider' => ['nullable', 'string', 'in:openai,gemini,gemini_deep_research'],
-            'aiModel' => ['nullable', 'string', 'max:160'],
         ];
     }
 }

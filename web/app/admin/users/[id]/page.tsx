@@ -10,7 +10,7 @@ import { LoadingState } from "@/components/dashboard/loading-state";
 import { RoleBadge } from "@/components/dashboard/role-badge";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listenToCreditLogs, listenToUser } from "@/lib/firestore";
+import { fetchAdminUser, fetchCreditTransactions } from "@/lib/account";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { AppUser, CreditLog } from "@/types";
 
@@ -21,16 +21,12 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubUser = listenToUser(id, (profile) => {
-      setUser(profile);
-      setLoading(false);
-    });
-    const unsubLogs = listenToCreditLogs(id, setLogs, undefined, 100);
-
-    return () => {
-      unsubUser();
-      unsubLogs();
-    };
+    void Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })])
+      .then(([profile, creditLogs]) => {
+        setUser(profile);
+        setLogs(creditLogs);
+      })
+      .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) {
@@ -38,7 +34,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   }
 
   if (!user) {
-    return <EmptyState title="Không tìm thấy user" description="UID này không tồn tại trong Firestore." action={{ label: "Về users", href: "/admin/users" }} />;
+    return <EmptyState title="Không tìm thấy user" description="UID này không tồn tại trong hệ thống." action={{ label: "Về users", href: "/admin/users" }} />;
   }
 
   return (

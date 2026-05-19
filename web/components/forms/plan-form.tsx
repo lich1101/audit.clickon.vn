@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
-import { createPlan, updatePlan } from "@/lib/firestore";
+import { createPlan, updatePlan } from "@/lib/account";
 import { planSchema, type PlanValues } from "@/lib/validators";
 import type { Plan } from "@/types";
 import { Button } from "@/components/ui/button";

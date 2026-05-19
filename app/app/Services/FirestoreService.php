@@ -321,8 +321,6 @@ class FirestoreService
         array $categories,
         ?string $auditId = null,
         ?string $checklistText = null,
-        string $aiProvider = 'openai',
-        ?string $aiModel = null,
     ): array {
         $documentId = $auditId ?: strtolower(str_replace('-', '', (string) Str::ulid()));
         $existing = $this->mapDocument($this->getRawDocument("websiteAudits/{$documentId}"));
@@ -333,8 +331,6 @@ class FirestoreService
             'articleUrls' => array_values($articleUrls),
             'categories' => array_values($categories),
             'checklistText' => $checklistText,
-            'aiProvider' => $aiProvider,
-            'aiModel' => $aiModel,
             'createdAt' => $existing['createdAt'] ?? $now,
             'updatedAt' => $now,
         ];
@@ -353,8 +349,6 @@ class FirestoreService
             'articleUrls' => $payload['articleUrls'],
             'categories' => $payload['categories'],
             'checklistText' => $payload['checklistText'],
-            'aiProvider' => $payload['aiProvider'],
-            'aiModel' => $payload['aiModel'],
             'createdAt' => is_string($payload['createdAt']) ? $payload['createdAt'] : $now->toIso8601String(),
             'updatedAt' => $now->toIso8601String(),
         ];

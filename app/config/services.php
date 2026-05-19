@@ -57,6 +57,8 @@ return [
         'use_jina' => (bool) env('AUDIT_USE_JINA_READER', true),
         'jina_base_url' => env('AUDIT_JINA_BASE_URL', 'https://r.jina.ai/'),
         'jina_api_key' => env('JINA_API_KEY'),
+        'firestore_sync' => (bool) env('AUDIT_FIRESTORE_SYNC', false),
+        'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', true),
     ],
 
 ];

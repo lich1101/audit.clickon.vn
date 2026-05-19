@@ -89,7 +89,8 @@ export function AuditRunItemsTable({
                 <TableHead>Từ khóa chính</TableHead>
                 <TableHead>Danh mục</TableHead>
                 <TableHead>Điểm audit</TableHead>
-                <TableHead>Đề xuất / lỗi</TableHead>
+                <TableHead>Đề xuất</TableHead>
+                <TableHead>Lỗi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,19 +131,24 @@ export function AuditRunItemsTable({
                   <TableCell>
                     <ScorePill score={item.auditScore} />
                   </TableCell>
-                  <TableCell className="min-w-[320px]">
-                    {item.errorMessage ? (
-                      <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
-                    ) : item.auditRecommendations.length ? (
+                  <TableCell className="min-w-[280px]">
+                    {item.auditRecommendations.length ? (
                       <div className="space-y-2">
                         <p className="text-sm">{item.auditRecommendations[0]}</p>
                         {item.contentRevisionDirection ? (
                           <p className="text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
                         ) : null}
                       </div>
+                    ) : item.status === "completed" || item.status === "failed" ? (
+                      "—"
                     ) : (
                       <span className="text-sm text-muted-foreground">Đang chờ kết quả AI</span>
                     )}
+                  </TableCell>
+                  <TableCell className="min-w-[220px]">
+                    {item.errorMessage ? (
+                      <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}

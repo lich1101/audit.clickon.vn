@@ -5,12 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 export function StatCard({
   title,
   value,
-  hint,
+  hint = "",
   icon: Icon
 }: {
   title: string;
   value: string;
-  hint: string;
+  hint?: string;
   icon: LucideIcon;
 }) {
   return (
@@ -20,7 +20,7 @@ export function StatCard({
           <p className="text-xs font-medium text-muted-foreground">{title}</p>
           <div>
             <p className="text-2xl font-semibold tracking-normal">{value}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{hint}</p>
+            {hint ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{hint}</p> : null}
           </div>
         </div>
         <div className="flex size-11 items-center justify-center rounded-full bg-secondary text-primary">

@@ -35,13 +35,7 @@ class ProcessAuditRunJob implements ShouldQueue
             return;
         }
 
-        foreach ($run->fresh('items')->items as $item) {
-            if ($auditRunService->isRunCancelled($run->fresh())) {
-                break;
-            }
-
-            ProcessAuditRunItemJob::dispatch($item->id);
-        }
+        $auditRunService->dispatchNextItems($run->fresh('items'));
     }
 
     public function failed(\Throwable $exception): void

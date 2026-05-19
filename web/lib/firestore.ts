@@ -81,8 +81,6 @@ export function mapAudit(docId: string, data: DocumentData): WebsiteAudit {
     articleUrls: Array.isArray(data.articleUrls) ? data.articleUrls : [],
     categories: Array.isArray(data.categories) ? data.categories : [],
     checklistText: data.checklistText ?? null,
-    aiProvider: ["openai", "gemini", "gemini_deep_research"].includes(data.aiProvider) ? data.aiProvider : "openai",
-    aiModel: data.aiModel ?? null,
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -351,8 +349,6 @@ export async function saveWebsiteAudit(input: {
   articleUrlsInput: string;
   categoriesInput: string;
   checklistText?: string;
-  aiProvider?: AiProvider;
-  aiModel?: string;
 }) {
   const payload = await laravelRequest<{ data: WebsiteAudit }>("/api/website-audits", {
     method: "POST",
@@ -361,9 +357,7 @@ export async function saveWebsiteAudit(input: {
       websiteId: input.websiteId,
       articleUrlsInput: input.articleUrlsInput,
       categoriesInput: input.categoriesInput,
-      checklistText: input.checklistText ?? "",
-      aiProvider: input.aiProvider ?? "openai",
-      aiModel: input.aiModel?.trim() || undefined
+      checklistText: input.checklistText ?? ""
     })
   });
 

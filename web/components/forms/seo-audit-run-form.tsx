@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { BrainCircuit, FileUp, Save, Sparkles } from "lucide-react";
+import { FileUp, Save, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -9,14 +9,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { AiModelSelect } from "@/components/forms/ai-model-select";
 import { parseCategoryFile, parseChecklistFile } from "@/lib/audit-files";
 import { formatCategoriesInput } from "@/lib/audit-runs";
 import { saveWebsiteAudit } from "@/lib/firestore";
 import { auditRunSchema, parseArticleUrls, parseCategories, type AuditRunValues } from "@/lib/validators";
-import type { AiProvider, AuditCategory, WebsiteAudit } from "@/types";
+import type { AuditCategory, WebsiteAudit } from "@/types";
 import { AuditTargetUrlEditor, urlsToInput } from "@/components/forms/audit-target-url-editor";
 
 function countNonEmptyLines(input: string) {
@@ -25,12 +23,6 @@ function countNonEmptyLines(input: string) {
     .map((line) => line.trim())
     .filter(Boolean).length;
 }
-
-const providerDescriptions = {
-  openai: "OpenAI Responses API, phù hợp output JSON ổn định và tốc độ cân bằng.",
-  gemini: "Gemini generateContent, trả JSON có schema cho từng URL.",
-  gemini_deep_research: "Gemini Deep Research qua Interactions API, chậm hơn và phù hợp khi cần nghiên cứu sâu."
-} as const;
 
 export function SeoAuditRunForm({
   websiteId,
@@ -41,8 +33,6 @@ export function SeoAuditRunForm({
   defaultArticleUrls,
   defaultCategories,
   defaultChecklistText,
-  defaultAiProvider,
-  defaultAiModel,
   showSourceSummary = true,
   onSaved
 }: {
@@ -54,8 +44,6 @@ export function SeoAuditRunForm({
   defaultArticleUrls?: string[];
   defaultCategories?: AuditCategory[];
   defaultChecklistText?: string | null;
-  defaultAiProvider?: AiProvider;
-  defaultAiModel?: string | null;
   showSourceSummary?: boolean;
   onSaved?: (audit: WebsiteAudit) => void;
 }) {
@@ -69,9 +57,7 @@ export function SeoAuditRunForm({
     defaultValues: {
       targetUrlsInput: defaultArticleUrls?.join("\n") ?? "",
       categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-      checklistText: defaultChecklistText ?? "",
-      aiProvider: defaultAiProvider ?? "openai",
-      aiModel: defaultAiModel ?? ""
+      checklistText: defaultChecklistText ?? ""
     }
   });
 
@@ -82,11 +68,9 @@ export function SeoAuditRunForm({
     form.reset({
       targetUrlsInput: urlsToInput(urls),
       categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-      checklistText: defaultChecklistText ?? "",
-      aiProvider: defaultAiProvider ?? "openai",
-      aiModel: defaultAiModel ?? ""
+      checklistText: defaultChecklistText ?? ""
     });
-  }, [defaultArticleUrls, defaultCategories, defaultChecklistText, defaultAiProvider, defaultAiModel, form]);
+  }, [defaultArticleUrls, defaultCategories, defaultChecklistText, form]);
 
   useEffect(() => {
     form.setValue("targetUrlsInput", urlsToInput(urlList), { shouldDirty: true, shouldValidate: true });
@@ -94,7 +78,6 @@ export function SeoAuditRunForm({
 
   const categoriesInput = form.watch("categoriesInput");
   const checklistText = form.watch("checklistText");
-  const aiProvider = form.watch("aiProvider");
   const targetUrlCount = urlList.length;
   const categoryCount = countNonEmptyLines(categoriesInput);
   const checklistLineCount = countNonEmptyLines(checklistText);
@@ -127,9 +110,7 @@ export function SeoAuditRunForm({
         userId,
         articleUrlsInput: values.targetUrlsInput,
         categoriesInput: values.categoriesInput,
-        checklistText: values.checklistText,
-        aiProvider: values.aiProvider,
-        aiModel: values.aiModel
+        checklistText: values.checklistText
       });
 
       toast.success("Đã lưu cấu hình audit.");
@@ -151,7 +132,7 @@ export function SeoAuditRunForm({
               Cấu hình SEO audit
             </CardTitle>
             <CardDescription>
-              Lưu URL mục tiêu, danh mục, checklist và AI provider/model. Bấm Run trên màn chính để bắt đầu phân tích.
+              Lưu URL mục tiêu, danh mục và checklist. Model AI do admin cấu hình trong phần quản trị hệ thống.
             </CardDescription>
           </div>
           <div className="grid min-w-[240px] grid-cols-3 gap-3 text-center">
@@ -172,49 +153,6 @@ export function SeoAuditRunForm({
       </CardHeader>
       <CardContent className="pt-6">
         <form className="flex flex-col gap-6" onSubmit={onSubmit}>
-          <div className="grid gap-4 rounded-[22px] border border-border/70 bg-secondary/25 p-5 lg:grid-cols-[0.8fr_1.2fr]">
-            <div className="flex items-start gap-3">
-              <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <BrainCircuit className="size-5" />
-              </div>
-              <div>
-                <p className="font-medium">AI provider mặc định</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Provider và model được lưu cùng cấu hình website. Mỗi lần Run sẽ dùng giá trị đã lưu tại đây.
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-[0.8fr_1fr]">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="aiProvider">Provider</Label>
-                <Select
-                  value={aiProvider}
-                  onValueChange={(value) => {
-                    form.setValue("aiProvider", value as AuditRunValues["aiProvider"], { shouldDirty: true });
-                    form.setValue("aiModel", "", { shouldDirty: true });
-                  }}
-                >
-                  <SelectTrigger id="aiProvider">
-                    <SelectValue placeholder="Chọn provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{providerDescriptions[aiProvider]}</p>
-              </div>
-              <AiModelSelect
-                key={aiProvider}
-                provider={aiProvider}
-                value={form.watch("aiModel")}
-                onChange={(model) => form.setValue("aiModel", model, { shouldDirty: true })}
-                description="Chọn model từ danh sách API provider. Giá trị mặc định lấy từ env backend."
-              />
-            </div>
-          </div>
-
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="flex flex-col gap-2">
               <Label>Danh sách URL mục tiêu</Label>
@@ -263,7 +201,7 @@ export function SeoAuditRunForm({
                   }
                 }}
               />
-              <p className="text-sm text-muted-foreground">Mỗi dòng dùng `Tên danh mục` - `https://url-danh-muc`. Vẫn hỗ trợ tab hoặc format cũ để tương thích ngược.</p>
+              <p className="text-sm text-muted-foreground">Mỗi dòng dùng `Tên danh mục` - `https://url-danh-muc`.</p>
               {form.formState.errors.categoriesInput ? (
                 <p className="text-sm text-destructive">{form.formState.errors.categoriesInput.message}</p>
               ) : null}
@@ -304,7 +242,6 @@ export function SeoAuditRunForm({
                 }
               }}
             />
-            <p className="text-sm text-muted-foreground">Checklist này sẽ được đưa vào prompt khi bạn bấm Run trên màn chính.</p>
           </div>
 
           {showSourceSummary ? (
@@ -318,7 +255,7 @@ export function SeoAuditRunForm({
                   URL gốc: <span className="font-medium text-foreground">{websiteUrl}</span>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
-                  Luồng: <span className="font-medium text-foreground">Lưu cấu hình → Run → Realtime → Excel</span>
+                  Luồng: <span className="font-medium text-foreground">Lưu cấu hình → Run → Excel</span>
                 </div>
               </div>
             </div>
@@ -335,9 +272,7 @@ export function SeoAuditRunForm({
                 form.reset({
                   targetUrlsInput: urlsToInput(urls),
                   categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-                  checklistText: defaultChecklistText ?? "",
-                  aiProvider: defaultAiProvider ?? "openai",
-                  aiModel: defaultAiModel ?? ""
+                  checklistText: defaultChecklistText ?? ""
                 });
               }}
             >

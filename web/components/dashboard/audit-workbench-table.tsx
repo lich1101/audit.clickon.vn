@@ -9,7 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { AuditRun, AuditRunItem } from "@/types";
+import type { AuditRunItemStatus } from "@/types";
+
+export type AuditWorkbenchRow = {
+  status?: AuditRunItemStatus;
+  pageTitle?: string | null;
+  primaryKeyword?: string | null;
+  categoryName?: string | null;
+  categoryUrl?: string | null;
+  auditScore?: number | null;
+  auditRecommendations?: string[];
+  contentRevisionDirection?: string | null;
+  errorMessage?: string | null;
+};
 
 function ScoreCell({ score }: { score?: number | null }) {
   if (typeof score !== "number") {
@@ -36,8 +48,8 @@ export function AuditWorkbenchTable({
   onSelectedChange: (urls: string[]) => void;
   onDeleteUrl: (url: string) => void;
   onAddUrl: (url: string) => void;
-  itemsByUrl: Record<string, AuditRunItem>;
-  run: AuditRun | null;
+  itemsByUrl: Record<string, AuditWorkbenchRow>;
+  run: { status?: string } | null;
 }) {
   const [newUrl, setNewUrl] = useState("");
   const selectedSet = useMemo(() => new Set(selectedUrls), [selectedUrls]);
@@ -97,14 +109,15 @@ export function AuditWorkbenchTable({
               <TableHead className="min-w-[160px]">Từ khóa chính</TableHead>
               <TableHead className="min-w-[200px]">Danh mục</TableHead>
               <TableHead className="min-w-[80px]">Điểm</TableHead>
-              <TableHead className="min-w-[320px]">Đề xuất / lỗi</TableHead>
+              <TableHead className="min-w-[280px]">Đề xuất</TableHead>
+              <TableHead className="min-w-[220px]">Lỗi</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {urls.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
                   Chưa có URL. Thêm dòng mới ở cuối bảng hoặc mở Cấu hình audit.
                 </TableCell>
               </TableRow>
@@ -145,20 +158,23 @@ export function AuditWorkbenchTable({
                       <ScoreCell score={item?.auditScore} />
                     </TableCell>
                     <TableCell>
-                      {item?.errorMessage ? (
-                        <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
-                      ) : item?.auditRecommendations?.length ? (
+                      {item?.auditRecommendations?.length ? (
                         <div className="space-y-1 text-sm">
                           <p>{item.auditRecommendations[0]}</p>
                           {item.contentRevisionDirection ? (
                             <p className="text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
                           ) : null}
                         </div>
-                      ) : run ? (
+                      ) : run && status && status !== "completed" && status !== "failed" ? (
                         <span className="text-sm text-muted-foreground">Đang chờ kết quả</span>
                       ) : (
                         "—"
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {item?.errorMessage ? (
+                        <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                      ) : null}
                     </TableCell>
                     <TableCell>
                       <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => onDeleteUrl(url)}>
@@ -170,7 +186,7 @@ export function AuditWorkbenchTable({
               })
             )}
             <TableRow>
-              <TableCell colSpan={9}>
+              <TableCell colSpan={10}>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     placeholder="https://example.com/bai-viet-moi"

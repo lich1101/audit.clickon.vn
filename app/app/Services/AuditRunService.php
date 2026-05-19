@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\ProcessAuditRunJob;
+use App\Jobs\ProcessAuditRunItemJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -17,8 +18,31 @@ class AuditRunService
         private readonly SeoContentExtractionService $contentExtractionService,
         private readonly SeoAiAuditService $seoAiAuditService,
         private readonly AuditRunFirestoreSyncService $firestoreSyncService,
-        private readonly FirestoreService $firestoreService,
+        private readonly WebsiteDataService $websiteDataService,
+        private readonly AuditSettingsService $auditSettingsService,
+        private readonly WebsiteAuditUrlResultService $urlResultService,
+        private readonly CreditService $creditService,
+        private readonly TokenBillingService $tokenBillingService,
     ) {
+    }
+
+    private function shouldSyncFirestore(): bool
+    {
+        return (bool) config('services.audit.firestore_sync', false);
+    }
+
+    private function syncRunIfEnabled(AuditRun $run): void
+    {
+        if ($this->shouldSyncFirestore()) {
+            $this->firestoreSyncService->syncRun($run);
+        }
+    }
+
+    private function syncItemIfEnabled(AuditRunItem $item): void
+    {
+        if ($this->shouldSyncFirestore()) {
+            $this->firestoreSyncService->syncItem($item);
+        }
     }
 
     /**
@@ -26,14 +50,23 @@ class AuditRunService
      */
     public function createRun(string $userUid, string $userEmail, array $payload): AuditRun
     {
-        $website = $this->firestoreService->getWebsite((string) $payload['websiteId']);
+        $website = $this->websiteDataService->getWebsite((string) $payload['websiteId']);
 
         if (! $website) {
-            throw new RuntimeException('Website does not exist in Firestore.');
+            throw new RuntimeException('Website does not exist.');
         }
 
         if (($website['userId'] ?? null) !== $userUid) {
             throw new AuthorizationException('You are not allowed to run audit for this website.');
+        }
+
+        $settings = $this->auditSettingsService->getAuditSettings();
+        $targetUrls = array_values(array_unique($payload['targetUrls']));
+        $minPerUrl = $this->tokenBillingService->estimateMinimumCreditsForUrl($settings['aiProvider'], $settings['aiModel']);
+        $requiredCredits = count($targetUrls) * $minPerUrl;
+
+        if ($this->creditService->getBalance($userUid) < $requiredCredits) {
+            throw new RuntimeException("Không đủ credit. Cần tối thiểu {$requiredCredits} credit cho ".count($targetUrls).' URL (ước tính theo model hiện tại).');
         }
 
         $activeRun = AuditRun::query()
@@ -49,7 +82,7 @@ class AuditRunService
         $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website): AuditRun {
             $targetUrls = array_values(array_unique($payload['targetUrls']));
             $categories = $payload['categories'] ?? [];
-            $aiModel = trim((string) ($payload['aiModel'] ?? ''));
+            $settings = $this->auditSettingsService->getAuditSettings();
 
             $run = AuditRun::query()->create([
                 'public_id' => (string) Str::ulid(),
@@ -62,8 +95,8 @@ class AuditRunService
                 'target_urls' => $targetUrls,
                 'categories' => $categories,
                 'checklist_text' => $payload['checklistText'] ?? null,
-                'ai_provider' => $payload['aiProvider'] ?? 'openai',
-                'ai_model' => $aiModel !== '' ? $aiModel : null,
+                'ai_provider' => $settings['aiProvider'],
+                'ai_model' => $settings['aiModel'],
                 'total_urls' => count($targetUrls),
                 'processed_urls' => 0,
                 'completed_urls' => 0,
@@ -82,9 +115,9 @@ class AuditRunService
             return $run->fresh('items');
         });
 
-        $this->firestoreSyncService->syncRun($run);
+        $this->syncRunIfEnabled($run);
         foreach ($run->items as $item) {
-            $this->firestoreSyncService->syncItem($item);
+            $this->syncItemIfEnabled($item);
         }
 
         ProcessAuditRunJob::dispatch($run->id);
@@ -128,7 +161,7 @@ class AuditRunService
             'category_contexts' => $contexts,
         ])->save();
 
-        $this->firestoreSyncService->syncRun($run->fresh());
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     public function markRunProcessing(AuditRun $run): void
@@ -138,7 +171,7 @@ class AuditRunService
             'started_at' => now(),
         ])->save();
 
-        $this->firestoreSyncService->syncRun($run->fresh());
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     public function markRunFailed(AuditRun $run, string $message): void
@@ -149,7 +182,7 @@ class AuditRunService
             'completed_at' => now(),
         ])->save();
 
-        $this->firestoreSyncService->syncRun($run->fresh());
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     public function isRunCancelled(AuditRun $run): bool
@@ -197,10 +230,10 @@ class AuditRunService
         });
 
         $run = $run->fresh('items');
-        $this->firestoreSyncService->syncRun($run);
+        $this->syncRunIfEnabled($run);
 
         foreach ($run->items as $item) {
-            $this->firestoreSyncService->syncItem($item);
+            $this->syncItemIfEnabled($item);
         }
     }
 
@@ -216,7 +249,7 @@ class AuditRunService
             'status' => 'fetching',
             'error_message' => null,
         ])->save();
-        $this->firestoreSyncService->syncItem($item->fresh('run'));
+        $this->syncItemIfEnabled($item->fresh('run'));
 
         if ($this->isRunCancelled($run->fresh())) {
             return;
@@ -234,7 +267,7 @@ class AuditRunService
             'extracted_metrics' => $page['metrics'],
             'content_excerpt' => $page['content'],
         ])->save();
-        $this->firestoreSyncService->syncItem($item->fresh('run'));
+        $this->syncItemIfEnabled($item->fresh('run'));
 
         $run = $item->run()->firstOrFail();
 
@@ -255,6 +288,20 @@ class AuditRunService
             return;
         }
 
+        foreach ($analysis['usageEvents'] ?? [] as $usage) {
+            if (! is_array($usage)) {
+                continue;
+            }
+
+            try {
+                $this->tokenBillingService->chargeForAiCall($item->fresh('run'), (string) ($usage['step'] ?? 'ai_call'), $usage);
+            } catch (RuntimeException $exception) {
+                $this->markItemFailed($item, $exception->getMessage(), false);
+
+                return;
+            }
+        }
+
         $item->forceFill([
             'status' => 'completed',
             'primary_keyword' => $analysis['primaryKeyword'],
@@ -269,11 +316,42 @@ class AuditRunService
             'completed_at' => now(),
         ])->save();
 
-        $this->firestoreSyncService->syncItem($item->fresh('run'));
-        $this->refreshRunProgress($item->run()->firstOrFail());
+        $this->syncItemIfEnabled($item->fresh('run'));
+        $this->urlResultService->upsertFromItem($item->fresh('run'));
+        $run = $item->run()->firstOrFail();
+        $this->refreshRunProgress($run);
+        $this->dispatchNextItems($run->fresh('items'));
     }
 
-    public function markItemFailed(AuditRunItem $item, string $message, bool $stopEntireRun = true): void
+    public function dispatchNextItems(AuditRun $run): void
+    {
+        if ($this->isRunCancelled($run)) {
+            return;
+        }
+
+        $maxParallel = $this->auditSettingsService->maxParallelItems();
+        $activeCount = $run->items()
+            ->whereIn('status', ['fetching', 'analyzing'])
+            ->count();
+
+        if ($activeCount >= $maxParallel) {
+            return;
+        }
+
+        $slots = $maxParallel - $activeCount;
+
+        $nextItems = $run->items()
+            ->where('status', 'queued')
+            ->orderBy('position')
+            ->limit($slots)
+            ->get();
+
+        foreach ($nextItems as $nextItem) {
+            ProcessAuditRunItemJob::dispatch($nextItem->id);
+        }
+    }
+
+    public function markItemFailed(AuditRunItem $item, string $message, bool $stopEntireRun = false): void
     {
         $item->forceFill([
             'status' => 'failed',
@@ -281,7 +359,8 @@ class AuditRunService
             'completed_at' => now(),
         ])->save();
 
-        $this->firestoreSyncService->syncItem($item->fresh('run'));
+        $this->syncItemIfEnabled($item->fresh('run'));
+        $this->urlResultService->upsertFromItem($item->fresh('run'));
 
         if ($stopEntireRun) {
             $this->stopRun($item->run()->firstOrFail(), $message);
@@ -289,7 +368,9 @@ class AuditRunService
             return;
         }
 
-        $this->refreshRunProgress($item->run()->firstOrFail());
+        $run = $item->run()->firstOrFail();
+        $this->refreshRunProgress($run);
+        $this->dispatchNextItems($run->fresh('items'));
     }
 
     public function refreshRunProgress(AuditRun $run): void
@@ -317,7 +398,7 @@ class AuditRunService
             ])->save();
         });
 
-        $this->firestoreSyncService->syncRun($run->fresh());
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     public function authorizeRead(Request $request, AuditRun $run): void

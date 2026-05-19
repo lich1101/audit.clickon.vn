@@ -5,14 +5,16 @@ import { useEffect, useState } from "react";
 import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
-import { listenToAllCreditLogs } from "@/lib/firestore";
+import { fetchAdminCreditTransactions } from "@/lib/account";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog } from "@/types";
 
 export default function AdminCreditLogsPage() {
   const [logs, setLogs] = useState<CreditLog[]>([]);
 
-  useEffect(() => listenToAllCreditLogs(setLogs), []);
+  useEffect(() => {
+    void fetchAdminCreditTransactions(200).then(setLogs).catch(() => setLogs([]));
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">

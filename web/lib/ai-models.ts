@@ -23,7 +23,7 @@ export async function fetchAiModels(provider: AiProvider, force = false) {
     return cache.get(provider)!;
   }
 
-  const response = await laravelRequest<{ data: AiModelCatalog }>(`/api/ai-models/${provider}`, {
+  const response = await laravelRequest<{ data: AiModelCatalog }>(`/api/admin/ai-models/${provider}`, {
     method: "GET",
     cache: "no-store"
   });

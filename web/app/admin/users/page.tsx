@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { RoleBadge } from "@/components/dashboard/role-badge";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { listenToAllUsers } from "@/lib/firestore";
+import { fetchAdminUsers } from "@/lib/account";
 import { formatDate } from "@/lib/utils";
 import type { AppUser } from "@/types";
 
@@ -17,7 +17,9 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [search, setSearch] = useState("");
 
-  useEffect(() => listenToAllUsers(setUsers), []);
+  useEffect(() => {
+    void fetchAdminUsers(search).then(setUsers).catch(() => setUsers([]));
+  }, [search]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();

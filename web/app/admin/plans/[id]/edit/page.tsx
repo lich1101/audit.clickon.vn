@@ -7,7 +7,7 @@ import { PlanForm } from "@/components/forms/plan-form";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
-import { getPlanById } from "@/lib/firestore";
+import { fetchPlan } from "@/lib/account";
 import type { Plan } from "@/types";
 
 export default function EditPlanPage({ params }: { params: Promise<{ id: string }> }) {
@@ -19,7 +19,7 @@ export default function EditPlanPage({ params }: { params: Promise<{ id: string 
     async function load() {
       try {
         setLoading(true);
-        setPlan(await getPlanById(id));
+        setPlan(await fetchPlan(id));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Không thể tải thông tin gói cước.");
       } finally {

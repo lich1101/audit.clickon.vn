@@ -7,7 +7,6 @@ import { ChevronDown, Globe2, Plus, Sparkles } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
-import { AiModelSelect } from "@/components/forms/ai-model-select";
 import { AuditTargetUrlEditor, urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { createWebsite, saveWebsiteAudit } from "@/lib/firestore";
 import { createWebsiteSchema, parseCategories, type CreateWebsiteValues } from "@/lib/validators";
@@ -15,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -32,13 +30,9 @@ export function WebsiteForm({ userId }: { userId: string }) {
       url: "",
       articleUrlsInput: "",
       categoriesInput: "",
-      checklistText: "",
-      aiProvider: "openai",
-      aiModel: ""
+      checklistText: ""
     }
   });
-
-  const aiProvider = form.watch("aiProvider");
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
@@ -58,9 +52,7 @@ export function WebsiteForm({ userId }: { userId: string }) {
           userId,
           articleUrlsInput: urlsToInput(urlList),
           categoriesInput: values.categoriesInput,
-          checklistText: values.checklistText,
-          aiProvider: values.aiProvider,
-          aiModel: values.aiModel
+          checklistText: values.checklistText
         });
       }
 
@@ -107,7 +99,7 @@ export function WebsiteForm({ userId }: { userId: string }) {
                 <span className="text-xs font-normal text-muted-foreground">(tuỳ chọn)</span>
               </CardTitle>
               <CardDescription className="mt-1">
-                Thêm URL mục tiêu, danh mục và AI provider ngay khi tạo. Có thể bỏ qua và cấu hình sau.
+                Thêm URL mục tiêu, danh mục và checklist ngay khi tạo. Model AI do admin cấu hình hệ thống.
               </CardDescription>
             </div>
             <ChevronDown className={cn("size-5 shrink-0 text-muted-foreground transition", auditOpen && "rotate-180")} />
@@ -149,34 +141,6 @@ export function WebsiteForm({ userId }: { userId: string }) {
                   {...form.register("checklistText")}
                 />
               </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="create-aiProvider">AI provider</Label>
-                <Select
-                  value={aiProvider}
-                  onValueChange={(value) => {
-                    form.setValue("aiProvider", value as CreateWebsiteValues["aiProvider"]);
-                    form.setValue("aiModel", "");
-                  }}
-                >
-                  <SelectTrigger id="create-aiProvider">
-                    <SelectValue placeholder="Chọn provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <AiModelSelect
-                key={aiProvider ?? "openai"}
-                provider={aiProvider ?? "openai"}
-                value={form.watch("aiModel")}
-                onChange={(model) => form.setValue("aiModel", model)}
-              />
             </div>
           </CardContent>
         ) : null}

@@ -38,6 +38,24 @@ export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" |
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
 
+export type WebsiteAuditUrlResult = {
+  targetUrl: string;
+  status: AuditRunItemStatus;
+  pageTitle?: string | null;
+  primaryKeyword?: string | null;
+  categoryName?: string | null;
+  categoryUrl?: string | null;
+  categoryMatchReason?: string | null;
+  auditScore?: number | null;
+  auditRecommendations: string[];
+  contentRevisionDirection?: string | null;
+  errorMessage?: string | null;
+  aiProvider?: AiProvider;
+  aiModel?: string | null;
+  auditedAt?: string | null;
+  updatedAt?: string | null;
+};
+
 export type WebsiteAudit = {
   id: string;
   websiteId: string;
@@ -45,8 +63,6 @@ export type WebsiteAudit = {
   articleUrls: string[];
   categories: AuditCategory[];
   checklistText?: string | null;
-  aiProvider?: AiProvider;
-  aiModel?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -6,7 +6,7 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/hooks/use-auth";
-import { fetchCreditLogs } from "@/lib/firestore";
+import { fetchCreditTransactions } from "@/lib/account";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog } from "@/types";
 
@@ -19,7 +19,7 @@ export default function CreditHistoryPage() {
       return;
     }
 
-    void fetchCreditLogs(profile.uid, 100)
+    void fetchCreditTransactions({ userId: profile.uid, limit: 100 })
       .then(setLogs)
       .catch(() => undefined);
   }, [profile]);

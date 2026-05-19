@@ -1,9 +1,14 @@
 <?php
 
+use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\CreditController;
+use App\Http\Controllers\Api\CreditTransactionController;
 use App\Http\Controllers\Api\AuditRunController;
+use App\Http\Controllers\Api\AuditSettingsController;
 use App\Http\Controllers\Api\AiModelController;
 use App\Http\Controllers\Api\AuditPromptTemplateController;
+use App\Http\Controllers\Api\MeController;
+use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\PlanRequestController;
 use App\Http\Controllers\Api\WebsiteController;
 use Illuminate\Support\Facades\Route;
@@ -15,6 +20,9 @@ Route::prefix('credits')->group(function (): void {
 });
 
 Route::middleware('firebase.auth')->group(function (): void {
+    Route::get('/me', [MeController::class, 'show']);
+    Route::get('/credit-transactions', [CreditTransactionController::class, 'index']);
+    Route::get('/plans', [PlanController::class, 'index']);
     Route::get('/websites', [WebsiteController::class, 'index']);
     Route::post('/websites', [WebsiteController::class, 'store']);
     Route::get('/websites/{websiteId}', [WebsiteController::class, 'show']);
@@ -27,12 +35,23 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::post('/audit-runs', [AuditRunController::class, 'store']);
     Route::get('/audit-runs/{publicId}', [AuditRunController::class, 'show']);
     Route::post('/audit-runs/{publicId}/stop', [AuditRunController::class, 'stop']);
-    Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
+    Route::get('/audit-settings', [AuditSettingsController::class, 'showPublic']);
 });
 
 Route::prefix('admin')
     ->middleware('admin.or.api-key')
     ->group(function (): void {
+        Route::get('/audit-settings', [AuditSettingsController::class, 'showAdmin']);
+        Route::put('/audit-settings', [AuditSettingsController::class, 'updateAdmin']);
+        Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
+        Route::get('/users', [AdminUserController::class, 'index']);
+        Route::get('/users/{firebaseUid}', [AdminUserController::class, 'show']);
+        Route::put('/users/{firebaseUid}', [AdminUserController::class, 'update']);
+        Route::get('/plans', [PlanController::class, 'index']);
+        Route::post('/plans', [PlanController::class, 'store']);
+        Route::get('/plans/{planId}', [PlanController::class, 'show']);
+        Route::put('/plans/{planId}', [PlanController::class, 'update']);
+        Route::get('/credit-transactions', [CreditTransactionController::class, 'index']);
         Route::get('/plan-requests', [PlanRequestController::class, 'adminIndex']);
         Route::post('/plan-requests/{planRequest}/approve', [PlanRequestController::class, 'approve']);
         Route::post('/plan-requests/{planRequest}/reject', [PlanRequestController::class, 'reject']);

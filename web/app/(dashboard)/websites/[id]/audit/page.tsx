@@ -22,11 +22,13 @@ import {
   formatCategoriesInput,
   getAuditRun,
   isActiveAuditRun,
+  normalizeAuditRun,
   stopAuditRun
 } from "@/lib/audit-runs";
-import { saveWebsiteAudit } from "@/lib/firestore";
+import { listenToAuditRun, listenToAuditRunItems, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
-import type { AuditRun, AuditRunItem, Website, WebsiteAudit } from "@/types";
+import type { PublicAuditSettings } from "@/lib/audit-settings";
+import type { AuditRun, AuditRunItem, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 
 function progressFor(run?: AuditRun | null) {
   if (!run || run.totalUrls <= 0) {
@@ -42,6 +44,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
+  const [urlResults, setUrlResults] = useState<WebsiteAuditUrlResult[]>([]);
+  const [systemAi, setSystemAi] = useState<PublicAuditSettings>({ aiProvider: "openai", aiModel: null });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -51,6 +55,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [savingUrls, setSavingUrls] = useState(false);
   const saveUrlsTimerRef = useRef<number | undefined>(undefined);
+  const runFinishedRef = useRef(false);
+  const boardLoadedRef = useRef(false);
+  const profileUid = profile?.uid;
 
   useEffect(() => {
     const urls = audit?.articleUrls ?? [];
@@ -76,6 +83,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       });
       setAudit(board.audit);
       setRun(board.run);
+      setUrlResults(board.urlResults ?? []);
+      setSystemAi(board.systemAi ?? { aiProvider: "openai", aiModel: null });
     } catch (error) {
       if (!options?.silent) {
         setWebsite(null);
@@ -91,34 +100,70 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }
 
   useEffect(() => {
-    if (profile) {
-      void loadBoard();
+    boardLoadedRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (!profileUid) {
+      return;
     }
-  }, [id, profile]);
+
+    void loadBoard({ silent: boardLoadedRef.current });
+    boardLoadedRef.current = true;
+  }, [id, profileUid]);
 
   const isRunActive = isActiveAuditRun(run?.status);
 
   useEffect(() => {
-    if (!isRunActive) {
+    const publicId = run?.publicId;
+    if (!publicId || !isRunActive) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      void loadBoard({ silent: true });
-    }, 4000);
+    runFinishedRef.current = false;
 
-    return () => window.clearInterval(timer);
-  }, [id, isRunActive]);
+    const unsubRun = listenToAuditRun(publicId, (liveRun) => {
+      if (!liveRun) {
+        return;
+      }
+
+      setRun((prev) =>
+        normalizeAuditRun({
+          ...(prev ?? liveRun),
+          ...liveRun,
+          items: prev?.items ?? []
+        })
+      );
+
+      if (!isActiveAuditRun(liveRun.status) && !runFinishedRef.current) {
+        runFinishedRef.current = true;
+        void loadBoard({ silent: true });
+      }
+    });
+
+    const unsubItems = listenToAuditRunItems(publicId, (items) => {
+      setRun((prev) => (prev ? { ...prev, items } : prev));
+    });
+
+    return () => {
+      unsubRun();
+      unsubItems();
+    };
+  }, [run?.publicId, isRunActive]);
 
   const itemsByUrl = useMemo(() => {
-    const map: Record<string, AuditRunItem> = {};
+    const map: Record<string, AuditRunItem | WebsiteAuditUrlResult> = {};
+
+    for (const result of urlResults) {
+      map[result.targetUrl] = result;
+    }
 
     for (const item of run?.items ?? []) {
       map[item.targetUrl] = item;
     }
 
     return map;
-  }, [run?.items]);
+  }, [run?.items, urlResults]);
 
   const progressPercent = progressFor(run);
   const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
@@ -137,9 +182,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         userId: profile.uid,
         articleUrlsInput: urlsToInput(nextUrls),
         categoriesInput: formatCategoriesInput(audit.categories),
-        checklistText: audit.checklistText ?? "",
-        aiProvider: audit.aiProvider ?? "openai",
-        aiModel: audit.aiModel ?? ""
+        checklistText: audit.checklistText ?? ""
       });
       setAudit(savedAudit);
     } catch (error) {
@@ -212,12 +255,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         websiteUrl: website!.url,
         targetUrlsInput: selectedUrls.join("\n"),
         categoriesInput: formatCategoriesInput(audit.categories),
-        checklistText: audit.checklistText ?? "",
-        aiProvider: audit.aiProvider ?? "openai",
-        aiModel: audit.aiModel ?? ""
+        checklistText: audit.checklistText ?? ""
       });
-      await loadBoard({ silent: true });
       toast.success("Audit run đã được đưa vào hàng đợi.");
+      await loadBoard({ silent: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể bắt đầu audit run.");
     } finally {
@@ -289,7 +330,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </div>
           <p className="text-sm text-muted-foreground">
             {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
-            {audit?.aiProvider ? ` · AI ${audit.aiProvider}${audit.aiModel ? ` / ${audit.aiModel}` : ""}` : ""}
+            {` · AI ${systemAi.aiProvider}${systemAi.aiModel ? ` / ${systemAi.aiModel}` : ""} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
           {run ? (
@@ -360,8 +401,6 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               defaultArticleUrls={audit?.articleUrls}
               defaultCategories={audit?.categories}
               defaultChecklistText={audit?.checklistText}
-              defaultAiProvider={audit?.aiProvider}
-              defaultAiModel={audit?.aiModel}
               showSourceSummary={false}
               onSaved={(savedAudit) => {
                 setAudit(savedAudit);

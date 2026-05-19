@@ -44,8 +44,9 @@ TEXT;
         ?string $model = null,
         ?int $auditRunId = null,
     ): array {
-        $keywordAndCategory = $this->analyzeKeywordAndCategory($provider, $model, $page, $categoryContexts, $auditRunId);
-        $audit = $this->analyzeOnpage($provider, $model, $page, $categoryContexts, $checklistText, $keywordAndCategory, $auditRunId);
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $keywordAndCategory = $this->analyzeKeywordAndCategory($provider, $resolvedModel, $page, $categoryContexts, $auditRunId);
+        $audit = $this->analyzeOnpage($provider, $resolvedModel, $page, $categoryContexts, $checklistText, $keywordAndCategory, $auditRunId);
 
         return [
             'primaryKeyword' => $keywordAndCategory['primaryKeyword'],
@@ -59,6 +60,10 @@ TEXT;
             'promptSnapshots' => [
                 'keywordCategory' => $keywordAndCategory['promptSnapshot'],
                 'onpageAudit' => $audit['promptSnapshot'],
+            ],
+            'usageEvents' => [
+                $keywordAndCategory['usage'],
+                $audit['usage'],
             ],
         ];
     }
@@ -84,7 +89,7 @@ TEXT;
             ),
         ]);
 
-        $data = $this->requestJson(
+        $response = $this->requestJson(
             provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
@@ -93,12 +98,15 @@ TEXT;
             auditRunId: $auditRunId,
         );
 
+        $data = $response['data'];
+
         return [
             'primaryKeyword' => $this->stringOrNull($data['primaryKeyword'] ?? null),
             'categoryName' => $this->stringOrNull($data['categoryName'] ?? null),
             'categoryUrl' => $this->stringOrNull($data['categoryUrl'] ?? null),
             'categoryMatchReason' => $this->stringOrNull($data['categoryMatchReason'] ?? null),
             'promptSnapshot' => $this->promptSnapshot('keyword_category_mapping', $provider, $model, $prompts),
+            'usage' => array_merge($response['usage'], ['step' => 'keyword_category_mapping']),
         ];
     }
 
@@ -131,7 +139,7 @@ TEXT;
             'checklist' => trim($checklistText ?: self::defaultChecklist()),
         ]);
 
-        $data = $this->requestJson(
+        $response = $this->requestJson(
             provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
@@ -140,12 +148,15 @@ TEXT;
             auditRunId: $auditRunId,
         );
 
+        $data = $response['data'];
+
         return [
             'auditScore' => max(0, min(100, (int) ($data['auditScore'] ?? 0))),
             'auditFindings' => $this->normalizeStringList($data['auditFindings'] ?? []),
             'auditRecommendations' => $this->normalizeStringList($data['auditRecommendations'] ?? []),
             'contentRevisionDirection' => $this->stringOrNull($data['contentRevisionDirection'] ?? null),
             'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
+            'usage' => array_merge($response['usage'], ['step' => 'onpage_audit']),
         ];
     }
 
@@ -207,22 +218,24 @@ TEXT;
 
     /**
      * @param  array<string, mixed>  $schema
-     * @return array<string, mixed>
+     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
     private function requestJson(string $provider, ?string $model, string $systemPrompt, string $userPrompt, array $schema, ?int $auditRunId = null): array
     {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+
         return match ($provider) {
-            'openai' => $this->requestOpenAiJson($model, $systemPrompt, $userPrompt),
-            'gemini' => $this->requestGeminiJson($model, $systemPrompt, $userPrompt, $schema),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchJson($model, $systemPrompt, $userPrompt, $auditRunId),
+            'openai' => $this->requestOpenAiJson($resolvedModel, $systemPrompt, $userPrompt, $provider),
+            'gemini' => $this->requestGeminiJson($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchJson($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestOpenAiJson(?string $model, string $systemPrompt, string $userPrompt): array
+    private function requestOpenAiJson(string $model, string $systemPrompt, string $userPrompt, string $provider): array
     {
         $apiKey = config('services.openai.api_key');
 
@@ -231,7 +244,7 @@ TEXT;
         }
 
         $payload = [
-            'model' => $model ?: config('services.openai.model', 'gpt-5.5'),
+            'model' => $model,
             'reasoning' => [
                 'effort' => config('services.openai.reasoning_effort', 'medium'),
             ],
@@ -259,16 +272,29 @@ TEXT;
 
         $response->throw();
 
-        $text = $this->extractTextFromOpenAiResponse($response->json());
+        $body = $response->json();
+        $text = $this->extractTextFromOpenAiResponse($body);
+        $usageMeta = is_array($body['usage'] ?? null) ? $body['usage'] : [];
+        $inputTokens = (int) ($usageMeta['input_tokens'] ?? $usageMeta['prompt_tokens'] ?? 0);
+        $outputTokens = (int) ($usageMeta['output_tokens'] ?? $usageMeta['completion_tokens'] ?? 0);
 
-        return $this->decodeJsonText($text, 'OpenAI');
+        return [
+            'data' => $this->decodeJsonText($text, 'OpenAI'),
+            'usage' => [
+                'provider' => $provider,
+                'model' => $model,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'total_tokens' => $inputTokens + $outputTokens,
+            ],
+        ];
     }
 
     /**
      * @param  array<string, mixed>  $schema
-     * @return array<string, mixed>
+     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestGeminiJson(?string $model, string $systemPrompt, string $userPrompt, array $schema): array
+    private function requestGeminiJson(string $model, string $systemPrompt, string $userPrompt, array $schema, string $provider): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -276,7 +302,7 @@ TEXT;
             throw new RuntimeException('GEMINI_API_KEY is not configured.');
         }
 
-        $modelName = $model ?: config('services.gemini.model', 'gemini-2.5-pro');
+        $modelName = $model;
         $payload = [
             'systemInstruction' => [
                 'parts' => [
@@ -308,13 +334,28 @@ TEXT;
 
         $response->throw();
 
-        return $this->decodeJsonText($this->extractTextFromGeminiResponse($response->json()), 'Gemini');
+        $body = $response->json();
+        $meta = is_array($body['usageMetadata'] ?? null) ? $body['usageMetadata'] : [];
+        $inputTokens = (int) ($meta['promptTokenCount'] ?? 0);
+        $outputTokens = (int) ($meta['candidatesTokenCount'] ?? 0);
+        $totalTokens = (int) ($meta['totalTokenCount'] ?? ($inputTokens + $outputTokens));
+
+        return [
+            'data' => $this->decodeJsonText($this->extractTextFromGeminiResponse($body), 'Gemini'),
+            'usage' => [
+                'provider' => $provider,
+                'model' => $modelName,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'total_tokens' => $totalTokens,
+            ],
+        ];
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestGeminiDeepResearchJson(?string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId = null): array
+    private function requestGeminiDeepResearchJson(string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId, string $provider): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -324,7 +365,7 @@ TEXT;
 
         $this->assertAuditRunActive($auditRunId);
 
-        $agent = $model ?: config('services.gemini.deep_research_agent', 'deep-research-preview-04-2026');
+        $agent = $model;
         $input = implode("\n\n", [
             $systemPrompt,
             $userPrompt,
@@ -376,7 +417,16 @@ TEXT;
             $status = $payload['status'] ?? null;
 
             if ($status === 'completed') {
-                return $this->decodeJsonText($this->extractTextFromInteraction($payload), 'Gemini Deep Research');
+                return [
+                    'data' => $this->decodeJsonText($this->extractTextFromInteraction($payload), 'Gemini Deep Research'),
+                    'usage' => [
+                        'provider' => $provider,
+                        'model' => $agent,
+                        'input_tokens' => 0,
+                        'output_tokens' => 0,
+                        'total_tokens' => 0,
+                    ],
+                ];
             }
 
             if (in_array($status, ['failed', 'cancelled'], true)) {

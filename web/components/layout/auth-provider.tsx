@@ -4,10 +4,25 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { useEffect, useState } from "react";
 
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
-import { listenToUser } from "@/lib/firestore";
+import { fetchMe } from "@/lib/account";
 import { clearClientSession, syncClientSession } from "@/lib/session-client";
 import { AuthContext } from "@/hooks/use-auth";
 import type { AppUser } from "@/types";
+
+function isSameProfile(current: AppUser | null, next: AppUser): boolean {
+  if (!current) {
+    return false;
+  }
+
+  return (
+    current.uid === next.uid &&
+    current.email === next.email &&
+    current.displayName === next.displayName &&
+    current.role === next.role &&
+    current.credits === next.credits &&
+    current.updatedAt === next.updatedAt
+  );
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
@@ -22,24 +37,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    let unsubscribeProfile: (() => void) | undefined;
-    let profileListenerTimer: number | undefined;
+    let refreshTimer: number | undefined;
     let disposed = false;
 
-    const clearProfileListener = () => {
-      if (profileListenerTimer) {
-        window.clearTimeout(profileListenerTimer);
-        profileListenerTimer = undefined;
+    async function refreshProfile() {
+      try {
+        const nextProfile = await fetchMe();
+        if (!disposed) {
+          setProfile((current) => (isSameProfile(current, nextProfile) ? current : nextProfile));
+          setError(null);
+        }
+      } catch (profileError) {
+        if (!disposed) {
+          setError(profileError instanceof Error ? profileError.message : "Không thể tải hồ sơ người dùng.");
+        }
       }
-
-      unsubscribeProfile?.();
-      unsubscribeProfile = undefined;
-    };
+    }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
-      clearProfileListener();
       setFirebaseUser(nextUser);
       setError(null);
+
+      if (refreshTimer) {
+        window.clearInterval(refreshTimer);
+        refreshTimer = undefined;
+      }
 
       if (!nextUser) {
         setProfile(null);
@@ -53,53 +75,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const token = await nextUser.getIdToken();
         const sessionProfile = await syncClientSession(token);
         setProfile(sessionProfile);
-        setLoading(false);
-
-        if (disposed) {
-          return;
-        }
-
-        profileListenerTimer = window.setTimeout(() => {
-          if (disposed) {
-            return;
-          }
-
-          unsubscribeProfile = listenToUser(
-            nextUser.uid,
-            (nextProfile) => {
-              if (disposed) {
-                return;
-              }
-
-              if (nextProfile) {
-                setProfile(nextProfile);
-                setError(null);
-              }
-            },
-            (snapshotError) => {
-              if (disposed) {
-                return;
-              }
-
-              setError(snapshotError.message);
-            }
-          );
-        }, 0);
+        await refreshProfile();
+        refreshTimer = window.setInterval(() => {
+          void refreshProfile();
+        }, 15000);
       } catch (sessionError) {
-        if (disposed) {
-          return;
-        }
-
         setProfile(null);
         setError(sessionError instanceof Error ? sessionError.message : "Không thể đồng bộ phiên đăng nhập.");
-        setLoading(false);
+      } finally {
+        if (!disposed) {
+          setLoading(false);
+        }
       }
     });
 
     return () => {
       disposed = true;
       unsubscribeAuth();
-      clearProfileListener();
+      if (refreshTimer) {
+        window.clearInterval(refreshTimer);
+      }
     };
   }, []);
 

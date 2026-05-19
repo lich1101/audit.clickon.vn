@@ -8,7 +8,7 @@ import { PlanCard } from "@/components/dashboard/plan-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import { listenToPlans } from "@/lib/firestore";
+import { fetchPlans } from "@/lib/account";
 import { laravelRequest } from "@/lib/laravel";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Plan, PlanRequest } from "@/types";
@@ -19,7 +19,9 @@ export default function BillingPage() {
   const [requests, setRequests] = useState<PlanRequest[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => listenToPlans(setPlans), []);
+  useEffect(() => {
+    void fetchPlans(true).then(setPlans).catch(() => setPlans([]));
+  }, []);
 
   useEffect(() => {
     async function loadRequests() {

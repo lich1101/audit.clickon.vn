@@ -2,7 +2,8 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
-import type { AiProvider, AuditRun, WebsiteAudit } from "@/types";
+import type { AuditRun, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { PublicAuditSettings } from "@/lib/audit-settings";
 
 export type AuditBoard = {
   website: {
@@ -12,6 +13,8 @@ export type AuditBoard = {
   };
   audit: WebsiteAudit | null;
   run: AuditRun | null;
+  urlResults?: WebsiteAuditUrlResult[];
+  systemAi?: PublicAuditSettings;
 };
 
 type AuditRunResponse = {
@@ -44,11 +47,12 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
       ? {
           ...response.data.audit,
           articleUrls: Array.isArray(response.data.audit.articleUrls) ? response.data.audit.articleUrls : [],
-          categories: Array.isArray(response.data.audit.categories) ? response.data.audit.categories : [],
-          aiProvider: response.data.audit.aiProvider ?? "openai"
+          categories: Array.isArray(response.data.audit.categories) ? response.data.audit.categories : []
         }
       : null,
-    run: response.data.run ? normalizeAuditRun(response.data.run) : null
+    run: response.data.run ? normalizeAuditRun(response.data.run) : null,
+    urlResults: Array.isArray(response.data.urlResults) ? response.data.urlResults : [],
+    systemAi: response.data.systemAi ?? { aiProvider: "openai", aiModel: null }
   };
 }
 
@@ -72,8 +76,6 @@ export async function createAuditRun(input: {
   targetUrlsInput: string;
   categoriesInput: string;
   checklistText?: string;
-  aiProvider?: AiProvider;
-  aiModel?: string;
 }) {
   const targetUrls = parseArticleUrls(input.targetUrlsInput);
   const categories = parseCategories(input.categoriesInput);
@@ -86,9 +88,7 @@ export async function createAuditRun(input: {
       websiteUrl: input.websiteUrl,
       targetUrls,
       categories,
-      checklistText: input.checklistText?.trim() || undefined,
-      aiProvider: input.aiProvider ?? "openai",
-      aiModel: input.aiModel?.trim() || undefined
+      checklistText: input.checklistText?.trim() || undefined
     })
   });
 }

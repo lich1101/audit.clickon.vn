@@ -5,14 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PlanRequestDecisionRequest;
 use App\Http\Requests\PlanRequestStoreRequest;
+use App\Models\Plan;
 use App\Models\PlanRequest;
-use App\Services\FirestoreService;
+use App\Services\CreditService;
 use Illuminate\Http\Request;
 
 class PlanRequestController extends Controller
 {
     public function __construct(
-        private readonly FirestoreService $firestoreService,
+        private readonly CreditService $creditService,
     ) {
     }
 
@@ -32,9 +33,9 @@ class PlanRequestController extends Controller
 
     public function store(PlanRequestStoreRequest $request)
     {
-        $plan = $this->firestoreService->getPlan($request->validated('planId'));
+        $plan = Plan::query()->find($request->validated('planId'));
 
-        if (! $plan || ! ($plan['isActive'] ?? false)) {
+        if (! $plan || ! $plan->is_active) {
             return response()->json([
                 'message' => 'Plan does not exist or is inactive.',
             ], 422);
@@ -44,9 +45,9 @@ class PlanRequestController extends Controller
             'firebase_uid' => (string) $request->attributes->get('firebase_uid'),
             'user_email' => (string) $request->attributes->get('firebase_email'),
             'plan_id' => $request->validated('planId'),
-            'plan_name' => (string) ($plan['name'] ?? 'Unknown plan'),
-            'price' => (int) ($plan['price'] ?? 0),
-            'credits' => (int) ($plan['credits'] ?? 0),
+            'plan_name' => $plan->name,
+            'price' => (int) $plan->price,
+            'credits' => (int) $plan->credits,
             'status' => 'pending',
         ]);
 
@@ -75,12 +76,14 @@ class PlanRequestController extends Controller
             ], 422);
         }
 
-        $this->firestoreService->mutateCredits(
-            $planRequest->firebase_uid,
-            'add',
-            $planRequest->credits,
-            "Approved plan {$planRequest->plan_name}",
-            'plan',
+        $this->creditService->mutate(
+            firebaseUid: $planRequest->firebase_uid,
+            type: 'add',
+            amount: $planRequest->credits,
+            reason: "Approved plan {$planRequest->plan_name}",
+            source: 'plan',
+            referenceType: 'plan_request',
+            referenceId: (string) $planRequest->id,
         );
 
         $planRequest->forceFill([

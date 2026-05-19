@@ -22,9 +22,7 @@ export const websiteSchema = z.object({
 export const createWebsiteSchema = websiteSchema.extend({
   articleUrlsInput: z.string().optional().default(""),
   categoriesInput: z.string().optional().default(""),
-  checklistText: z.string().optional().default(""),
-  aiProvider: z.enum(["openai", "gemini", "gemini_deep_research"]).optional().default("openai"),
-  aiModel: z.string().optional().default("")
+  checklistText: z.string().optional().default("")
 });
 
 export const auditFormSchema = z.object({
@@ -35,9 +33,7 @@ export const auditFormSchema = z.object({
 export const auditRunSchema = z.object({
   targetUrlsInput: trimmedString,
   categoriesInput: trimmedString,
-  checklistText: z.string().trim().optional().default(""),
-  aiProvider: z.enum(["openai", "gemini", "gemini_deep_research"]).default("openai"),
-  aiModel: z.string().trim().optional().default("")
+  checklistText: z.string().trim().optional().default("")
 });
 
 export const planSchema = z.object({

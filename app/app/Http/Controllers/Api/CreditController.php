@@ -4,14 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreditMutationRequest;
-use App\Services\FirestoreService;
+use App\Services\CreditService;
 use Illuminate\Http\Request;
 use RuntimeException;
 
 class CreditController extends Controller
 {
     public function __construct(
-        private readonly FirestoreService $firestoreService,
+        private readonly CreditService $creditService,
     ) {
     }
 
@@ -19,12 +19,12 @@ class CreditController extends Controller
     {
         $payload = $request->validated();
         $source = (string) $request->attributes->get('actor_source', 'api');
-        $result = $this->firestoreService->mutateCredits(
-            $payload['userId'],
-            'add',
-            (int) $payload['amount'],
-            $payload['reason'],
-            $source === 'admin' ? 'admin' : 'api',
+        $result = $this->creditService->mutate(
+            firebaseUid: $payload['userId'],
+            type: 'add',
+            amount: (int) $payload['amount'],
+            reason: $payload['reason'],
+            source: $source === 'admin' ? 'admin' : 'api',
         );
 
         return response()->json([
@@ -39,12 +39,12 @@ class CreditController extends Controller
         try {
             $payload = $request->validated();
             $source = (string) $request->attributes->get('actor_source', 'api');
-            $result = $this->firestoreService->mutateCredits(
-                $payload['userId'],
-                'subtract',
-                (int) $payload['amount'],
-                $payload['reason'],
-                $source === 'admin' ? 'admin' : 'api',
+            $result = $this->creditService->mutate(
+                firebaseUid: $payload['userId'],
+                type: 'subtract',
+                amount: (int) $payload['amount'],
+                reason: $payload['reason'],
+                source: $source === 'admin' ? 'admin' : 'api',
             );
 
             return response()->json([
@@ -75,7 +75,7 @@ class CreditController extends Controller
 
         return response()->json([
             'userId' => $userId,
-            'credits' => $this->firestoreService->getBalance($userId),
+            'credits' => $this->creditService->getBalance($userId),
         ]);
     }
 }

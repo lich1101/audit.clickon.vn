@@ -9,7 +9,7 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { listenToAllPlans, updatePlan } from "@/lib/firestore";
+import { fetchAdminPlans, updatePlan } from "@/lib/account";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import type { Plan } from "@/types";
 
@@ -17,7 +17,9 @@ export default function AdminPlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [search, setSearch] = useState("");
 
-  useEffect(() => listenToAllPlans(setPlans), []);
+  useEffect(() => {
+    void fetchAdminPlans().then(setPlans).catch(() => setPlans([]));
+  }, []);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();

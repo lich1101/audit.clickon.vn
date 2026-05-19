@@ -1,20 +1,24 @@
 "use client";
 
-import { HelpCircle, Menu, Moon, Search, Settings2, Sun } from "lucide-react";
+import { HelpCircle, LayoutDashboard, Menu, Moon, Search, Settings2, ShieldCheck, Sun } from "lucide-react";
 import { signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 
 export function Topbar() {
+  const router = useRouter();
   const { profile } = useAuth();
+  const { mode, isAdmin, setDashboardMode } = useDashboardMode();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -74,11 +78,36 @@ export function Topbar() {
                 </Avatar>
                 <div className="hidden text-left sm:block">
                   <p className="text-sm font-medium">{profile?.displayName ?? profile?.email ?? "Guest"}</p>
-                  <p className="text-xs text-muted-foreground">{profile?.role ?? "user"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {isAdmin ? (mode === "admin" ? "admin mode" : profile?.role ?? "user") : profile?.role ?? "user"}
+                  </p>
                 </div>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {isAdmin && mode === "user" ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setDashboardMode("admin");
+                    router.push("/admin");
+                  }}
+                >
+                  <ShieldCheck className="size-4" />
+                  Chế độ quản trị
+                </DropdownMenuItem>
+              ) : null}
+              {isAdmin && mode === "admin" ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setDashboardMode("user");
+                    router.push("/dashboard");
+                  }}
+                >
+                  <LayoutDashboard className="size-4" />
+                  Chế độ người dùng
+                </DropdownMenuItem>
+              ) : null}
+              {isAdmin ? <DropdownMenuSeparator /> : null}
               <DropdownMenuItem onSelect={() => signOut(auth)}>Đăng xuất</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

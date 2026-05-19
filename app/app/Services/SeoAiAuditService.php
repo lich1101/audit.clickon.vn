@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AuditPromptTemplate;
 use App\Models\AuditRun;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -270,7 +271,7 @@ TEXT;
             ->timeout((int) config('services.openai.timeout_seconds', 180))
             ->post('https://api.openai.com/v1/responses', $payload);
 
-        $response->throw();
+        $this->throwIfAiRequestFailed($response, 'OpenAI');
 
         $body = $response->json();
         $text = $this->extractTextFromOpenAiResponse($body);
@@ -332,7 +333,7 @@ TEXT;
             ->timeout((int) config('services.gemini.timeout_seconds', 180))
             ->post("https://generativelanguage.googleapis.com/v1beta/models/{$modelName}:generateContent", $payload);
 
-        $response->throw();
+        $this->throwIfAiRequestFailed($response, 'Gemini');
 
         $body = $response->json();
         $meta = is_array($body['usageMetadata'] ?? null) ? $body['usageMetadata'] : [];
@@ -468,7 +469,39 @@ TEXT;
             throw new RuntimeException($fallback.': '.$payload['error']['message']);
         }
 
-        $response->throw();
+        $this->throwIfAiRequestFailed($response, 'Gemini Deep Research');
+    }
+
+    private function throwIfAiRequestFailed(\Illuminate\Http\Client\Response $response, string $provider): void
+    {
+        if ($response->successful()) {
+            return;
+        }
+
+        try {
+            $response->throw();
+        } catch (RequestException $exception) {
+            $payload = $exception->response->json();
+            $message = null;
+
+            if (is_array($payload)) {
+                $message = Arr::get($payload, 'error.message')
+                    ?? Arr::get($payload, 'message')
+                    ?? Arr::get($payload, 'error');
+            }
+
+            if (! is_string($message) || trim($message) === '') {
+                $message = mb_substr($exception->response->body(), 0, 500);
+            }
+
+            $message = trim(preg_replace('/\s+/', ' ', (string) $message) ?? (string) $message);
+
+            if ($exception->response->status() === 429) {
+                throw new RuntimeException("{$provider} rate limit (429): {$message}. Hãy giảm số URL chạy đồng thời trong Admin > Audit Settings, đổi model nhẹ hơn hoặc chờ quota reset.");
+            }
+
+            throw new RuntimeException("{$provider} API lỗi HTTP {$exception->response->status()}: {$message}");
+        }
     }
 
     /**

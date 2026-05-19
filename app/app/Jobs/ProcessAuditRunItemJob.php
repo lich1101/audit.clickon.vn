@@ -11,9 +11,19 @@ class ProcessAuditRunItemJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 2;
+    public int $tries = 3;
 
     public int $timeout = 1800;
+
+    /**
+     * Back off AI calls so provider token-per-minute limits can reset.
+     *
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        return [60, 180];
+    }
 
     public function __construct(
         public readonly int $itemId,

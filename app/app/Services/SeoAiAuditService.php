@@ -519,9 +519,20 @@ TEXT;
         $rawText = (string) ($record['rawText'] ?? '');
 
         if ($rawText !== '') {
-            $stored = $this->aiStepResponseStorage->store($run->public_id, $step, $rawText);
-            unset($record['rawText']);
-            $record = array_merge($record, $stored);
+            try {
+                $stored = $this->aiStepResponseStorage->store($run->public_id, $step, $rawText);
+                unset($record['rawText']);
+                $record = array_merge($record, $stored);
+            } catch (RuntimeException $storageException) {
+                unset($record['rawText']);
+                $record['rawTextStorageError'] = $storageException->getMessage();
+                $record['rawTextPreview'] = mb_substr($rawText, 0, 4000);
+                $record['rawTextBytes'] = strlen($rawText);
+
+                if (($record['status'] ?? '') !== 'parse_failed') {
+                    report($storageException);
+                }
+            }
         }
 
         $responses[$step] = $record;

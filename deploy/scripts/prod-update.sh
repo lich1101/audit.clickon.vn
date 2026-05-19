@@ -77,6 +77,11 @@ docker_build web
 echo "==> Starting production containers (không build lại song song)"
 dc up -d mysql api queue web nginx
 
+AUDIT_RESPONSES_DIR="$ROOT_DIR/app/storage/app/private/audit-ai-responses"
+mkdir -p "$AUDIT_RESPONSES_DIR"
+chown -R 33:33 "$AUDIT_RESPONSES_DIR" 2>/dev/null || chown -R www-data:www-data "$AUDIT_RESPONSES_DIR" 2>/dev/null || true
+chmod -R ug+rwX "$AUDIT_RESPONSES_DIR" 2>/dev/null || chmod -R 775 "$AUDIT_RESPONSES_DIR" 2>/dev/null || true
+
 echo "==> Running database migrations"
 dc exec -T api php artisan migrate --force
 

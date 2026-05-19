@@ -211,6 +211,7 @@ class AuditRunService
                 return;
             }
 
+            $this->markBatchItemsFailed($run, $exception->getMessage());
             $this->markRunFailed($run, $exception->getMessage());
 
             return;
@@ -303,6 +304,30 @@ class AuditRunService
         ])->save();
 
         $this->syncRunIfEnabled($run->fresh());
+    }
+
+    public function markBatchItemsFailed(AuditRun $run, string $message): void
+    {
+        $itemIds = $run->items()
+            ->whereIn('status', ['queued', 'fetching', 'analyzing'])
+            ->pluck('id');
+
+        if ($itemIds->isEmpty()) {
+            return;
+        }
+
+        $run->items()
+            ->whereIn('id', $itemIds)
+            ->update([
+                'status' => 'failed',
+                'error_message' => $message,
+                'completed_at' => now(),
+            ]);
+
+        foreach ($run->items()->whereIn('id', $itemIds)->get() as $item) {
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
     }
 
     public function isRunCancelled(AuditRun $run): bool
@@ -615,6 +640,7 @@ class AuditRunService
             'createdAt' => optional($run->created_at)?->toIso8601String(),
             'updatedAt' => optional($run->updated_at)?->toIso8601String(),
             'lastError' => $run->last_error,
+            'aiStepResponses' => $this->compactAiStepResponses($run->ai_step_responses ?? []),
             'items' => $run->items->map(fn (AuditRunItem $item): array => [
                 'publicId' => $item->public_id,
                 'auditRunId' => $run->public_id,
@@ -671,6 +697,43 @@ class AuditRunService
                 'createdAt' => $snapshot['createdAt'] ?? null,
                 'systemPromptPreview' => mb_substr((string) ($snapshot['systemPrompt'] ?? ''), 0, 2500),
                 'userPromptPreview' => mb_substr((string) ($snapshot['userPrompt'] ?? ''), 0, 2500),
+            ];
+        }
+
+        return $compact;
+    }
+
+    /**
+     * @param  mixed  $responses
+     * @return array<string, mixed>
+     */
+    private function compactAiStepResponses(mixed $responses): array
+    {
+        if (! is_array($responses)) {
+            return [];
+        }
+
+        $compact = [];
+
+        foreach ($responses as $step => $record) {
+            if (! is_array($record)) {
+                continue;
+            }
+
+            $compact[(string) $step] = [
+                'step' => $record['step'] ?? (string) $step,
+                'stepLabel' => $record['stepLabel'] ?? null,
+                'status' => $record['status'] ?? null,
+                'provider' => $record['provider'] ?? null,
+                'model' => $record['model'] ?? null,
+                'interactionId' => $record['interactionId'] ?? null,
+                'parseError' => $record['parseError'] ?? null,
+                'rawTextPath' => $record['rawTextPath'] ?? null,
+                'rawTextBytes' => $record['rawTextBytes'] ?? null,
+                'rawTextOriginalBytes' => $record['rawTextOriginalBytes'] ?? null,
+                'rawTextTruncated' => (bool) ($record['rawTextTruncated'] ?? false),
+                'rawTextPreview' => $record['rawTextPreview'] ?? null,
+                'createdAt' => $record['createdAt'] ?? null,
             ];
         }
 

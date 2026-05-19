@@ -29,6 +29,7 @@ TEXT;
 
     public function __construct(
         private readonly AuditPromptTemplateService $promptTemplateService,
+        private readonly AuditAiStepResponseStorageService $aiStepResponseStorage,
     ) {
     }
 
@@ -195,6 +196,7 @@ TEXT;
             'Do not claim that page HTML/content/title/meta/headings were crawled.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
         ]);
         $prompts['system'] .= "\n\n".$batchContract;
         $prompts['developer'] = $prompts['system'];
@@ -213,6 +215,7 @@ TEXT;
             userPrompt: $prompts['user'],
             schema: $this->batchKeywordCategorySchema(),
             auditRunId: $auditRunId,
+            persistStep: 'batch_keyword_category_mapping',
         );
 
         $data = $response['data'];
@@ -328,6 +331,7 @@ TEXT;
             'For unverified checklist criteria, state "không kiểm chứng được" instead of inventing evidence.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
         ]);
         $prompts['system'] .= "\n\n".$batchContract;
         $prompts['developer'] = $prompts['system'];
@@ -348,6 +352,7 @@ TEXT;
             userPrompt: $prompts['user'],
             schema: $this->batchOnpageSchema(),
             auditRunId: $auditRunId,
+            persistStep: 'batch_onpage_audit',
         );
 
         $data = $response['data'];
@@ -433,22 +438,111 @@ TEXT;
      * @param  array<string, mixed>  $schema
      * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestJson(string $provider, ?string $model, string $systemPrompt, string $userPrompt, array $schema, ?int $auditRunId = null): array
-    {
+    private function requestJson(
+        string $provider,
+        ?string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        array $schema,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+    ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $providerLabel = match ($provider) {
+            'openai' => 'OpenAI',
+            'gemini' => 'Gemini',
+            'gemini_deep_research' => 'Gemini Deep Research',
+            default => $provider,
+        };
 
-        return match ($provider) {
-            'openai' => $this->requestOpenAiJson($resolvedModel, $systemPrompt, $userPrompt, $provider),
-            'gemini' => $this->requestGeminiJson($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchJson($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
+        $raw = match ($provider) {
+            'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
+        };
+
+        try {
+            $data = $this->decodeJsonText($raw['rawText'], $providerLabel);
+        } catch (RuntimeException $exception) {
+            if ($auditRunId && $persistStep) {
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => $this->stepLabel($persistStep),
+                    'status' => 'parse_failed',
+                    'provider' => $provider,
+                    'model' => $resolvedModel,
+                    'rawText' => $raw['rawText'],
+                    'interactionId' => $raw['interactionId'] ?? null,
+                    'parseError' => $exception->getMessage(),
+                    'usage' => $raw['usage'],
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+            }
+
+            throw $exception;
+        }
+
+        if ($auditRunId && $persistStep) {
+            $this->persistAiStepResponse($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'status' => 'parsed',
+                'provider' => $provider,
+                'model' => $resolvedModel,
+                'rawText' => $raw['rawText'],
+                'interactionId' => $raw['interactionId'] ?? null,
+                'parsed' => $data,
+                'usage' => $raw['usage'],
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
+        return [
+            'data' => $data,
+            'usage' => $raw['usage'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function persistAiStepResponse(int $auditRunId, string $step, array $record): void
+    {
+        $run = AuditRun::query()->find($auditRunId);
+
+        if (! $run) {
+            return;
+        }
+
+        $responses = is_array($run->ai_step_responses) ? $run->ai_step_responses : [];
+        $rawText = (string) ($record['rawText'] ?? '');
+
+        if ($rawText !== '') {
+            $stored = $this->aiStepResponseStorage->store($run->public_id, $step, $rawText);
+            unset($record['rawText']);
+            $record = array_merge($record, $stored);
+        }
+
+        $responses[$step] = $record;
+        $run->forceFill(['ai_step_responses' => $responses])->save();
+    }
+
+    private function stepLabel(string $step): string
+    {
+        return match ($step) {
+            'batch_keyword_category_mapping' => 'Bước 2: Từ khóa + danh mục (batch)',
+            'batch_onpage_audit' => 'Bước 3: Audit onpage (batch)',
+            'keyword_category_mapping' => 'Từ khóa + danh mục',
+            'onpage_audit' => 'Audit onpage',
+            default => $step,
         };
     }
 
     /**
-     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestOpenAiJson(string $model, string $systemPrompt, string $userPrompt, string $provider): array
+    private function requestOpenAiRaw(string $model, string $systemPrompt, string $userPrompt, string $provider): array
     {
         $apiKey = config('services.openai.api_key');
 
@@ -492,7 +586,7 @@ TEXT;
         $outputTokens = (int) ($usageMeta['output_tokens'] ?? $usageMeta['completion_tokens'] ?? 0);
 
         return [
-            'data' => $this->decodeJsonText($text, 'OpenAI'),
+            'rawText' => $text,
             'usage' => [
                 'provider' => $provider,
                 'model' => $model,
@@ -505,9 +599,9 @@ TEXT;
 
     /**
      * @param  array<string, mixed>  $schema
-     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestGeminiJson(string $model, string $systemPrompt, string $userPrompt, array $schema, string $provider): array
+    private function requestGeminiRaw(string $model, string $systemPrompt, string $userPrompt, array $schema, string $provider): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -554,7 +648,7 @@ TEXT;
         $totalTokens = (int) ($meta['totalTokenCount'] ?? ($inputTokens + $outputTokens));
 
         return [
-            'data' => $this->decodeJsonText($this->extractTextFromGeminiResponse($body), 'Gemini'),
+            'rawText' => $this->extractTextFromGeminiResponse($body),
             'usage' => [
                 'provider' => $provider,
                 'model' => $modelName,
@@ -566,9 +660,9 @@ TEXT;
     }
 
     /**
-     * @return array{data: array<string, mixed>, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}, interactionId: string}
      */
-    private function requestGeminiDeepResearchJson(string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId, string $provider): array
+    private function requestGeminiDeepResearchRaw(string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId, string $provider): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -631,7 +725,8 @@ TEXT;
 
             if ($status === 'completed') {
                 return [
-                    'data' => $this->decodeJsonText($this->extractTextFromInteraction($payload), 'Gemini Deep Research'),
+                    'rawText' => $this->extractTextFromInteraction($payload),
+                    'interactionId' => $interactionId,
                     'usage' => [
                         'provider' => $provider,
                         'model' => $agent,
@@ -643,6 +738,20 @@ TEXT;
             }
 
             if (in_array($status, ['failed', 'cancelled'], true)) {
+                if ($auditRunId) {
+                    $this->persistAiStepResponse($auditRunId, 'gemini_deep_research_interaction', [
+                        'step' => 'gemini_deep_research_interaction',
+                        'stepLabel' => 'Gemini Deep Research (interaction failed)',
+                        'status' => (string) $status,
+                        'provider' => $provider,
+                        'model' => $agent,
+                        'interactionId' => $interactionId,
+                        'rawText' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'parseError' => json_encode($payload['error'] ?? [], JSON_UNESCAPED_UNICODE),
+                        'createdAt' => now()->toIso8601String(),
+                    ]);
+                }
+
                 throw new RuntimeException('Gemini Deep Research failed: '.json_encode($payload['error'] ?? [], JSON_UNESCAPED_UNICODE));
             }
 
@@ -761,6 +870,16 @@ TEXT;
      */
     private function extractTextFromInteraction(array $interaction): string
     {
+        $outputs = $interaction['outputs'] ?? [];
+
+        for ($index = count($outputs) - 1; $index >= 0; $index--) {
+            $text = $outputs[$index]['text'] ?? null;
+
+            if (is_string($text) && trim($text) !== '') {
+                return $text;
+            }
+        }
+
         $steps = $interaction['steps'] ?? [];
 
         for ($index = count($steps) - 1; $index >= 0; $index--) {

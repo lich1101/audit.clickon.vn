@@ -29,6 +29,7 @@ class AuditRun extends Model
         'completed_at',
         'cancelled_at',
         'last_error',
+        'ai_step_responses',
     ];
 
     protected function casts(): array
@@ -37,6 +38,7 @@ class AuditRun extends Model
             'target_urls' => 'array',
             'categories' => 'array',
             'category_contexts' => 'array',
+            'ai_step_responses' => 'array',
             'total_urls' => 'integer',
             'processed_urls' => 'integer',
             'completed_urls' => 'integer',

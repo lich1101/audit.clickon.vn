@@ -45,9 +45,10 @@ class AuditPromptTemplate extends Model
                     'Đầu vào chỉ có URL bài viết và danh sách danh mục/URL danh mục. Không giả vờ đã crawl nội dung, title, meta hoặc heading.',
                     'Nhiệm vụ: với mỗi URL, suy luận thận trọng 1 từ khóa SEO chính từ slug/ngữ cảnh URL và chọn đúng 1 danh mục phù hợp nhất từ danh sách được cung cấp.',
                     'Danh mục chỉ được chọn khi URL/slug phù hợp rõ với chủ đề danh mục. Nếu không có danh mục đủ phù hợp, trả về chuỗi rỗng cho categoryName/categoryUrl.',
-                    'Bắt buộc trả đủ một item cho mọi URL đầu vào, giữ nguyên targetUrl đúng như input.',
+                    'Bắt buộc trả đủ một item cho mọi URL đầu vào, giữ nguyên targetUrl đúng như input (đúng từng ký tự, không đổi http/https hay dấu /).',
                     'Trả về JSON object đúng schema: {"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}.',
-                    'JSON only. No markdown.',
+                    'OUTPUT BẮT BUỘC: chỉ một JSON object. Ký tự đầu tiên là {, ký tự cuối là }. Không markdown, không tiêu đề, không bảng, không giải thích, không ```json.',
+                    'Nếu dùng Gemini Deep Research: vẫn phải trả JSON thuần, không viết báo cáo nghiên cứu.',
                 ]),
                 'user_prompt' => implode("\n\n", [
                     'Danh sách URL mục tiêu cần xử lý:',
@@ -127,7 +128,9 @@ class AuditPromptTemplate extends Model
                     '- String 3–5 câu. Câu đầu bắt buộc bắt đầu bằng "Viết lại", "Audit Content", "Giữ nguyên" hoặc "Redirect".',
                     'XI. OUTPUT FORMAT',
                     '- JSON ONLY. Không markdown. Không dùng ```json. Không text ngoài JSON.',
-                    'JSON only. No markdown.',
+                    '- Ký tự đầu tiên của toàn bộ output là {, ký tự cuối là }.',
+                    '- Bắt buộc đủ số items = số URL đầu vào; giữ nguyên targetUrl từng dòng.',
+                    '- Nếu dùng Gemini Deep Research: không viết báo cáo dài; chỉ trả JSON batch theo schema.',
                 ]),
                 'user_prompt' => implode("\n\n", [
                     'Danh sách URL mục tiêu:',

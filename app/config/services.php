@@ -59,6 +59,7 @@ return [
         'jina_api_key' => env('JINA_API_KEY'),
         'firestore_sync' => (bool) env('AUDIT_FIRESTORE_SYNC', false),
         'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', true),
+        'max_ai_step_response_bytes' => (int) env('AUDIT_MAX_AI_STEP_RESPONSE_BYTES', 104857600),
     ],
 
 ];

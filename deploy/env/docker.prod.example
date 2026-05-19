@@ -110,6 +110,8 @@ JINA_API_KEY=
 AUDIT_USER_AGENT="ClickonAuditBot/1.0 (+https://audit.clickon.vn)"
 AUDIT_FIRESTORE_SYNC=true
 AUDIT_FIRESTORE_FALLBACK=true
+# Full text response mỗi bước AI (bước 2 + 3): lưu file, tối đa 100MB/bước (104857600 bytes)
+AUDIT_MAX_AI_STEP_RESPONSE_BYTES=104857600
 QUEUE_WORKERS=3
 DOCKER_PRUNE_AFTER_DEPLOY=1
 

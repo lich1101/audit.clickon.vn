@@ -95,7 +95,7 @@ export function mapCreditLog(docId: string, data: DocumentData): CreditLog {
     balanceBefore: Number(data.balanceBefore ?? 0),
     balanceAfter: Number(data.balanceAfter ?? 0),
     reason: data.reason ?? "",
-    source: ["admin", "api", "plan", "system"].includes(data.source) ? data.source : "system",
+    source: ["admin", "api", "plan", "audit", "system"].includes(data.source) ? data.source : "system",
     createdAt: serializeTimestamp(data.createdAt)
   };
 }

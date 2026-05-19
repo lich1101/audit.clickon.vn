@@ -10,6 +10,7 @@ class AdminAccountService
 {
     public function __construct(
         private readonly FirestoreService $firestoreService,
+        private readonly CreditService $creditService,
     ) {
     }
 
@@ -52,7 +53,7 @@ class AdminAccountService
                 'disabled' => false,
             ], static fn (mixed $value): bool => $value !== null));
 
-            $this->firestoreService->seedAdmin(
+            $this->seedAdminProfile(
                 uid: $user->uid,
                 email: $normalizedEmail,
                 displayName: $normalizedDisplayName !== '' ? $normalizedDisplayName : null,
@@ -76,7 +77,7 @@ class AdminAccountService
 
             $user = $auth->createUser($payload);
 
-            $this->firestoreService->seedAdmin(
+            $this->seedAdminProfile(
                 uid: $user->uid,
                 email: $normalizedEmail,
                 displayName: $normalizedDisplayName !== '' ? $normalizedDisplayName : null,
@@ -89,5 +90,34 @@ class AdminAccountService
                 'created' => true,
             ];
         }
+    }
+
+    public function seedExistingAdminProfile(string $uid, string $email, ?string $displayName = null): void
+    {
+        $normalizedUid = trim($uid);
+        $normalizedEmail = mb_strtolower(trim($email));
+        $normalizedDisplayName = $displayName !== null ? trim($displayName) : null;
+
+        if ($normalizedUid === '') {
+            throw new RuntimeException('Firebase UID admin không được để trống.');
+        }
+
+        if ($normalizedEmail === '') {
+            throw new RuntimeException('Email admin không được để trống.');
+        }
+
+        $this->seedAdminProfile(
+            uid: $normalizedUid,
+            email: $normalizedEmail,
+            displayName: $normalizedDisplayName !== '' ? $normalizedDisplayName : null,
+        );
+    }
+
+    private function seedAdminProfile(string $uid, string $email, ?string $displayName = null): void
+    {
+        $this->firestoreService->seedAdmin($uid, $email, $displayName);
+
+        $user = $this->creditService->ensureUser($uid, $email, $displayName);
+        $user->forceFill(['role' => 'admin'])->save();
     }
 }

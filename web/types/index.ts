@@ -75,7 +75,7 @@ export type CreditLog = {
   balanceBefore: number;
   balanceAfter: number;
   reason: string;
-  source: "admin" | "api" | "plan" | "system";
+  source: "admin" | "api" | "plan" | "audit" | "system";
   createdAt: string;
 };
 

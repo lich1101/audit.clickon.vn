@@ -7,11 +7,11 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('clickon:seed-admin {uid} {email} {--name=}', function (\App\Services\FirestoreService $firestoreService, string $uid, string $email) {
-    $firestoreService->seedAdmin($uid, $email, $this->option('name'));
+Artisan::command('clickon:seed-admin {uid} {email} {--name=}', function (\App\Services\AdminAccountService $adminAccountService, string $uid, string $email) {
+    $adminAccountService->seedExistingAdminProfile($uid, $email, $this->option('name'));
 
-    $this->info("Admin user seeded for UID {$uid}.");
-})->purpose('Seed the first admin profile into Firestore');
+    $this->info("Admin user seeded for UID {$uid} in Firestore and MySQL.");
+})->purpose('Seed the first admin profile into Firestore and MySQL');
 
 Artisan::command('clickon:create-admin {email} {password} {--name=} {--uid=} {--unverified}', function (\App\Services\AdminAccountService $adminAccountService, string $email, string $password) {
     $result = $adminAccountService->createOrUpdateAdmin(
@@ -25,4 +25,4 @@ Artisan::command('clickon:create-admin {email} {password} {--name=} {--uid=} {--
     $status = $result['created'] ? 'created' : 'updated';
 
     $this->info("Admin account {$status}: {$result['email']} ({$result['uid']})");
-})->purpose('Create or update a Firebase Authentication admin account and seed its Firestore profile');
+})->purpose('Create or update a Firebase Authentication admin account and seed its Firestore/MySQL admin profile');

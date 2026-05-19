@@ -7,6 +7,7 @@ Clickon Audit là SaaS quản lý credit và audit website.
 - `firestore.rules`: rule bảo mật Firestore
 - `deploy/nginx/audit.clickon.vn.conf`: Nginx host proxy **trực tiếp** tới Next.js `3000` + Laravel `8000` (mode cũ, không phải mode Docker stack khuyến nghị)
 - `deploy/nginx/audit.clickon.vn.host-to-docker.conf`: Nginx host proxy tới **Nginx Docker** (`127.0.0.1:18080` mặc định) khi bạn muốn SSL/public qua host
+- `deploy/apache/audit.clickon.vn.host-to-docker.conf`: Apache host proxy tới **Nginx Docker** (`127.0.0.1:18080` mặc định), phù hợp server đang chạy Apache/cPanel/site khác
 - `docker-compose.prod.yml`: stack Docker production cho `web`, `api`, `queue`, `mysql`
 - `deploy/env/docker.prod.example`: file env mẫu cho Docker production
 - `deploy/scripts/prod-first-run.sh`: script chạy lần đầu cho stack production
@@ -25,7 +26,7 @@ Clickon Audit là SaaS quản lý credit và audit website.
   - `queue`
   - `web`
   - `nginx`
-- Nginx host chỉ là lựa chọn thêm cho public SSL / multi-site, không phải bắt buộc của app stack
+- Apache/Nginx host chỉ là lựa chọn thêm cho public SSL / multi-site, không phải bắt buộc của app stack
 - Laravel queue xử lý từng `audit run` theo từng URL
 - Firestore realtime sync:
   - `users`
@@ -74,7 +75,7 @@ Hướng dẫn này giả định:
 - code đặt tại `/var/www/clickon-audit` hoặc `/var/www/audit.clickon.vn` (thay `<repo>` bên dưới cho đúng đường dẫn)
 - domain public là `audit.clickon.vn`
 - `docker-compose.prod.yml`: có service **nginx** bên trong Docker; mặc định chỉ bind `127.0.0.1:18080` để **không đụng** Nginx site khác trên cùng máy
-- Nginx trên host: bật SSL (Certbot) và `proxy_pass` vào `127.0.0.1:18080` — xem file `deploy/nginx/audit.clickon.vn.host-to-docker.conf`
+- Apache hoặc Nginx trên host: bật SSL (Certbot) và proxy vào `127.0.0.1:18080` — xem `deploy/apache/audit.clickon.vn.host-to-docker.conf` hoặc `deploy/nginx/audit.clickon.vn.host-to-docker.conf`
 - (Tuỳ chọn) Nếu không dùng Nginx trong Docker: publish cổng `web`/`api` và dùng `audit.clickon.vn.conf` như cũ
 
 ## 1. Chuẩn bị DNS
@@ -240,7 +241,7 @@ curl -sI -H 'Host: audit.clickon.vn' http://127.0.0.1:18080/backend/up
 
 Nếu bạn **không** dùng Nginx trong Docker mà publish thẳng `web`/`api` ra host, thay `18080` bằng `3000`/`8000` tương ứng (không khuyến nghị với `docker-compose.prod.yml` hiện tại).
 
-## 9. Cấu hình Nginx host (public + SSL)
+## 9. Cấu hình Apache/Nginx host (public + SSL)
 
 Có **hai** cách; chỉ chọn **một** để tránh proxy lệch cổng.
 
@@ -261,6 +262,17 @@ Nếu bạn đổi `NGINX_HTTP_PORT` trong `docker.prod.env`, sửa dòng `proxy
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+Nếu host của bạn đang dùng **Apache** thay vì Nginx, dùng mẫu Apache một tầng lên Docker:
+
+```bash
+sudo a2enmod proxy proxy_http headers rewrite ssl
+sudo cp /var/www/<repo>/deploy/apache/audit.clickon.vn.host-to-docker.conf /etc/apache2/sites-available/audit.clickon.vn.conf
+sudo a2ensite audit.clickon.vn.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+sudo certbot --apache -d audit.clickon.vn
 ```
 
 ### Cách B — Không có Nginx trong Docker: proxy thẳng tới Next + Laravel
@@ -350,6 +362,8 @@ Script này sẽ đọc:
 
 trong `deploy/env/docker.prod.env`.
 
+Lệnh/script này tạo hoặc cập nhật Firebase Authentication user, seed Firestore `users/{uid}`, đồng thời promote MySQL `app_users.role = admin` để Laravel API admin hoạt động đúng.
+
 ### Cách 2. Promote một user Firebase có sẵn thành admin
 
 1. Mở `https://audit.clickon.vn/register`
@@ -362,10 +376,10 @@ cd /var/www/clickon-audit
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <firebase_uid> <email>
 ```
 
-Lệnh này sẽ upsert `users/{uid}` trong Firestore với:
+Lệnh này sẽ upsert `users/{uid}` trong Firestore và user tương ứng trong MySQL `app_users` với:
 
 - `role = admin`
-- `credits = 0`
+- giữ nguyên `credits` hiện có nếu tài khoản đã tồn tại
 
 Tài liệu Docker chi tiết, gồm cả rebuild website sau khi sửa code, nằm ở [docker.md](</Users/macbook/Desktop/php/web audit/docker.md>).
 

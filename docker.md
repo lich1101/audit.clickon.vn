@@ -77,7 +77,26 @@ NGINX_BIND=127.0.0.1
 NGINX_HTTP_PORT=18080
 ```
 
-Host cấu hình `proxy_pass http://127.0.0.1:18080/` (toàn bộ URI) — tham khảo `deploy/nginx/audit.clickon.vn.host-to-docker.conf`.
+Host reverse proxy toàn bộ URI vào `http://127.0.0.1:18080/`.
+
+Nếu host dùng **Nginx**, tham khảo:
+
+- [`deploy/nginx/audit.clickon.vn.host-to-docker.conf`](./deploy/nginx/audit.clickon.vn.host-to-docker.conf)
+
+Nếu host dùng **Apache** như server hiện tại, tham khảo:
+
+- [`deploy/apache/audit.clickon.vn.host-to-docker.conf`](./deploy/apache/audit.clickon.vn.host-to-docker.conf)
+
+Lệnh Apache mẫu:
+
+```bash
+sudo a2enmod proxy proxy_http headers rewrite ssl
+sudo cp deploy/apache/audit.clickon.vn.host-to-docker.conf /etc/apache2/sites-available/audit.clickon.vn.conf
+sudo a2ensite audit.clickon.vn.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+sudo certbot --apache -d audit.clickon.vn
+```
 
 Các mục từ mục 2 trở đi áp dụng cho **cả hai mode**; khác nhau chỉ chỗ publish cổng như trên.
 
@@ -146,12 +165,15 @@ AUDIT_MAX_CATEGORY_CONTENT_CHARS=7000
 AUDIT_USE_JINA_READER=true
 AUDIT_JINA_BASE_URL=https://r.jina.ai/
 JINA_API_KEY=
+AUDIT_FIRESTORE_SYNC=true
+AUDIT_FIRESTORE_FALLBACK=true
 ```
 
 Ghi chú vận hành:
 
 - `openai` và `gemini` phù hợp chạy nhiều URL vì trả JSON có cấu trúc nhanh hơn.
 - `gemini_deep_research` chạy qua Interactions API nền, có thể mất vài phút cho mỗi URL; chỉ chọn khi thật sự cần phân tích nghiên cứu sâu.
+- Checklist mặc định của bước 3 nằm tại `app/resources/audit/seo-checklist.txt`; nếu user không nhập checklist riêng trong form audit thì backend dùng file này.
 - Nếu đổi các biến AI/crawl, rebuild hoặc recreate `api` và `queue` để queue worker nhận env mới.
 
 ## 2. Chạy lần đầu
@@ -207,7 +229,8 @@ Command này sẽ:
 1. tạo hoặc cập nhật user trong Firebase Authentication
 2. đặt lại password nếu user đã tồn tại
 3. seed profile `users/{uid}` trong Firestore với role `admin`
-4. giữ nguyên credit hiện có nếu tài khoản đã từng tồn tại
+4. tạo/cập nhật user tương ứng trong MySQL `app_users` với role `admin` để Laravel API nhận đúng quyền
+5. giữ nguyên credit hiện có nếu tài khoản đã từng tồn tại
 
 ### Chạy artisan trực tiếp
 
@@ -215,7 +238,7 @@ Command này sẽ:
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:create-admin admin@audit.clickon.vn 'StrongPassword123!' --name='Clickon Audit Admin'
 ```
 
-Nếu bạn đã có sẵn một Firebase UID và chỉ muốn promote role admin trong Firestore:
+Nếu bạn đã có sẵn một Firebase UID và chỉ muốn promote role admin trong Firestore + MySQL:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <uid> <email> --name='Clickon Audit Admin'

@@ -8,6 +8,9 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.prod.yml}"
 BRANCH="${1:-$(git -C "$ROOT_DIR" branch --show-current)}"
 SKIP_PULL="${SKIP_PULL:-0}"
 
+# shellcheck source=/dev/null
+source "$ROOT_DIR/deploy/scripts/_env.sh"
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing env file: $ENV_FILE" >&2
   exit 1
@@ -18,17 +21,58 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
+COMPOSE_PARALLEL_LIMIT="$(read_env_value "$ENV_FILE" COMPOSE_PARALLEL_LIMIT || echo 1)"
+NODE_BUILD_HEAP_MB="$(read_env_value "$ENV_FILE" NODE_BUILD_HEAP_MB || echo 768)"
+COMPOSER_MEMORY_LIMIT="$(read_env_value "$ENV_FILE" COMPOSER_MEMORY_LIMIT || echo 512M)"
+DEPLOY_NICE_LEVEL="$(read_env_value "$ENV_FILE" DEPLOY_NICE_LEVEL || echo 10)"
+
+export COMPOSE_PARALLEL_LIMIT
+export DOCKER_BUILDKIT=1
+export BUILDKIT_PROGRESS="${BUILDKIT_PROGRESS:-plain}"
+export NODE_BUILD_HEAP_MB
+export COMPOSER_MEMORY_LIMIT
+
+compose() {
+  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+}
+
+run_low_priority() {
+  local nice_level="$1"
+  shift
+
+  if command -v ionice >/dev/null 2>&1; then
+    ionice -c2 -n7 nice -n "$nice_level" "$@"
+    return
+  fi
+
+  if command -v nice >/dev/null 2>&1; then
+    nice -n "$nice_level" "$@"
+    return
+  fi
+
+  "$@"
+}
+
 if [[ "$SKIP_PULL" != "1" ]]; then
   echo "==> Updating source from git branch: $BRANCH"
   git -C "$ROOT_DIR" fetch origin "$BRANCH"
   git -C "$ROOT_DIR" pull --ff-only origin "$BRANCH"
 fi
 
-echo "==> Rebuilding and starting production containers"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build mysql api queue web nginx
+echo "==> Building images sequentially (không build song song, tránh tràn RAM VPS chia sẻ)"
+echo "    COMPOSE_PARALLEL_LIMIT=${COMPOSE_PARALLEL_LIMIT}"
+echo "    NODE_BUILD_HEAP_MB=${NODE_BUILD_HEAP_MB}"
+echo "    COMPOSER_MEMORY_LIMIT=${COMPOSER_MEMORY_LIMIT}"
+echo "    DEPLOY_NICE_LEVEL=${DEPLOY_NICE_LEVEL}"
+
+run_low_priority "$DEPLOY_NICE_LEVEL" compose build --no-cache=false api
+run_low_priority "$DEPLOY_NICE_LEVEL" compose build --no-cache=false web
+
+echo "==> Starting production containers (không build lại song song)"
+compose up -d mysql api queue web nginx
 
 echo "==> Running database migrations"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api php artisan migrate --force
+compose exec -T api php artisan migrate --force
 
 if [[ "${DOCKER_PRUNE_AFTER_DEPLOY:-1}" == "1" ]]; then
   echo "==> Docker cleanup (dangling images + build cache)"
@@ -36,4 +80,4 @@ if [[ "${DOCKER_PRUNE_AFTER_DEPLOY:-1}" == "1" ]]; then
 fi
 
 echo "==> Deployment complete"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+compose ps

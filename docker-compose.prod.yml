@@ -23,6 +23,9 @@ services:
     build:
       context: ./app
       dockerfile: docker/php/Dockerfile.prod
+      args:
+        COMPOSER_MEMORY_LIMIT: ${COMPOSER_MEMORY_LIMIT:-512M}
+    image: clickon-audit-api:latest
     restart: unless-stopped
     env_file:
       - ./deploy/env/docker.prod.env
@@ -40,9 +43,7 @@ services:
           memory: 384M
 
   queue:
-    build:
-      context: ./app
-      dockerfile: docker/php/Dockerfile.prod
+    image: clickon-audit-api:latest
     restart: unless-stopped
     env_file:
       - ./deploy/env/docker.prod.env
@@ -74,6 +75,7 @@ services:
         NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
         NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
         NEXT_PUBLIC_LARAVEL_API_URL: ${NEXT_PUBLIC_LARAVEL_API_URL:-https://audit.clickon.vn/backend}
+        NODE_BUILD_HEAP_MB: ${NODE_BUILD_HEAP_MB:-768}
     restart: unless-stopped
     env_file:
       - ./deploy/env/docker.prod.env

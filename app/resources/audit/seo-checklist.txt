@@ -1,0 +1,81 @@
+CHECKLIST AUDIT SEO — CLICKON
+
+HỆ THỐNG CHẤM ĐIỂM
+- Nhóm I. Kỹ thuật SEO: tối đa 24 điểm (19 tiêu chí, STT 1–19)
+- Nhóm II. Nội dung & chuyên môn: tối đa 6 điểm (6 tiêu chí, STT 20–25)
+- Tổng tối đa: 30 điểm
+- Quy đổi auditScore (0–100) = làm tròn((điểm_kỹ_thuật + điểm_nội_dung) / 30 × 100)
+
+Mức độ quan trọng:
+- Quan trọng cao = 2 điểm
+- Quan trọng trung bình = 1 điểm
+- Quan trọng thấp = 0,5 điểm
+
+Cách chấm từng tiêu chí:
+- Đạt đủ yêu cầu → nhận full điểm của tiêu chí
+- Không đạt hoặc thiếu/không kiểm chứng được → 0 điểm
+- Tiêu chí 0,5 điểm: chỉ chấm 0 hoặc 0,5
+
+═══════════════════════════════════════
+I. KỸ THUẬT SEO (tối đa 24 điểm)
+═══════════════════════════════════════
+
+1. [1đ] Độ dài tiêu đề SEO khoảng 50–60 ký tự, có chứa số
+2. [1đ] Độ dài Meta Description 120–150 ký tự
+3. [1đ] Có sapo chứa link bài viết và link trang chủ
+4. [2đ] URL ngắn gọn, không dấu, ngăn cách bằng dấu gạch ngang (-), bắt buộc chứa từ khóa chính
+5. [2đ] Từ khóa có volume (search volume)
+6. [2đ] 1 từ khóa không bị triển khai nhiều bài viết trong website (không cannibalization)
+7. [2đ] Từ khóa chính xuất hiện trong tiêu đề, Meta Description, URL và ít nhất 1 thẻ H2
+8. [1đ] Mật độ từ khóa duy trì ở mức 1% – 2%
+9. [1đ] Sử dụng thẻ H2, H3 để phân cấp ý rõ ràng
+10. [2đ] Độ dài bài viết 1000–3000 từ
+11. [0,5đ] Đoạn văn không dài quá 3 dòng (khoảng 50–70 chữ), chiếm khoảng 30% bài viết
+12. [1đ] Có ít nhất 2 hình ảnh
+13. [2đ] Hình ảnh đặt tên theo URL (slug/keyword)
+14. [0,5đ] Luôn điền thẻ Alt mô tả hình ảnh, chứa từ khóa chính hoặc liên quan
+15. [1đ] Trỏ 2–3 link về các bài viết liên quan (Internal Link, anchor text phù hợp)
+16. [1đ] Không có link nào bị gắn Internal Link / anchor text trùng lặp 2 lần
+17. [0,5đ] Có bullet/number hợp lý; có bảng, biểu đồ nếu cần
+18. [0,5đ] Font, format thống nhất
+19. [2đ] Nội dung bài viết không trùng lặp với bài viết khác trong website
+
+═══════════════════════════════════════
+II. NỘI DUNG & CHUYÊN MÔN (tối đa 6 điểm)
+═══════════════════════════════════════
+
+20. [1đ] Nội dung đáp ứng đúng search intent của từ khóa mục tiêu
+21. [1đ] Nội dung có góc nhìn cá nhân, dữ liệu thực tế hoặc case study
+22. [2đ] Bố cục nội dung logic giữa các thẻ H2/H3 (tham khảo top 5 đối thủ)
+23. [1đ] Nội dung thể hiện xu hướng mới nhất của năm (tham khảo top 5 đối thủ)
+24. [0,5đ] Có CTA rõ ràng, phù hợp
+25. [0,5đ] Có Q&A
+
+═══════════════════════════════════════
+MA TRẬN HƯỚNG XỬ LÝ NỘI DUNG
+═══════════════════════════════════════
+
+Dựa trên điểm kỹ thuật SEO và điểm nội dung:
+
+| Điểm kỹ thuật SEO | Điểm nội dung | Hướng đề xuất    |
+|--------------------|---------------|------------------|
+| 0–8                | 0–1           | Viết lại         |
+| 9–18               | 2–3           | Audit Content    |
+| 19–23              | 4–6           | Giữ nguyên       |
+
+TRƯỜNG HỢP REDIRECT (ưu tiên cao hơn ma trận trên):
+- 0 điểm tiêu chí 19: nội dung trùng lặp với bài khác trên website
+- 0 điểm tiêu chí 5: từ khóa không có volume
+- 0 điểm tiêu chí 6: cùng 1 từ khóa bị triển khai trên nhiều bài viết → gộp bài, chọn 1 URL Master, redirect 301
+
+═══════════════════════════════════════
+PHÂN BIỆT VIẾT LẠI vs AUDIT CONTENT
+═══════════════════════════════════════
+
+Viết lại (Case 3): văn phong lan man/cũ, cấu trúc lộn xộn, thông tin mỏng/định nghĩa, sai search intent, không có giá trị độc nhất so với top đối thủ.
+
+Audit Content (Case 2): nội dung cốt lõi tốt, đúng intent nhưng trình bày khó đọc — đoạn quá dài (>30 từ), thiếu bullet/bảng, Title/Meta chưa hấp dẫn, thiếu CTA, thiếu internal link, Alt ảnh chưa tối ưu.
+
+Giữ nguyên (Case 1): content chất lượng cao, kỹ thuật chuẩn; chỉ cần cập nhật thông tin mới, bổ sung internal link, tối ưu CTA nhẹ.
+
+Gộp bài / Redirect (Case 4): trùng keyword/intent giữa nhiều URL → chọn bài Master, chuyển nội dung giá trị, redirect 301.

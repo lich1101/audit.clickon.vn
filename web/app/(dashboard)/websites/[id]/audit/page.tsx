@@ -1,72 +1,266 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { Download, Play, Settings, Square } from "lucide-react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { AuditRunsTable } from "@/components/dashboard/audit-runs-table";
+import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
+import { AuditWorkbenchTable } from "@/components/dashboard/audit-workbench-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
-import { AuditForm } from "@/components/forms/audit-form";
+import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { SeoAuditRunForm } from "@/components/forms/seo-audit-run-form";
+import { urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { exportAuditRunToExcel } from "@/lib/audit-report";
 import {
-  getAuditByWebsiteId,
-  getWebsiteById,
-  listenToAuditRunsByWebsite
-} from "@/lib/firestore";
+  createAuditRun,
+  fetchAuditBoard,
+  formatCategoriesInput,
+  getAuditRun,
+  isActiveAuditRun,
+  stopAuditRun
+} from "@/lib/audit-runs";
+import { saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
-import type { AuditRun, Website, WebsiteAudit } from "@/types";
+import type { AuditRun, AuditRunItem, Website, WebsiteAudit } from "@/types";
+
+function progressFor(run?: AuditRun | null) {
+  if (!run || run.totalUrls <= 0) {
+    return 0;
+  }
+
+  return Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100));
+}
 
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
-  const [runs, setRuns] = useState<AuditRun[]>([]);
+  const [run, setRun] = useState<AuditRun | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [urlList, setUrlList] = useState<string[]>([]);
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [savingUrls, setSavingUrls] = useState(false);
+  const saveUrlsTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    async function load() {
-      try {
+    const urls = audit?.articleUrls ?? [];
+    setUrlList(urls);
+    setSelectedUrls((current) => (current.length ? current.filter((url) => urls.includes(url)) : urls));
+  }, [audit]);
+
+  async function loadBoard(options?: { silent?: boolean }) {
+    try {
+      if (!options?.silent) {
         setLoading(true);
-        const nextWebsite = await getWebsiteById(id);
+      }
 
-        if (!nextWebsite || nextWebsite.userId !== profile?.uid) {
-          setWebsite(null);
-          setAudit(null);
-          return;
-        }
+      const board = await fetchAuditBoard(id);
 
-        setWebsite(nextWebsite);
-        setAudit(await getAuditByWebsiteId(id));
-      } catch (error) {
+      setWebsite({
+        id: board.website.id,
+        name: board.website.name,
+        url: board.website.url,
+        userId: profile?.uid ?? "",
+        createdAt: "",
+        updatedAt: ""
+      });
+      setAudit(board.audit);
+      setRun(board.run);
+    } catch (error) {
+      if (!options?.silent) {
+        setWebsite(null);
+        setAudit(null);
+        setRun(null);
         toast.error(error instanceof Error ? error.message : "Không thể tải dữ liệu audit.");
-      } finally {
+      }
+    } finally {
+      if (!options?.silent) {
         setLoading(false);
       }
     }
+  }
 
+  useEffect(() => {
     if (profile) {
-      void load();
+      void loadBoard();
     }
   }, [id, profile]);
 
+  const isRunActive = isActiveAuditRun(run?.status);
+
   useEffect(() => {
-    if (!website) {
+    if (!isRunActive) {
       return;
     }
 
-    return listenToAuditRunsByWebsite(
-      website.id,
-      setRuns,
-      (error) => toast.error(error.message || "Không thể lắng nghe danh sách audit run.")
-    );
-  }, [website]);
+    const timer = window.setInterval(() => {
+      void loadBoard({ silent: true });
+    }, 4000);
+
+    return () => window.clearInterval(timer);
+  }, [id, isRunActive]);
+
+  const itemsByUrl = useMemo(() => {
+    const map: Record<string, AuditRunItem> = {};
+
+    for (const item of run?.items ?? []) {
+      map[item.targetUrl] = item;
+    }
+
+    return map;
+  }, [run?.items]);
+
+  const progressPercent = progressFor(run);
+  const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
+  const displayError = run?.lastError ?? firstItemError;
+
+  async function persistUrlList(nextUrls: string[]) {
+    if (!audit || !website || !profile) {
+      return;
+    }
+
+    try {
+      setSavingUrls(true);
+      const savedAudit = await saveWebsiteAudit({
+        auditId: audit.id,
+        websiteId: website.id,
+        userId: profile.uid,
+        articleUrlsInput: urlsToInput(nextUrls),
+        categoriesInput: formatCategoriesInput(audit.categories),
+        checklistText: audit.checklistText ?? "",
+        aiProvider: audit.aiProvider ?? "openai",
+        aiModel: audit.aiModel ?? ""
+      });
+      setAudit(savedAudit);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể lưu danh sách URL.");
+      setUrlList(audit.articleUrls);
+      setSelectedUrls(audit.articleUrls);
+    } finally {
+      setSavingUrls(false);
+    }
+  }
+
+  function schedulePersist(nextUrls: string[]) {
+    if (!audit || nextUrls.join("\n") === audit.articleUrls.join("\n")) {
+      return;
+    }
+
+    if (saveUrlsTimerRef.current) {
+      window.clearTimeout(saveUrlsTimerRef.current);
+    }
+
+    saveUrlsTimerRef.current = window.setTimeout(() => {
+      void persistUrlList(nextUrls);
+    }, 700);
+  }
+
+  function handleUrlListChange(nextUrls: string[]) {
+    setUrlList(nextUrls);
+    setSelectedUrls((current) => current.filter((url) => nextUrls.includes(url)));
+    schedulePersist(nextUrls);
+  }
+
+  function handleAddUrl(url: string) {
+    handleUrlListChange([...urlList, url]);
+  }
+
+  function handleDeleteUrl(url: string) {
+    handleUrlListChange(urlList.filter((item) => item !== url));
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveUrlsTimerRef.current) {
+        window.clearTimeout(saveUrlsTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function handleRun() {
+    if (!selectedUrls.length) {
+      toast.error("Chọn ít nhất một URL để chạy audit.");
+      return;
+    }
+
+    if (!audit?.articleUrls.length) {
+      toast.error("Cần lưu ít nhất một URL trước khi chạy.");
+      setSettingsOpen(true);
+      return;
+    }
+
+    if (isRunActive) {
+      toast.error("Đang có audit run đang chạy. Hãy dừng run hiện tại trước.");
+      return;
+    }
+
+    try {
+      setRunning(true);
+      await createAuditRun({
+        websiteId: website!.id,
+        websiteName: website!.name,
+        websiteUrl: website!.url,
+        targetUrlsInput: selectedUrls.join("\n"),
+        categoriesInput: formatCategoriesInput(audit.categories),
+        checklistText: audit.checklistText ?? "",
+        aiProvider: audit.aiProvider ?? "openai",
+        aiModel: audit.aiModel ?? ""
+      });
+      await loadBoard({ silent: true });
+      toast.success("Audit run đã được đưa vào hàng đợi.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể bắt đầu audit run.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleStop() {
+    if (!run || !isRunActive) {
+      return;
+    }
+
+    try {
+      setStopping(true);
+      await stopAuditRun(run.publicId);
+      await loadBoard({ silent: true });
+      toast.success("Đã dừng audit run.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể dừng audit run.");
+    } finally {
+      setStopping(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!run) {
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const fullRun = await getAuditRun(run.publicId);
+      await exportAuditRunToExcel(fullRun);
+      toast.success("Đã xuất báo cáo Excel.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể xuất file Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (loading) {
-    return <LoadingState title="Đang tải audit..." description="Đang lấy cấu hình website, nguồn audit và các đợt phân tích gần đây." />;
+    return <LoadingState title="Đang tải audit..." description="Đang lấy cấu hình website và bảng kết quả." />;
   }
 
   if (!website || !profile) {
@@ -74,10 +268,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       <PageHeader
-        title={`Audit pipeline: ${website.name}`}
-        description="Quản lý nguồn URL, danh mục mapping và chạy từng đợt SEO audit theo queue. Kết quả sẽ cập nhật realtime qua Firebase Firestore."
+        title={`Audit: ${website.name}`}
+        description="Mọi thao tác trên một bảng: chọn URL, chạy audit, xem kết quả và quản lý danh sách."
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Websites", href: "/websites" },
@@ -86,62 +280,97 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         ]}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Nguồn audit đã lưu</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div className="rounded-xl border border-border/70 bg-secondary/35 px-4 py-4">
-              <p className="text-muted-foreground">Website gốc</p>
-              <p className="mt-1 font-medium break-all">{website.url}</p>
+      <div className="flex flex-col gap-3 rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-soft md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium">Bảng audit</p>
+            {run ? <AuditStatusBadge status={run.status} /> : null}
+            {savingUrls ? <span className="text-xs text-muted-foreground">Đang lưu URL...</span> : null}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
+            {audit?.aiProvider ? ` · AI ${audit.aiProvider}${audit.aiModel ? ` / ${audit.aiModel}` : ""}` : ""}
+            {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
+          </p>
+          {run ? (
+            <div className="space-y-1.5">
+              <ProgressBar className="h-2 max-w-md" value={progressPercent} />
+              <p className="text-xs text-muted-foreground">
+                Run #{run.publicId.slice(-8)} · {run.processedUrls}/{run.totalUrls} URL · {progressPercent}%
+              </p>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Article URLs</p>
-                <p className="mt-2 text-2xl font-semibold">{audit?.articleUrls.length ?? 0}</p>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Categories</p>
-                <p className="mt-2 text-2xl font-semibold">{audit?.categories.length ?? 0}</p>
-              </div>
-            </div>
-            <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-4 py-4">
-              <p className="text-muted-foreground">Lần cập nhật cuối</p>
-              <p className="mt-1 font-medium">{audit ? formatDate(audit.updatedAt) : "Chưa có"}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <AuditForm
-          auditId={audit?.id}
-          websiteId={website.id}
-          userId={profile.uid}
-          defaultArticleUrls={audit?.articleUrls}
-          defaultCategories={audit?.categories}
-          onSaved={(payload) =>
-            setAudit({
-              id: payload.auditId,
-              websiteId: website.id,
-              userId: profile.uid,
-              articleUrls: payload.articleUrls,
-              categories: payload.categories,
-              createdAt: audit?.createdAt ?? new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            })
-          }
-        />
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0}>
+            <Play className="size-4" />
+            {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
+          </Button>
+          {isRunActive ? (
+            <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>
+              <Square className="size-4" />
+              {stopping ? "Đang dừng..." : "Stop"}
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings className="size-4" />
+            Cấu hình
+          </Button>
+          {run ? (
+            <Button type="button" variant="outline" onClick={handleExport} disabled={exporting}>
+              <Download className="size-4" />
+              {exporting ? "Đang xuất..." : "Xuất Excel"}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      <SeoAuditRunForm
-        websiteId={website.id}
-        websiteName={website.name}
-        websiteUrl={website.url}
-        defaultArticleUrls={audit?.articleUrls}
-        defaultCategories={audit?.categories}
+      {displayError ? (
+        <div className="rounded-[20px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <p className="font-medium">Audit run gặp lỗi</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">{displayError}</p>
+        </div>
+      ) : null}
+
+      <AuditWorkbenchTable
+        urls={urlList}
+        selectedUrls={selectedUrls}
+        onSelectedChange={setSelectedUrls}
+        onDeleteUrl={handleDeleteUrl}
+        onAddUrl={handleAddUrl}
+        itemsByUrl={itemsByUrl}
+        run={run}
       />
 
-      <AuditRunsTable websiteId={website.id} runs={runs} />
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent className="left-auto right-0 w-[min(960px,92vw)] max-w-none overflow-y-auto border-l border-r-0 bg-background text-foreground">
+          <SheetHeader className="pr-10">
+            <SheetTitle>Cấu hình audit</SheetTitle>
+            <SheetDescription>
+              Lưu danh mục, checklist và AI provider/model. URL quản lý trực tiếp trên bảng chính.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-5">
+            <SeoAuditRunForm
+              websiteId={website.id}
+              userId={profile.uid}
+              auditId={audit?.id}
+              websiteName={website.name}
+              websiteUrl={website.url}
+              defaultArticleUrls={audit?.articleUrls}
+              defaultCategories={audit?.categories}
+              defaultChecklistText={audit?.checklistText}
+              defaultAiProvider={audit?.aiProvider}
+              defaultAiModel={audit?.aiModel}
+              showSourceSummary={false}
+              onSaved={(savedAudit) => {
+                setAudit(savedAudit);
+                setSettingsOpen(false);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -24,10 +24,22 @@ class ProcessAuditRunJob implements ShouldQueue
     {
         $run = AuditRun::query()->with('items')->findOrFail($this->runId);
 
+        if ($auditRunService->isRunCancelled($run)) {
+            return;
+        }
+
         $auditRunService->markRunProcessing($run);
         $auditRunService->prepareCategoryContexts($run);
 
+        if ($auditRunService->isRunCancelled($run->fresh())) {
+            return;
+        }
+
         foreach ($run->fresh('items')->items as $item) {
+            if ($auditRunService->isRunCancelled($run->fresh())) {
+                break;
+            }
+
             ProcessAuditRunItemJob::dispatch($item->id);
         }
     }

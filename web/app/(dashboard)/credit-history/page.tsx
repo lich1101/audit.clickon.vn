@@ -6,7 +6,7 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/hooks/use-auth";
-import { listenToCreditLogs } from "@/lib/firestore";
+import { fetchCreditLogs } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog } from "@/types";
 
@@ -19,7 +19,9 @@ export default function CreditHistoryPage() {
       return;
     }
 
-    return listenToCreditLogs(profile.uid, setLogs, undefined, 100);
+    void fetchCreditLogs(profile.uid, 100)
+      .then(setLogs)
+      .catch(() => undefined);
   }, [profile]);
 
   return (

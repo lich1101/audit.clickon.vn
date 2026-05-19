@@ -152,13 +152,75 @@ class AuditRunService
         $this->firestoreSyncService->syncRun($run->fresh());
     }
 
+    public function isRunCancelled(AuditRun $run): bool
+    {
+        $fresh = $run->fresh();
+
+        if (! $fresh) {
+            return true;
+        }
+
+        return $fresh->cancelled_at !== null || $fresh->status === 'failed';
+    }
+
+    public function stopRun(AuditRun $run, string $message = 'Audit run stopped by user.'): void
+    {
+        DB::transaction(function () use ($run, $message): void {
+            $run = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if (in_array($run->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
+            $run->items()
+                ->whereIn('status', ['queued', 'fetching', 'analyzing'])
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $message,
+                    'completed_at' => now(),
+                ]);
+
+            $items = $run->items()->get(['status']);
+            $completed = $items->where('status', 'completed')->count();
+            $failed = $items->where('status', 'failed')->count();
+            $processed = $completed + $failed;
+
+            $run->forceFill([
+                'status' => 'failed',
+                'last_error' => $message,
+                'cancelled_at' => now(),
+                'processed_urls' => $processed,
+                'completed_urls' => $completed,
+                'failed_urls' => $failed,
+                'completed_at' => now(),
+            ])->save();
+        });
+
+        $run = $run->fresh('items');
+        $this->firestoreSyncService->syncRun($run);
+
+        foreach ($run->items as $item) {
+            $this->firestoreSyncService->syncItem($item);
+        }
+    }
+
     public function processItem(AuditRunItem $item): void
     {
+        $run = $item->run()->firstOrFail();
+
+        if ($this->isRunCancelled($run)) {
+            return;
+        }
+
         $item->forceFill([
             'status' => 'fetching',
             'error_message' => null,
         ])->save();
         $this->firestoreSyncService->syncItem($item->fresh('run'));
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
 
         $page = $this->contentExtractionService->extractOrFallback($item->target_url);
 
@@ -175,13 +237,23 @@ class AuditRunService
         $this->firestoreSyncService->syncItem($item->fresh('run'));
 
         $run = $item->run()->firstOrFail();
+
+        if ($this->isRunCancelled($run)) {
+            return;
+        }
+
         $analysis = $this->seoAiAuditService->analyze(
             page: $page,
             categoryContexts: $run->category_contexts ?? [],
             checklistText: $run->checklist_text,
             provider: $run->ai_provider ?? 'openai',
             model: $run->ai_model,
+            auditRunId: $run->id,
         );
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
 
         $item->forceFill([
             'status' => 'completed',
@@ -201,7 +273,7 @@ class AuditRunService
         $this->refreshRunProgress($item->run()->firstOrFail());
     }
 
-    public function markItemFailed(AuditRunItem $item, string $message): void
+    public function markItemFailed(AuditRunItem $item, string $message, bool $stopEntireRun = true): void
     {
         $item->forceFill([
             'status' => 'failed',
@@ -210,6 +282,13 @@ class AuditRunService
         ])->save();
 
         $this->firestoreSyncService->syncItem($item->fresh('run'));
+
+        if ($stopEntireRun) {
+            $this->stopRun($item->run()->firstOrFail(), $message);
+
+            return;
+        }
+
         $this->refreshRunProgress($item->run()->firstOrFail());
     }
 
@@ -232,7 +311,9 @@ class AuditRunService
                 'completed_urls' => $completed,
                 'failed_urls' => $failed,
                 'completed_at' => $processed >= $run->total_urls ? now() : null,
-                'last_error' => $status === 'failed' ? 'All audit items failed.' : $run->last_error,
+                'last_error' => $status === 'failed' && ! $run->last_error
+                    ? 'All audit items failed.'
+                    : $run->last_error,
             ])->save();
         });
 
@@ -247,6 +328,68 @@ class AuditRunService
         if ($role !== 'admin' && $uid !== $run->user_uid) {
             throw new AuthorizationException('You are not allowed to read this audit run.');
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function serializeRunSummary(AuditRun $run): array
+    {
+        return [
+            'publicId' => $run->public_id,
+            'websiteId' => $run->website_id,
+            'websiteName' => $run->website_name,
+            'websiteUrl' => $run->website_url,
+            'targetUrls' => [],
+            'categories' => [],
+            'categoryContexts' => [],
+            'checklistText' => null,
+            'aiProvider' => $run->ai_provider ?? 'openai',
+            'aiModel' => $run->ai_model,
+            'status' => $run->status,
+            'totalUrls' => $run->total_urls,
+            'processedUrls' => $run->processed_urls,
+            'completedUrls' => $run->completed_urls,
+            'failedUrls' => $run->failed_urls,
+            'startedAt' => optional($run->started_at)?->toIso8601String(),
+            'completedAt' => optional($run->completed_at)?->toIso8601String(),
+            'createdAt' => optional($run->created_at)?->toIso8601String(),
+            'updatedAt' => optional($run->updated_at)?->toIso8601String(),
+            'lastError' => $run->last_error,
+            'items' => [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function serializeItemSummary(AuditRunItem $item, ?AuditRun $run = null): array
+    {
+        $run ??= $item->relationLoaded('run') ? $item->run : null;
+        $recommendations = $item->audit_recommendations
+            ? preg_split('/\r\n|\r|\n/', $item->audit_recommendations)
+            : [];
+
+        return [
+            'publicId' => $item->public_id,
+            'auditRunId' => $run?->public_id,
+            'websiteId' => $run?->website_id,
+            'userId' => $run?->user_uid,
+            'position' => $item->position,
+            'targetUrl' => $item->target_url,
+            'status' => $item->status,
+            'pageTitle' => $item->page_title,
+            'primaryKeyword' => $item->primary_keyword,
+            'categoryName' => $item->category_name,
+            'categoryUrl' => $item->category_url,
+            'categoryMatchReason' => $item->category_match_reason,
+            'auditScore' => $item->audit_score,
+            'auditFindings' => [],
+            'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
+            'contentRevisionDirection' => $item->content_revision_direction,
+            'errorMessage' => $item->error_message,
+            'updatedAt' => optional($item->updated_at)?->toIso8601String(),
+        ];
     }
 
     /**

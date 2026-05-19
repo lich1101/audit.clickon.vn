@@ -23,9 +23,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     let unsubscribeProfile: (() => void) | undefined;
+    let profileListenerTimer: number | undefined;
     let disposed = false;
 
     const clearProfileListener = () => {
+      if (profileListenerTimer) {
+        window.clearTimeout(profileListenerTimer);
+        profileListenerTimer = undefined;
+      }
+
       unsubscribeProfile?.();
       unsubscribeProfile = undefined;
     };
@@ -44,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         setLoading(true);
-        const token = await nextUser.getIdToken(true);
+        const token = await nextUser.getIdToken();
         const sessionProfile = await syncClientSession(token);
         setProfile(sessionProfile);
         setLoading(false);
@@ -53,27 +59,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        unsubscribeProfile = listenToUser(
-          nextUser.uid,
-          (nextProfile) => {
-            if (disposed) {
-              return;
-            }
-
-            setProfile(nextProfile);
-            setError(nextProfile ? null : "Không tìm thấy hồ sơ người dùng.");
-            setLoading(false);
-          },
-          (snapshotError) => {
-            if (disposed) {
-              return;
-            }
-
-            setProfile((current) => current ?? sessionProfile);
-            setError(null);
-            setLoading(false);
+        profileListenerTimer = window.setTimeout(() => {
+          if (disposed) {
+            return;
           }
-        );
+
+          unsubscribeProfile = listenToUser(
+            nextUser.uid,
+            (nextProfile) => {
+              if (disposed) {
+                return;
+              }
+
+              if (nextProfile) {
+                setProfile(nextProfile);
+                setError(null);
+              }
+            },
+            (snapshotError) => {
+              if (disposed) {
+                return;
+              }
+
+              setError(snapshotError.message);
+            }
+          );
+        }, 0);
       } catch (sessionError) {
         if (disposed) {
           return;

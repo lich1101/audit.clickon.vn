@@ -62,7 +62,7 @@ const sampleVariables: Record<string, unknown> = {
     categoryUrl: "https://hoctienganhtaiphilippines.vn/truong-philinter/",
     categoryMatchReason: "URL nói trực tiếp về học bổng của Philinter, phù hợp nhất với silo trường Philinter."
   },
-  checklist: "Title chứa keyword chính; Meta description rõ intent; H1/H2 logic; Nội dung cập nhật năm 2026; Có FAQ và internal link."
+  checklist: "Điểm kỹ thuật SEO: 18/24 | Điểm nội dung: 4/6 | Hướng: Audit Content — xem checklist chuẩn Clickon (25 tiêu chí, tổng 30đ) trong deploy/checklist hoặc resources/audit/seo-checklist.txt"
 };
 
 function stringifyPromptValue(value: unknown) {

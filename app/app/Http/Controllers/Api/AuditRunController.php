@@ -6,13 +6,107 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAuditRunRequest;
 use App\Models\AuditRun;
 use App\Services\AuditRunService;
+use App\Services\FirestoreService;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class AuditRunController extends Controller
 {
     public function __construct(
         private readonly AuditRunService $auditRunService,
+        private readonly FirestoreService $firestoreService,
     ) {
+    }
+
+    public function indexByWebsite(Request $request, string $websiteId)
+    {
+        $website = $this->firestoreService->getWebsite($websiteId);
+
+        if (! $website) {
+            throw new NotFoundHttpException('Website not found.');
+        }
+
+        $this->authorizeWebsiteAccess($request, $website);
+
+        $runs = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->orderByDesc('created_at')
+            ->limit(30)
+            ->get()
+            ->map(fn (AuditRun $run): array => $this->auditRunService->serializeRunSummary($run))
+            ->values()
+            ->all();
+
+        return response()->json([
+            'data' => $runs,
+        ]);
+    }
+
+    public function board(Request $request, string $websiteId)
+    {
+        $website = $this->firestoreService->getWebsite($websiteId);
+
+        if (! $website) {
+            throw new NotFoundHttpException('Website not found.');
+        }
+
+        $this->authorizeWebsiteAccess($request, $website);
+
+        $audit = $this->firestoreService->getWebsiteAuditByWebsiteId($websiteId);
+
+        /** @var AuditRun|null $latestRun */
+        $latestRun = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->orderByDesc('created_at')
+            ->with(['items' => fn ($query) => $query->orderBy('position')])
+            ->first();
+
+        $runPayload = null;
+
+        if ($latestRun) {
+            $runPayload = [
+                ...$this->auditRunService->serializeRunSummary($latestRun),
+                'items' => $latestRun->items
+                    ->map(fn ($item): array => $this->auditRunService->serializeItemSummary($item, $latestRun))
+                    ->values()
+                    ->all(),
+            ];
+        }
+
+        return response()->json([
+            'data' => [
+                'website' => [
+                    'id' => $websiteId,
+                    'name' => (string) ($website['name'] ?? ''),
+                    'url' => (string) ($website['url'] ?? ''),
+                ],
+                'audit' => $audit ? $this->serializeAuditDocument($audit) : null,
+                'run' => $runPayload,
+            ],
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $audit
+     * @return array<string, mixed>
+     */
+    private function serializeAuditDocument(array $audit): array
+    {
+        return [
+            'id' => (string) ($audit['id'] ?? ''),
+            'websiteId' => (string) ($audit['websiteId'] ?? ''),
+            'articleUrls' => is_array($audit['articleUrls'] ?? null) ? array_values($audit['articleUrls']) : [],
+            'categories' => is_array($audit['categories'] ?? null) ? array_values($audit['categories']) : [],
+            'checklistText' => isset($audit['checklistText']) ? (string) $audit['checklistText'] : null,
+            'aiProvider' => in_array($audit['aiProvider'] ?? null, ['openai', 'gemini', 'gemini_deep_research'], true)
+                ? $audit['aiProvider']
+                : 'openai',
+            'aiModel' => isset($audit['aiModel']) && $audit['aiModel'] !== ''
+                ? (string) $audit['aiModel']
+                : null,
+            'updatedAt' => is_string($audit['updatedAt'] ?? null) ? $audit['updatedAt'] : now()->toIso8601String(),
+        ];
     }
 
     public function store(StoreAuditRunRequest $request)
@@ -45,5 +139,48 @@ class AuditRunController extends Controller
         return response()->json([
             'data' => $this->auditRunService->serializeRun($run->fresh('items')),
         ]);
+    }
+
+    public function stop(Request $request, string $publicId)
+    {
+        $run = AuditRun::query()
+            ->where('public_id', $publicId)
+            ->firstOrFail();
+
+        $this->auditRunService->authorizeRead($request, $run);
+
+        if (in_array($run->status, ['completed', 'failed', 'partial'], true)) {
+            return response()->json([
+                'message' => 'Audit run is already finished.',
+                'data' => [
+                    'publicId' => $run->public_id,
+                    'status' => $run->status,
+                ],
+            ]);
+        }
+
+        $this->auditRunService->stopRun($run, 'Audit run stopped by user.');
+
+        return response()->json([
+            'message' => 'Audit run stopped.',
+            'data' => [
+                'publicId' => $run->public_id,
+                'status' => 'failed',
+            ],
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $website
+     */
+    private function authorizeWebsiteAccess(Request $request, array $website): void
+    {
+        $uid = (string) $request->attributes->get('firebase_uid');
+        $role = (string) $request->attributes->get('firebase_role', 'user');
+        $ownerId = (string) ($website['userId'] ?? '');
+
+        if ($role !== 'admin' && $ownerId !== $uid) {
+            throw new AccessDeniedHttpException('You do not have access to this website.');
+        }
     }
 }

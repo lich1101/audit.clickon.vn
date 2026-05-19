@@ -25,7 +25,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
     async function load() {
       try {
         setLoading(true);
-        const nextWebsite = await getWebsiteById(id);
+        const [nextWebsite, nextAudit] = await Promise.all([getWebsiteById(id), getAuditByWebsiteId(id)]);
 
         if (!nextWebsite || nextWebsite.userId !== profile?.uid) {
           setWebsite(null);
@@ -34,7 +34,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
         }
 
         setWebsite(nextWebsite);
-        setAudit(await getAuditByWebsiteId(id));
+        setAudit(nextAudit);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Không thể tải chi tiết website.");
       } finally {

@@ -19,6 +19,14 @@ export const websiteSchema = z.object({
   url: z.string().trim().url("URL website không hợp lệ.")
 });
 
+export const createWebsiteSchema = websiteSchema.extend({
+  articleUrlsInput: z.string().optional().default(""),
+  categoriesInput: z.string().optional().default(""),
+  checklistText: z.string().optional().default(""),
+  aiProvider: z.enum(["openai", "gemini", "gemini_deep_research"]).optional().default("openai"),
+  aiModel: z.string().optional().default("")
+});
+
 export const auditFormSchema = z.object({
   articleUrlsInput: trimmedString,
   categoriesInput: trimmedString
@@ -76,6 +84,14 @@ export const parseArticleUrls = (input: string) => {
   return urls;
 };
 
+export function formatCategoryLine(name: string, url: string) {
+  return `\`${name.trim()}\` - \`${url.trim()}\``;
+}
+
+export function formatCategoriesInput(categories: Array<{ name: string; url: string }>) {
+  return categories.map((category) => formatCategoryLine(category.name, category.url)).join("\n");
+}
+
 export const parseCategories = (input: string) => {
   const lines = input
     .split("\n")
@@ -87,16 +103,52 @@ export const parseCategories = (input: string) => {
   }
 
   return lines.map((line) => {
+    const backtickMatch = line.match(/^`([^`]+)`\s*-\s*`([^`]+)`\s*$/u);
+
+    if (backtickMatch) {
+      const name = backtickMatch[1].trim();
+      const url = backtickMatch[2].trim();
+
+      if (!name) {
+        throw new Error(`Tên danh mục trống ở dòng: ${line}`);
+      }
+
+      if (!z.string().url().safeParse(url).success) {
+        throw new Error(`URL danh mục không hợp lệ: ${url}`);
+      }
+
+      return { name, url };
+    }
+
+    const tabParts = line.split("\t").map((part) => part.trim()).filter(Boolean);
+
+    if (tabParts.length >= 2) {
+      const url = tabParts[tabParts.length - 1];
+      const name = tabParts.slice(0, -1).join(" ").trim();
+
+      if (!name) {
+        throw new Error(`Tên danh mục trống ở dòng: ${line}`);
+      }
+
+      if (!z.string().url().safeParse(url).success) {
+        throw new Error(`URL danh mục không hợp lệ: ${url}`);
+      }
+
+      return { name, url };
+    }
+
     const urlMatch = line.match(/(https?:\/\/\S+)$/i);
 
     if (!urlMatch?.[1]) {
-      throw new Error(`Dòng danh mục không tìm thấy URL: ${line}`);
+      throw new Error(
+        `Dòng danh mục không hợp lệ: ${line}. Dùng \`Tên danh mục\` - \`https://url-danh-muc\` mỗi dòng.`
+      );
     }
 
     const url = urlMatch[1].trim();
     const name = line
       .slice(0, urlMatch.index)
-      .replace(/[\t,\-–—:]+$/u, "")
+      .replace(/[\t,\-–—:|]+$/u, "")
       .trim();
 
     if (!name) {
@@ -114,6 +166,7 @@ export const parseCategories = (input: string) => {
 export type LoginValues = z.infer<typeof loginSchema>;
 export type RegisterValues = z.infer<typeof registerSchema>;
 export type WebsiteValues = z.infer<typeof websiteSchema>;
+export type CreateWebsiteValues = z.infer<typeof createWebsiteSchema>;
 export type AuditFormValues = z.infer<typeof auditFormSchema>;
 export type AuditRunValues = z.infer<typeof auditRunSchema>;
 export type PlanValues = z.infer<typeof planSchema>;

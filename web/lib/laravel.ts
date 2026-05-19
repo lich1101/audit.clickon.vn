@@ -2,8 +2,25 @@
 
 import { auth } from "@/lib/firebase";
 
+let tokenPromise: Promise<string | undefined> | null = null;
+let tokenExpiresAt = 0;
+
 async function getAuthHeaders() {
-  const token = await auth.currentUser?.getIdToken();
+  const now = Date.now();
+  const user = auth.currentUser;
+
+  if (!user) {
+    return {
+      "Content-Type": "application/json"
+    };
+  }
+
+  if (!tokenPromise || now >= tokenExpiresAt) {
+    tokenExpiresAt = now + 50_000;
+    tokenPromise = user.getIdToken().catch(() => undefined);
+  }
+
+  const token = await tokenPromise;
 
   return {
     "Content-Type": "application/json",

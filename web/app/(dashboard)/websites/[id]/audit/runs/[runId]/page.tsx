@@ -13,7 +13,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import { getAuditRun } from "@/lib/audit-runs";
+import { getAuditRun, isActiveAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
 import { getWebsiteById, listenToAuditRun, listenToAuditRunItems } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
@@ -61,7 +61,7 @@ export default function AuditRunDetailPage({
   }, [id, profile, runId]);
 
   useEffect(() => {
-    if (!profile) {
+    if (!profile || !run || !isActiveAuditRun(run.status)) {
       return;
     }
 
@@ -94,7 +94,7 @@ export default function AuditRunDetailPage({
       unsubscribeRun();
       unsubscribeItems();
     };
-  }, [id, profile, runId]);
+  }, [id, profile, run, runId]);
 
   async function handleExport() {
     if (!run) {

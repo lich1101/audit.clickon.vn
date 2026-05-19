@@ -23,6 +23,11 @@ class ProcessAuditRunItemJob implements ShouldQueue
     public function handle(AuditRunService $auditRunService): void
     {
         $item = AuditRunItem::query()->with('run')->findOrFail($this->itemId);
+
+        if ($auditRunService->isRunCancelled($item->run)) {
+            return;
+        }
+
         $auditRunService->processItem($item);
     }
 

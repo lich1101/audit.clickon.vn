@@ -33,4 +33,8 @@ const SheetTitle = ({ className, ...props }: DialogPrimitive.DialogTitleProps) =
   <DialogPrimitive.Title className={cn("text-lg font-semibold", className)} {...props} />
 );
 
-export { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger };
+const SheetDescription = ({ className, ...props }: DialogPrimitive.DialogDescriptionProps) => (
+  <DialogPrimitive.Description className={cn("text-sm text-muted-foreground", className)} {...props} />
+);
+
+export { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger };

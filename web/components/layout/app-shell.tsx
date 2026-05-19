@@ -3,13 +3,14 @@ import { Topbar } from "@/components/layout/topbar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
-      <div className="hidden lg:block">
+    <div className="min-h-screen bg-background">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[264px] border-r border-border/70 bg-sidebar lg:block">
         <AppSidebar />
-      </div>
-      <div className="min-w-0 pb-3 pr-3 lg:pb-4 lg:pr-4">
+      </aside>
+
+      <div className="flex min-h-screen min-w-0 flex-col lg:pl-[264px]">
         <Topbar />
-        <main className="app-canvas content-shell min-h-[calc(100vh-84px)] py-5 sm:py-6">{children}</main>
+        <main className="app-canvas content-shell flex-1 px-3 py-5 sm:px-4 sm:py-6">{children}</main>
       </div>
     </div>
   );

@@ -10,15 +10,16 @@ import {
   History,
   LayoutDashboard,
   MessageSquareText,
+  Plus,
   ReceiptText,
   Settings,
   ShieldCheck,
-  Sparkles,
   Users2
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -44,8 +45,8 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
   const items = profile?.role === "admin" ? [...userItems, ...adminItems] : userItems;
 
   return (
-    <aside className={cn("flex h-full w-full flex-col bg-sidebar text-sidebar-foreground", !mobile && "w-[264px]")}>
-      <div className="flex h-16 items-center justify-between px-5">
+    <aside className={cn("flex h-full w-full flex-col bg-sidebar text-sidebar-foreground", mobile ? "h-screen" : "h-full")}>
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-border/60 px-5">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">Clickon</p>
           <h1 className="text-xl font-semibold tracking-tight">Audit</h1>
@@ -55,27 +56,26 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
         </Badge>
       </div>
 
-      <div className="px-3 pb-3">
-        <Link
-          href="/websites/create"
-          className="flex h-12 items-center gap-3 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-        >
-          <Sparkles className="size-4" />
-          Tạo website
-        </Link>
+      <div className="shrink-0 px-4 py-4">
+        <Button asChild className="h-11 w-full rounded-xl shadow-sm" size="lg">
+          <Link href="/websites/create">
+            <Plus className="size-4" />
+            Tạo audit website
+          </Link>
+        </Button>
       </div>
 
-      <ScrollArea className="flex-1 px-3 pb-5">
+      <ScrollArea className="min-h-0 flex-1 px-3 pb-5">
         <div className="flex flex-col gap-4">
           <div className="rounded-2xl bg-card px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Realtime credits</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Credit</p>
             <div className="mt-3 flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-full bg-secondary text-primary">
                 <ShieldCheck className="size-4" />
               </div>
               <div>
                 <p className="text-xl font-semibold">{profile?.credits ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Đồng bộ qua Firebase</p>
+                <p className="text-xs text-muted-foreground">Số dư hiện tại</p>
               </div>
             </div>
           </div>
@@ -90,7 +90,7 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex h-10 items-center gap-3 rounded-r-full rounded-l-lg px-4 text-sm transition",
+                    "flex h-10 items-center gap-3 rounded-xl px-4 text-sm transition",
                     active ? "bg-primary/10 font-medium text-primary" : "text-sidebar-foreground/75 hover:bg-secondary hover:text-sidebar-foreground"
                   )}
                 >

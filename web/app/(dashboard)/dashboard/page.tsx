@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import { listenToCreditLogs, listenToWebsites } from "@/lib/firestore";
+import { fetchCreditLogs, fetchWebsites } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog, Website } from "@/types";
 
@@ -27,13 +27,12 @@ export default function DashboardPage() {
       return;
     }
 
-    const unsubWebsites = listenToWebsites(profile.uid, setWebsites);
-    const unsubLogs = listenToCreditLogs(profile.uid, setLogs);
-
-    return () => {
-      unsubWebsites();
-      unsubLogs();
-    };
+    void Promise.all([fetchWebsites(), fetchCreditLogs(profile.uid, 20)])
+      .then(([nextWebsites, nextLogs]) => {
+        setWebsites(nextWebsites);
+        setLogs(nextLogs);
+      })
+      .catch(() => undefined);
   }, [profile]);
 
   const recentWebsites = useMemo(() => websites.slice(0, 3), [websites]);
@@ -44,7 +43,7 @@ export default function DashboardPage() {
         title="Dashboard"
         description="Tổng quan realtime về credit, website đã tạo và các giao dịch credit gần nhất của tài khoản hiện tại."
         breadcrumbs={[{ label: "Dashboard" }]}
-        action={{ label: "Tạo website", href: "/websites/create" }}
+        action={{ label: "Tạo audit website", href: "/websites/create" }}
       />
 
       <div className="grid gap-5 xl:grid-cols-3">
@@ -73,7 +72,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Button asChild className="justify-start">
-              <Link href="/websites/create">Tạo website mới</Link>
+              <Link href="/websites/create">Tạo audit website</Link>
             </Button>
             <Button asChild variant="secondary" className="justify-start">
               <Link href="/billing">Đăng ký gói cước</Link>
@@ -103,7 +102,7 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <EmptyState title="Chưa có website" description="Bắt đầu bằng cách tạo website đầu tiên để cấu hình audit." action={{ label: "Tạo website", href: "/websites/create" }} />
+          <EmptyState title="Chưa có website" description="Bắt đầu bằng cách tạo website audit đầu tiên." action={{ label: "Tạo audit website", href: "/websites/create" }} />
         )}
       </section>
     </div>

@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\AuditRunController;
+use App\Http\Controllers\Api\AiModelController;
 use App\Http\Controllers\Api\AuditPromptTemplateController;
 use App\Http\Controllers\Api\PlanRequestController;
+use App\Http\Controllers\Api\WebsiteController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('credits')->group(function (): void {
@@ -13,10 +15,19 @@ Route::prefix('credits')->group(function (): void {
 });
 
 Route::middleware('firebase.auth')->group(function (): void {
+    Route::get('/websites', [WebsiteController::class, 'index']);
+    Route::post('/websites', [WebsiteController::class, 'store']);
+    Route::get('/websites/{websiteId}', [WebsiteController::class, 'show']);
+    Route::get('/websites/{websiteId}/audit', [WebsiteController::class, 'showAudit']);
+    Route::get('/websites/{websiteId}/audit-runs', [AuditRunController::class, 'indexByWebsite']);
+    Route::get('/websites/{websiteId}/audit-board', [AuditRunController::class, 'board']);
+    Route::post('/website-audits', [WebsiteController::class, 'storeAudit']);
     Route::get('/plan-requests', [PlanRequestController::class, 'index']);
     Route::post('/plan-requests', [PlanRequestController::class, 'store']);
     Route::post('/audit-runs', [AuditRunController::class, 'store']);
     Route::get('/audit-runs/{publicId}', [AuditRunController::class, 'show']);
+    Route::post('/audit-runs/{publicId}/stop', [AuditRunController::class, 'stop']);
+    Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
 });
 
 Route::prefix('admin')

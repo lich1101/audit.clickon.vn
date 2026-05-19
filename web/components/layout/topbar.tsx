@@ -25,7 +25,7 @@ export function Topbar() {
   const isDark = mounted && resolvedTheme === "dark";
 
   return (
-    <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="flex h-16 items-center gap-3 px-3 sm:px-4">
         <Sheet>
           <SheetTrigger asChild>

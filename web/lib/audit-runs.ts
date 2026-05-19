@@ -1,8 +1,18 @@
 "use client";
 
 import { laravelRequest } from "@/lib/laravel";
-import { parseArticleUrls, parseCategories } from "@/lib/validators";
-import type { AiProvider, AuditCategory, AuditRun } from "@/types";
+import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
+import type { AiProvider, AuditRun, WebsiteAudit } from "@/types";
+
+export type AuditBoard = {
+  website: {
+    id: string;
+    name: string;
+    url: string;
+  };
+  audit: WebsiteAudit | null;
+  run: AuditRun | null;
+};
 
 type AuditRunResponse = {
   data: AuditRun;
@@ -15,6 +25,45 @@ type CreateAuditRunResponse = {
     totalUrls: number;
   };
 };
+
+export async function stopAuditRun(publicId: string) {
+  return laravelRequest<{ data: { publicId: string; status: AuditRun["status"] } }>(`/api/audit-runs/${publicId}/stop`, {
+    method: "POST"
+  });
+}
+
+export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
+  const response = await laravelRequest<{ data: AuditBoard }>(`/api/websites/${websiteId}/audit-board`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  return {
+    website: response.data.website,
+    audit: response.data.audit
+      ? {
+          ...response.data.audit,
+          articleUrls: Array.isArray(response.data.audit.articleUrls) ? response.data.audit.articleUrls : [],
+          categories: Array.isArray(response.data.audit.categories) ? response.data.audit.categories : [],
+          aiProvider: response.data.audit.aiProvider ?? "openai"
+        }
+      : null,
+    run: response.data.run ? normalizeAuditRun(response.data.run) : null
+  };
+}
+
+export async function listAuditRunsByWebsite(websiteId: string) {
+  const response = await laravelRequest<{ data: AuditRun[] }>(`/api/websites/${websiteId}/audit-runs`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  return response.data.map(normalizeAuditRun);
+}
+
+export function isActiveAuditRun(status?: AuditRun["status"]) {
+  return status === "queued" || status === "processing";
+}
 
 export async function createAuditRun(input: {
   websiteId: string;
@@ -53,9 +102,7 @@ export async function getAuditRun(publicId: string) {
   return normalizeAuditRun(response.data);
 }
 
-export function formatCategoriesInput(categories: AuditCategory[]) {
-  return categories.map((category) => `${category.name}\t${category.url}`).join("\n");
-}
+export { formatCategoriesInput } from "@/lib/validators";
 
 export function normalizeAuditRun(run: AuditRun): AuditRun {
   return {

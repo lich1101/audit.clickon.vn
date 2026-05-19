@@ -9,7 +9,7 @@ import { WebsiteCard } from "@/components/dashboard/website-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { listenToWebsites } from "@/lib/firestore";
+import { fetchWebsites } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { Website } from "@/types";
 
@@ -23,7 +23,9 @@ export default function WebsitesPage() {
       return;
     }
 
-    return listenToWebsites(profile.uid, setWebsites);
+    void fetchWebsites()
+      .then(setWebsites)
+      .catch(() => undefined);
   }, [profile]);
 
   const filtered = useMemo(() => {
@@ -42,7 +44,7 @@ export default function WebsitesPage() {
         title="Websites"
         description="Quản lý toàn bộ website của bạn, tách biệt rõ giữa danh sách, tạo mới, chi tiết và trang audit."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Websites" }]}
-        action={{ label: "Tạo website", href: "/websites/create" }}
+        action={{ label: "Tạo audit website", href: "/websites/create" }}
       />
 
       <DataTable
@@ -69,7 +71,7 @@ export default function WebsitesPage() {
             )
           }
         ]}
-        empty={<EmptyState title="Chưa có website" description="Danh sách website trống. Hãy tạo website đầu tiên." action={{ label: "Tạo website", href: "/websites/create" }} />}
+        empty={<EmptyState title="Chưa có website" description="Danh sách trống. Tạo website audit đầu tiên." action={{ label: "Tạo audit website", href: "/websites/create" }} />}
       />
 
       {filtered.length ? (

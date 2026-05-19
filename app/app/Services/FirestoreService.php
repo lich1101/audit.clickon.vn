@@ -243,6 +243,189 @@ class FirestoreService
         return $this->mapDocument($this->getRawDocument("websites/{$websiteId}"));
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function listWebsitesForUser(string $userId, bool $includeAllForAdmin = false): array
+    {
+        $filters = $includeAllForAdmin
+            ? []
+            : [[
+                'fieldFilter' => [
+                    'field' => ['fieldPath' => 'userId'],
+                    'op' => 'EQUAL',
+                    'value' => ['stringValue' => $userId],
+                ],
+            ]];
+
+        return $this->runCollectionQuery('websites', $filters, 'updatedAt', 'DESCENDING');
+    }
+
+    /**
+     * @return array{id:string,userId:string,name:string,url:string,createdAt:string,updatedAt:string}
+     */
+    public function createWebsite(string $userId, string $name, string $url): array
+    {
+        $websiteId = strtolower(str_replace('-', '', (string) Str::ulid()));
+        $now = now();
+        $payload = [
+            'userId' => $userId,
+            'name' => $name,
+            'url' => $url,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+
+        Http::withHeaders($this->authHeaders())
+            ->acceptJson()
+            ->patch("{$this->baseUrl()}/websites/{$websiteId}", [
+                'fields' => $this->encodeFields($payload),
+            ])
+            ->throw();
+
+        return [
+            'id' => $websiteId,
+            'userId' => $userId,
+            'name' => $name,
+            'url' => $url,
+            'createdAt' => $now->toIso8601String(),
+            'updatedAt' => $now->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getWebsiteAuditByWebsiteId(string $websiteId): ?array
+    {
+        $results = $this->runCollectionQuery('websiteAudits', [[
+            'fieldFilter' => [
+                'field' => ['fieldPath' => 'websiteId'],
+                'op' => 'EQUAL',
+                'value' => ['stringValue' => $websiteId],
+            ],
+        ]], null, null, 1);
+
+        return $results[0] ?? null;
+    }
+
+    /**
+     * @param  array<int, string>  $articleUrls
+     * @param  array<int, array{name:string,url:string}>  $categories
+     * @return array{id:string,websiteId:string,userId:string,articleUrls:array,categories:array,createdAt:string,updatedAt:string}
+     */
+    public function upsertWebsiteAudit(
+        string $websiteId,
+        string $userId,
+        array $articleUrls,
+        array $categories,
+        ?string $auditId = null,
+        ?string $checklistText = null,
+        string $aiProvider = 'openai',
+        ?string $aiModel = null,
+    ): array {
+        $documentId = $auditId ?: strtolower(str_replace('-', '', (string) Str::ulid()));
+        $existing = $this->mapDocument($this->getRawDocument("websiteAudits/{$documentId}"));
+        $now = now();
+        $payload = [
+            'websiteId' => $websiteId,
+            'userId' => $userId,
+            'articleUrls' => array_values($articleUrls),
+            'categories' => array_values($categories),
+            'checklistText' => $checklistText,
+            'aiProvider' => $aiProvider,
+            'aiModel' => $aiModel,
+            'createdAt' => $existing['createdAt'] ?? $now,
+            'updatedAt' => $now,
+        ];
+
+        Http::withHeaders($this->authHeaders())
+            ->acceptJson()
+            ->patch("{$this->baseUrl()}/websiteAudits/{$documentId}", [
+                'fields' => $this->encodeFields($payload),
+            ])
+            ->throw();
+
+        return [
+            'id' => $documentId,
+            'websiteId' => $websiteId,
+            'userId' => $userId,
+            'articleUrls' => $payload['articleUrls'],
+            'categories' => $payload['categories'],
+            'checklistText' => $payload['checklistText'],
+            'aiProvider' => $payload['aiProvider'],
+            'aiModel' => $payload['aiModel'],
+            'createdAt' => is_string($payload['createdAt']) ? $payload['createdAt'] : $now->toIso8601String(),
+            'updatedAt' => $now->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $filters
+     * @return array<int, array<string, mixed>>
+     */
+    private function runCollectionQuery(
+        string $collectionId,
+        array $filters = [],
+        ?string $orderByField = null,
+        ?string $direction = null,
+        ?int $limit = null,
+    ): array {
+        $structuredQuery = [
+            'from' => [['collectionId' => $collectionId]],
+        ];
+
+        if ($filters !== []) {
+            $structuredQuery['where'] = count($filters) === 1
+                ? $filters[0]
+                : [
+                    'compositeFilter' => [
+                        'op' => 'AND',
+                        'filters' => $filters,
+                    ],
+                ];
+        }
+
+        if ($orderByField !== null) {
+            $structuredQuery['orderBy'] = [[
+                'field' => ['fieldPath' => $orderByField],
+                'direction' => $direction === 'DESCENDING' ? 'DESCENDING' : 'ASCENDING',
+            ]];
+        }
+
+        if ($limit !== null) {
+            $structuredQuery['limit'] = $limit;
+        }
+
+        $response = Http::withHeaders($this->authHeaders())
+            ->acceptJson()
+            ->post("{$this->baseUrl()}:runQuery", [
+                'structuredQuery' => $structuredQuery,
+            ])
+            ->throw()
+            ->json();
+
+        $documents = [];
+
+        foreach ($response as $row) {
+            if (! isset($row['document'])) {
+                continue;
+            }
+
+            $mapped = $this->mapDocument($row['document']);
+
+            if ($mapped === null) {
+                continue;
+            }
+
+            $name = (string) ($row['document']['name'] ?? '');
+            $mapped['id'] = basename($name);
+            $documents[] = $mapped;
+        }
+
+        return $documents;
+    }
+
     public function getBalance(string $uid): int
     {
         $user = $this->getUser($uid);

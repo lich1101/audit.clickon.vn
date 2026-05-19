@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { saveWebsiteAudit } from "@/lib/firestore";
-import { auditFormSchema, parseArticleUrls, parseCategories, type AuditFormValues } from "@/lib/validators";
+import { auditFormSchema, formatCategoriesInput, parseArticleUrls, parseCategories, type AuditFormValues } from "@/lib/validators";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -35,22 +35,21 @@ export function AuditForm({
     resolver: zodResolver(auditFormSchema),
     defaultValues: {
       articleUrlsInput: defaultArticleUrls?.join("\n") ?? "",
-      categoriesInput:
-        defaultCategories?.map((item) => `${item.name}-${item.url}`).join("\n") ?? ""
+      categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : ""
     }
   });
 
   useEffect(() => {
     form.reset({
       articleUrlsInput: defaultArticleUrls?.join("\n") ?? "",
-      categoriesInput: defaultCategories?.map((item) => `${item.name}-${item.url}`).join("\n") ?? ""
+      categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : ""
     });
   }, [defaultArticleUrls, defaultCategories, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       setSubmitting(true);
-      const nextAuditId = await saveWebsiteAudit({
+      const savedAudit = await saveWebsiteAudit({
         auditId,
         websiteId,
         userId,
@@ -62,7 +61,7 @@ export function AuditForm({
 
       toast.success("Audit đã được lưu.");
       onSaved?.({
-        auditId: nextAuditId,
+        auditId: savedAudit.id,
         articleUrls,
         categories
       });
@@ -81,7 +80,7 @@ export function AuditForm({
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Audit website</CardTitle>
-        <CardDescription>Nhập mỗi URL một dòng. Danh mục phải theo format `Tên danh mục-https://url`.</CardDescription>
+        <CardDescription>Nhập mỗi URL một dòng. Danh mục theo format `Tên danh mục` - `https://url`.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-5" onSubmit={onSubmit}>
@@ -100,7 +99,7 @@ export function AuditForm({
             <Textarea
               id="categoriesInput"
               rows={10}
-              placeholder={"Tin tức-https://example.com/tin-tuc\nSức khỏe-https://example.com/suc-khoe"}
+              placeholder={"`Tin tức` - `https://example.com/tin-tuc`\n`Sức khỏe` - `https://example.com/suc-khoe`"}
               {...form.register("categoriesInput")}
             />
             {form.formState.errors.categoriesInput ? <p className="text-sm text-destructive">{form.formState.errors.categoriesInput.message}</p> : null}

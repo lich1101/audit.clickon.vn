@@ -18,8 +18,9 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
+import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, websiteSchema, type WebsiteValues } from "@/lib/validators";
-import type { AppUser, AuditRun, AuditRunItem, CreditLog, Plan, Website, WebsiteAudit } from "@/types";
+import type { AiProvider, AppUser, AuditRun, AuditRunItem, CreditLog, Plan, Website, WebsiteAudit } from "@/types";
 
 function serializeTimestamp(value: unknown) {
   if (!value) {
@@ -79,6 +80,9 @@ export function mapAudit(docId: string, data: DocumentData): WebsiteAudit {
     userId: data.userId ?? "",
     articleUrls: Array.isArray(data.articleUrls) ? data.articleUrls : [],
     categories: Array.isArray(data.categories) ? data.categories : [],
+    checklistText: data.checklistText ?? null,
+    aiProvider: ["openai", "gemini", "gemini_deep_research"].includes(data.aiProvider) ? data.aiProvider : "openai",
+    aiModel: data.aiModel ?? null,
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -181,24 +185,45 @@ export function listenToUser(uid: string, callback: (user: AppUser | null) => vo
   );
 }
 
-export function listenToWebsites(userId: string, callback: (websites: Website[]) => void, onError?: (error: Error) => void) {
-  return onCollectionSnapshot(
-    "websites",
-    [where("userId", "==", userId), orderBy("createdAt", "desc")],
-    mapWebsite,
-    callback,
-    onError
+export async function fetchWebsites() {
+  const payload = await laravelRequest<{ data: Website[] }>("/api/websites");
+  return payload.data;
+}
+
+export async function fetchCreditLogs(userId: string, take = 20) {
+  const snapshots = await getDocs(
+    query(collection(db, "creditLogs"), where("userId", "==", userId), orderBy("createdAt", "desc"), limit(take))
   );
+
+  return snapshots.docs.map((entry) => mapCreditLog(entry.id, entry.data()));
+}
+
+export function listenToWebsites(userId: string, callback: (websites: Website[]) => void, onError?: (error: Error) => void) {
+  void fetchWebsites()
+    .then((websites) => callback(websites))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải danh sách website.")));
+
+  return () => undefined;
 }
 
 export function listenToPlans(callback: (plans: Plan[]) => void, onError?: (error: Error) => void, activeOnly = true) {
+  void fetchPlans(activeOnly)
+    .then((plans) => callback(plans))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải gói cước.")));
+
+  return () => undefined;
+}
+
+export async function fetchPlans(activeOnly = true) {
   const constraints = [orderBy("createdAt", "desc")] as QueryConstraint[];
 
   if (activeOnly) {
     constraints.unshift(where("isActive", "==", true));
   }
 
-  return onCollectionSnapshot("plans", constraints, mapPlan, callback, onError);
+  const snapshots = await getDocs(query(collection(db, "plans"), ...constraints));
+
+  return snapshots.docs.map((entry) => mapPlan(entry.id, entry.data()));
 }
 
 export function listenToAllUsers(callback: (users: AppUser[]) => void, onError?: (error: Error) => void) {
@@ -235,12 +260,9 @@ export function listenToAuditRunsByWebsite(
 ) {
   return onCollectionSnapshot(
     "auditRuns",
-    [where("websiteId", "==", websiteId)],
+    [where("websiteId", "==", websiteId), orderBy("createdAt", "desc"), limit(30)],
     mapAuditRun,
-    (runs) =>
-      callback(
-        [...runs].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-      ),
+    (runs) => callback(runs),
     onError
   );
 }
@@ -296,22 +318,25 @@ export async function createOrUpdateUserProfile(input: {
 
 export async function createWebsite(userId: string, values: WebsiteValues) {
   const parsed = websiteSchema.parse(values);
-  const websiteRef = doc(collection(db, "websites"));
-
-  await setDoc(websiteRef, {
-    userId,
-    name: parsed.name,
-    url: parsed.url,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+  const payload = await laravelRequest<{ data: { id: string } }>("/api/websites", {
+    method: "POST",
+    body: JSON.stringify({
+      name: parsed.name,
+      url: parsed.url
+    })
   });
 
-  return websiteRef.id;
+  return payload.data.id;
 }
 
 export async function getWebsiteById(id: string) {
-  const snapshot = await getDoc(doc(db, "websites", id));
-  return snapshot.exists() ? mapWebsite(snapshot.id, snapshot.data()) : null;
+  try {
+    const payload = await laravelRequest<{ data: Website }>(`/api/websites/${id}`);
+    return payload.data;
+  } catch {
+    const snapshot = await getDoc(doc(db, "websites", id));
+    return snapshot.exists() ? mapWebsite(snapshot.id, snapshot.data()) : null;
+  }
 }
 
 export async function getPlanById(id: string) {
@@ -325,37 +350,40 @@ export async function saveWebsiteAudit(input: {
   userId: string;
   articleUrlsInput: string;
   categoriesInput: string;
+  checklistText?: string;
+  aiProvider?: AiProvider;
+  aiModel?: string;
 }) {
-  const articleUrls = parseArticleUrls(input.articleUrlsInput);
-  const categories = parseCategories(input.categoriesInput);
-  const auditRef = input.auditId ? doc(db, "websiteAudits", input.auditId) : doc(collection(db, "websiteAudits"));
-  const current = input.auditId ? await getDoc(auditRef) : null;
-
-  await setDoc(
-    auditRef,
-    {
+  const payload = await laravelRequest<{ data: WebsiteAudit }>("/api/website-audits", {
+    method: "POST",
+    body: JSON.stringify({
+      auditId: input.auditId,
       websiteId: input.websiteId,
-      userId: input.userId,
-      articleUrls,
-      categories,
-      createdAt: current?.exists() ? current.data().createdAt : serverTimestamp(),
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
+      articleUrlsInput: input.articleUrlsInput,
+      categoriesInput: input.categoriesInput,
+      checklistText: input.checklistText ?? "",
+      aiProvider: input.aiProvider ?? "openai",
+      aiModel: input.aiModel?.trim() || undefined
+    })
+  });
 
-  return auditRef.id;
+  return payload.data;
 }
 
 export async function getAuditByWebsiteId(websiteId: string) {
-  const snapshots = await getDocs(query(collection(db, "websiteAudits"), where("websiteId", "==", websiteId), limit(1)));
+  try {
+    const payload = await laravelRequest<{ data: WebsiteAudit | null }>(`/api/websites/${websiteId}/audit`);
+    return payload.data;
+  } catch {
+    const snapshots = await getDocs(query(collection(db, "websiteAudits"), where("websiteId", "==", websiteId), limit(1)));
 
-  if (snapshots.empty) {
-    return null;
+    if (snapshots.empty) {
+      return null;
+    }
+
+    const first = snapshots.docs[0];
+    return mapAudit(first.id, first.data());
   }
-
-  const first = snapshots.docs[0];
-  return mapAudit(first.id, first.data());
 }
 
 export async function updatePlan(id: string, data: Partial<Plan>) {

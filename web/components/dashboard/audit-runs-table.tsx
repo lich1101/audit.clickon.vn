@@ -17,10 +17,14 @@ function buildProgressLabel(run: AuditRun) {
 
 export function AuditRunsTable({
   websiteId,
-  runs
+  runs,
+  activeRunId,
+  onSelectRun
 }: {
   websiteId: string;
   runs: AuditRun[];
+  activeRunId?: string | null;
+  onSelectRun?: (runId: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
@@ -51,7 +55,10 @@ export function AuditRunsTable({
           header: "Audit run",
           render: (run) => (
             <div className="space-y-1">
-              <p className="font-medium">#{run.publicId.slice(-8)}</p>
+              <p className="font-medium">
+                #{run.publicId.slice(-8)}
+                {run.publicId === activeRunId ? <span className="ml-2 text-xs text-primary">Đang xem</span> : null}
+              </p>
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
               <p className="text-xs text-muted-foreground">AI: {run.aiProvider ?? "openai"}</p>
             </div>
@@ -86,9 +93,16 @@ export function AuditRunsTable({
           key: "actions",
           header: "Thao tác",
           render: (run) => (
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/websites/${websiteId}/audit/runs/${run.publicId}`}>Xem chi tiết</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {onSelectRun ? (
+                <Button size="sm" variant={run.publicId === activeRunId ? "secondary" : "outline"} onClick={() => onSelectRun(run.publicId)}>
+                  Xem tại trang
+                </Button>
+              ) : null}
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/websites/${websiteId}/audit/runs/${run.publicId}`}>Chi tiết</Link>
+              </Button>
+            </div>
           )
         }
       ]}

@@ -1,4 +1,4 @@
-import { parseArticleUrls, parseCategories } from "@/lib/validators";
+import { parseArticleUrls, parseCategories, formatCategoryLine } from "@/lib/validators";
 import type { AuditCategory } from "@/types";
 
 function splitLines(input: string) {
@@ -63,7 +63,7 @@ export async function parseCategoryFile(file: File): Promise<AuditCategory[]> {
     }
 
     if (cells.length >= 2) {
-      categories.push(...parseCategories(`${first}-${second}`));
+      categories.push(...parseCategories(formatCategoryLine(first, second)));
       continue;
     }
 

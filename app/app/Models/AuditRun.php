@@ -27,6 +27,7 @@ class AuditRun extends Model
         'failed_urls',
         'started_at',
         'completed_at',
+        'cancelled_at',
         'last_error',
     ];
 
@@ -42,6 +43,7 @@ class AuditRun extends Model
             'failed_urls' => 'integer',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 

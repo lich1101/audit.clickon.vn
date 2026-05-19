@@ -46,7 +46,15 @@ export async function POST(request: Request) {
       updatedAt: now
     };
 
-    await userRef.set(profile, { merge: true });
+    const shouldSyncProfile =
+      String(existing.email ?? "") !== profile.email
+      || String(existing.displayName ?? "") !== profile.displayName
+      || existing.role !== profile.role
+      || Number(existing.credits ?? 0) !== profile.credits;
+
+    if (shouldSyncProfile) {
+      await userRef.set(profile, { merge: true });
+    }
 
     const response = NextResponse.json({ message: "Session created.", user: profile });
     response.cookies.set(SESSION_COOKIE, sessionCookie, {

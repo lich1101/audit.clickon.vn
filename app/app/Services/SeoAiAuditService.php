@@ -3,22 +3,28 @@
 namespace App\Services;
 
 use App\Models\AuditPromptTemplate;
+use App\Models\AuditRun;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class SeoAiAuditService
 {
-    private const DEFAULT_CHECKLIST = <<<'TEXT'
-Kiểm tra Onpage SEO theo các nhóm:
-- Title tag: rõ chủ đề, chứa từ khóa chính, không quá ngắn hoặc quá dài.
-- Meta description: có mô tả, có ý định nhấp, liên quan nội dung.
-- H1/H2/H3: cấu trúc heading logic, không thiếu H1.
-- Tính liên quan nội dung với từ khóa chính và search intent.
-- Canonical, internal links, hình ảnh và alt text.
-- Độ đầy đủ và chiều sâu nội dung.
-- Định hướng nâng cấp nội dung để tăng topical relevance.
+    private static function defaultChecklist(): string
+    {
+        $path = resource_path('audit/seo-checklist.txt');
+
+        if (is_readable($path)) {
+            return trim((string) file_get_contents($path));
+        }
+
+        return <<<'TEXT'
+CHECKLIST AUDIT SEO — CLICKON (fallback)
+Chấm theo 25 tiêu chí: Kỹ thuật SEO tối đa 24đ, Nội dung & chuyên môn tối đa 6đ, tổng 30đ.
+auditScore = làm tròn((điểm_kỹ_thuật + điểm_nội_dung) / 30 × 100).
+Hướng xử lý: Viết lại | Audit Content | Giữ nguyên | Redirect theo ma trận trong checklist.
 TEXT;
+    }
 
     public function __construct(
         private readonly AuditPromptTemplateService $promptTemplateService,
@@ -36,9 +42,10 @@ TEXT;
         ?string $checklistText = null,
         string $provider = 'openai',
         ?string $model = null,
+        ?int $auditRunId = null,
     ): array {
-        $keywordAndCategory = $this->analyzeKeywordAndCategory($provider, $model, $page, $categoryContexts);
-        $audit = $this->analyzeOnpage($provider, $model, $page, $categoryContexts, $checklistText, $keywordAndCategory);
+        $keywordAndCategory = $this->analyzeKeywordAndCategory($provider, $model, $page, $categoryContexts, $auditRunId);
+        $audit = $this->analyzeOnpage($provider, $model, $page, $categoryContexts, $checklistText, $keywordAndCategory, $auditRunId);
 
         return [
             'primaryKeyword' => $keywordAndCategory['primaryKeyword'],
@@ -61,7 +68,7 @@ TEXT;
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
      */
-    private function analyzeKeywordAndCategory(string $provider, ?string $model, array $page, array $categoryContexts): array
+    private function analyzeKeywordAndCategory(string $provider, ?string $model, array $page, array $categoryContexts, ?int $auditRunId = null): array
     {
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_KEYWORD_CATEGORY_MAPPING, [
             'url' => $page['url'],
@@ -82,7 +89,8 @@ TEXT;
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
-            schema: $this->keywordCategorySchema()
+            schema: $this->keywordCategorySchema(),
+            auditRunId: $auditRunId,
         );
 
         return [
@@ -107,6 +115,7 @@ TEXT;
         array $categoryContexts,
         ?string $checklistText,
         array $keywordAndCategory,
+        ?int $auditRunId = null,
     ): array {
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_ONPAGE_AUDIT, [
             'url' => $page['url'],
@@ -119,7 +128,7 @@ TEXT;
             'categories_json' => $this->categoryPayload($categoryContexts),
             'page_json' => $this->pagePayload($page),
             'article_content' => $page['content'] ?? '',
-            'checklist' => trim($checklistText ?: self::DEFAULT_CHECKLIST),
+            'checklist' => trim($checklistText ?: self::defaultChecklist()),
         ]);
 
         $data = $this->requestJson(
@@ -127,7 +136,8 @@ TEXT;
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
-            schema: $this->onpageSchema()
+            schema: $this->onpageSchema(),
+            auditRunId: $auditRunId,
         );
 
         return [
@@ -199,12 +209,12 @@ TEXT;
      * @param  array<string, mixed>  $schema
      * @return array<string, mixed>
      */
-    private function requestJson(string $provider, ?string $model, string $systemPrompt, string $userPrompt, array $schema): array
+    private function requestJson(string $provider, ?string $model, string $systemPrompt, string $userPrompt, array $schema, ?int $auditRunId = null): array
     {
         return match ($provider) {
             'openai' => $this->requestOpenAiJson($model, $systemPrompt, $userPrompt),
             'gemini' => $this->requestGeminiJson($model, $systemPrompt, $userPrompt, $schema),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchJson($model, $systemPrompt, $userPrompt),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchJson($model, $systemPrompt, $userPrompt, $auditRunId),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
     }
@@ -304,13 +314,15 @@ TEXT;
     /**
      * @return array<string, mixed>
      */
-    private function requestGeminiDeepResearchJson(?string $model, string $systemPrompt, string $userPrompt): array
+    private function requestGeminiDeepResearchJson(?string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId = null): array
     {
         $apiKey = config('services.gemini.api_key');
 
         if (! $apiKey) {
             throw new RuntimeException('GEMINI_API_KEY is not configured.');
         }
+
+        $this->assertAuditRunActive($auditRunId);
 
         $agent = $model ?: config('services.gemini.deep_research_agent', 'deep-research-preview-04-2026');
         $input = implode("\n\n", [
@@ -337,7 +349,7 @@ TEXT;
                 'store' => true,
             ]);
 
-        $start->throw();
+        $this->ensureGeminiSuccess($start, 'Gemini Deep Research start failed');
 
         $interactionId = $start->json('id');
 
@@ -348,7 +360,9 @@ TEXT;
         $deadline = time() + (int) config('services.gemini.deep_research_timeout_seconds', 1800);
 
         do {
+            $this->assertAuditRunActive($auditRunId);
             sleep(10);
+
             $poll = Http::withHeaders([
                 'x-goog-api-key' => $apiKey,
                 'Api-Revision' => '2026-05-20',
@@ -357,7 +371,7 @@ TEXT;
                 ->timeout(60)
                 ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}");
 
-            $poll->throw();
+            $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
             $payload = $poll->json();
             $status = $payload['status'] ?? null;
 
@@ -365,12 +379,46 @@ TEXT;
                 return $this->decodeJsonText($this->extractTextFromInteraction($payload), 'Gemini Deep Research');
             }
 
-            if ($status === 'failed') {
+            if (in_array($status, ['failed', 'cancelled'], true)) {
                 throw new RuntimeException('Gemini Deep Research failed: '.json_encode($payload['error'] ?? [], JSON_UNESCAPED_UNICODE));
+            }
+
+            if (isset($payload['error']['message'])) {
+                throw new RuntimeException('Gemini Deep Research error: '.$payload['error']['message']);
             }
         } while (time() < $deadline);
 
         throw new RuntimeException("Gemini Deep Research timed out for interaction [{$interactionId}].");
+    }
+
+    private function assertAuditRunActive(?int $auditRunId): void
+    {
+        if (! $auditRunId) {
+            return;
+        }
+
+        $run = AuditRun::query()->find($auditRunId);
+
+        if (! $run || $run->cancelled_at !== null || $run->status === 'failed') {
+            throw new RuntimeException('Audit run stopped.');
+        }
+    }
+
+    private function ensureGeminiSuccess(\Illuminate\Http\Client\Response $response, string $fallback): void
+    {
+        $payload = $response->json();
+
+        if (is_array($payload) && isset($payload['error']['message'])) {
+            $code = $payload['error']['code'] ?? null;
+
+            if ($code === 'permission_denied') {
+                throw new RuntimeException('Gemini Deep Research access denied: '.$payload['error']['message'].' Please contact Google support or enable access for deep-research-preview-04-2026.');
+            }
+
+            throw new RuntimeException($fallback.': '.$payload['error']['message']);
+        }
+
+        $response->throw();
     }
 
     /**

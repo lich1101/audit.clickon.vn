@@ -15,12 +15,12 @@ export default function CreateWebsitePage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Tạo website"
-        description="Khai báo website mới để gắn các bài viết, danh mục và audit tương ứng."
+        title="Tạo audit website"
+        description="Tạo website mới và tuỳ chọn cấu hình URL, danh mục, checklist ngay từ đầu."
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Websites", href: "/websites" },
-          { label: "Create" }
+          { label: "Tạo audit website" }
         ]}
       />
       <WebsiteForm userId={profile.uid} />

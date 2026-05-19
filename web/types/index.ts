@@ -44,6 +44,9 @@ export type WebsiteAudit = {
   userId: string;
   articleUrls: string[];
   categories: AuditCategory[];
+  checklistText?: string | null;
+  aiProvider?: AiProvider;
+  aiModel?: string | null;
   createdAt: string;
   updatedAt: string;
 };

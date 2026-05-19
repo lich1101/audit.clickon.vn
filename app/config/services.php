@@ -47,7 +47,7 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-2.5-pro'),
         'deep_research_agent' => env('GEMINI_DEEP_RESEARCH_AGENT', 'deep-research-preview-04-2026'),
         'timeout_seconds' => (int) env('GEMINI_TIMEOUT_SECONDS', 180),
-        'deep_research_timeout_seconds' => (int) env('GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS', 1800),
+        'deep_research_timeout_seconds' => (int) env('GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS', 0),
     ],
 
     'audit' => [
@@ -59,7 +59,9 @@ return [
         'jina_api_key' => env('JINA_API_KEY'),
         'firestore_sync' => (bool) env('AUDIT_FIRESTORE_SYNC', false),
         'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', true),
-        'max_ai_step_response_bytes' => (int) env('AUDIT_MAX_AI_STEP_RESPONSE_BYTES', 104857600),
+        'max_ai_step_response_bytes' => (int) env('AUDIT_MAX_AI_STEP_RESPONSE_BYTES', 0),
+        'batch_job_timeout_seconds' => (int) env('AUDIT_BATCH_JOB_TIMEOUT_SECONDS', 0),
+        'ai_http_timeout_seconds' => (int) env('AUDIT_AI_HTTP_TIMEOUT_SECONDS', 0),
     ],
 
 ];

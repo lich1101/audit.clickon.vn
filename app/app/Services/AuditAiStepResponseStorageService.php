@@ -21,7 +21,7 @@ class AuditAiStepResponseStorageService
         $originalBytes = strlen($rawText);
         $truncated = false;
 
-        if ($originalBytes > $maxBytes) {
+        if ($maxBytes > 0 && $originalBytes > $maxBytes) {
             $rawText = substr($rawText, 0, $maxBytes);
             $truncated = true;
         }
@@ -51,6 +51,6 @@ class AuditAiStepResponseStorageService
 
     public function maxBytes(): int
     {
-        return (int) config('services.audit.max_ai_step_response_bytes', 104857600);
+        return (int) config('services.audit.max_ai_step_response_bytes', 0);
     }
 }

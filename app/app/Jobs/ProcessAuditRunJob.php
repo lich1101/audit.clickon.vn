@@ -13,11 +13,19 @@ class ProcessAuditRunJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 1800;
+    /**
+     * 0 = không giới hạn thời gian (Laravel queue).
+     */
+    public int $timeout = 0;
 
     public function __construct(
         public readonly int $runId,
     ) {
+        $configured = (int) config('services.audit.batch_job_timeout_seconds', 0);
+
+        if ($configured > 0) {
+            $this->timeout = $configured;
+        }
     }
 
     public function handle(AuditRunService $auditRunService): void
@@ -40,6 +48,7 @@ class ProcessAuditRunJob implements ShouldQueue
             $auditRunService = app(AuditRunService::class);
 
             if (! $auditRunService->isRunCancelled($run)) {
+                $auditRunService->markBatchItemsFailed($run, $exception->getMessage());
                 $auditRunService->markRunFailed($run, $exception->getMessage());
             }
         }

@@ -574,7 +574,7 @@ TEXT;
 
         $response = Http::withToken($apiKey)
             ->acceptJson()
-            ->timeout((int) config('services.openai.timeout_seconds', 180))
+            ->timeout($this->aiHttpTimeoutSeconds())
             ->post('https://api.openai.com/v1/responses', $payload);
 
         $this->throwIfAiRequestFailed($response, 'OpenAI');
@@ -636,7 +636,7 @@ TEXT;
             'Content-Type' => 'application/json',
         ])
             ->acceptJson()
-            ->timeout((int) config('services.gemini.timeout_seconds', 180))
+            ->timeout($this->aiHttpTimeoutSeconds())
             ->post("https://generativelanguage.googleapis.com/v1beta/models/{$modelName}:generateContent", $payload);
 
         $this->throwIfAiRequestFailed($response, 'Gemini');
@@ -685,7 +685,7 @@ TEXT;
             'Api-Revision' => '2026-05-20',
         ])
             ->acceptJson()
-            ->timeout(60)
+            ->timeout($this->aiHttpTimeoutSeconds())
             ->post('https://generativelanguage.googleapis.com/v1beta/interactions', [
                 'input' => $input,
                 'agent' => $agent,
@@ -705,7 +705,7 @@ TEXT;
             throw new RuntimeException('Gemini Deep Research did not return an interaction id.');
         }
 
-        $deadline = time() + (int) config('services.gemini.deep_research_timeout_seconds', 1800);
+        $deadline = $this->deepResearchDeadlineUnix();
 
         do {
             $this->assertAuditRunActive($auditRunId);
@@ -716,7 +716,7 @@ TEXT;
                 'Api-Revision' => '2026-05-20',
             ])
                 ->acceptJson()
-                ->timeout(60)
+                ->timeout($this->aiHttpTimeoutSeconds())
                 ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}");
 
             $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
@@ -758,9 +758,34 @@ TEXT;
             if (isset($payload['error']['message'])) {
                 throw new RuntimeException('Gemini Deep Research error: '.$payload['error']['message']);
             }
-        } while (time() < $deadline);
+        } while ($deadline === null || time() < $deadline);
 
         throw new RuntimeException("Gemini Deep Research timed out for interaction [{$interactionId}].");
+    }
+
+    private function aiHttpTimeoutSeconds(): int
+    {
+        $auditTimeout = (int) config('services.audit.ai_http_timeout_seconds', 0);
+
+        if ($auditTimeout > 0) {
+            return $auditTimeout;
+        }
+
+        return 0;
+    }
+
+    /**
+     * null = poll không giới hạn (chỉ dừng khi completed/failed hoặc user cancel run).
+     */
+    private function deepResearchDeadlineUnix(): ?int
+    {
+        $seconds = (int) config('services.gemini.deep_research_timeout_seconds', 0);
+
+        if ($seconds <= 0) {
+            return null;
+        }
+
+        return time() + $seconds;
     }
 
     private function assertAuditRunActive(?int $auditRunId): void

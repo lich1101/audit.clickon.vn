@@ -34,6 +34,7 @@ services:
       DB_PORT: ${DB_PORT:-3306}
     volumes:
       - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
+      - ./app/storage/app/private/audit-ai-responses:/var/www/html/storage/app/private/audit-ai-responses
     depends_on:
       mysql:
         condition: service_healthy
@@ -52,12 +53,13 @@ services:
       DB_PORT: ${DB_PORT:-3306}
     volumes:
       - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
+      - ./app/storage/app/private/audit-ai-responses:/var/www/html/storage/app/private/audit-ai-responses
     depends_on:
       mysql:
         condition: service_healthy
       api:
         condition: service_started
-    command: sh -c 'workers="$${QUEUE_WORKERS:-3}"; for i in $$(seq 1 "$$workers"); do php artisan queue:work --tries=2 --timeout=1800 --max-jobs=500 --max-time=3600 & done; wait'
+    command: sh -c 'workers="$${QUEUE_WORKERS:-3}"; for i in $$(seq 1 "$$workers"); do php artisan queue:work --tries=1 --timeout=0 & done; wait'
     deploy:
       resources:
         limits:

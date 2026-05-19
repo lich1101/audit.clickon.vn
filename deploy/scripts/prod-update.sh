@@ -32,7 +32,7 @@ export BUILDKIT_PROGRESS="${BUILDKIT_PROGRESS:-plain}"
 export NODE_BUILD_HEAP_MB
 export COMPOSER_MEMORY_LIMIT
 
-compose() {
+dc() {
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
@@ -53,6 +53,12 @@ run_low_priority() {
   "$@"
 }
 
+docker_build() {
+  local service="$1"
+  # Phải gọi "docker compose" trực tiếp — không dùng tên "compose" vì trùng /usr/bin/compose (mail).
+  run_low_priority "$DEPLOY_NICE_LEVEL" docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "$service"
+}
+
 if [[ "$SKIP_PULL" != "1" ]]; then
   echo "==> Updating source from git branch: $BRANCH"
   git -C "$ROOT_DIR" fetch origin "$BRANCH"
@@ -65,14 +71,14 @@ echo "    NODE_BUILD_HEAP_MB=${NODE_BUILD_HEAP_MB}"
 echo "    COMPOSER_MEMORY_LIMIT=${COMPOSER_MEMORY_LIMIT}"
 echo "    DEPLOY_NICE_LEVEL=${DEPLOY_NICE_LEVEL}"
 
-run_low_priority "$DEPLOY_NICE_LEVEL" compose build --no-cache=false api
-run_low_priority "$DEPLOY_NICE_LEVEL" compose build --no-cache=false web
+docker_build api
+docker_build web
 
 echo "==> Starting production containers (không build lại song song)"
-compose up -d mysql api queue web nginx
+dc up -d mysql api queue web nginx
 
 echo "==> Running database migrations"
-compose exec -T api php artisan migrate --force
+dc exec -T api php artisan migrate --force
 
 if [[ "${DOCKER_PRUNE_AFTER_DEPLOY:-1}" == "1" ]]; then
   echo "==> Docker cleanup (dangling images + build cache)"
@@ -80,4 +86,4 @@ if [[ "${DOCKER_PRUNE_AFTER_DEPLOY:-1}" == "1" ]]; then
 fi
 
 echo "==> Deployment complete"
-compose ps
+dc ps

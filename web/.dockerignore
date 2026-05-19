@@ -2,4 +2,12 @@ node_modules
 .next
 npm-debug.log
 .git
+.github
 .DS_Store
+.env
+.env.*
+!.env.example
+README.md
+*.md
+coverage
+.turbo

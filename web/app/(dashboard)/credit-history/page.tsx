@@ -23,7 +23,7 @@ export default function CreditHistoryPage() {
   }, [profile]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Credit history"
         description="Theo dõi toàn bộ biến động credit của tài khoản hiện tại theo thời gian thực."

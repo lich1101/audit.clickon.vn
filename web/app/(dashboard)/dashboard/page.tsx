@@ -39,7 +39,7 @@ export default function DashboardPage() {
   const recentWebsites = useMemo(() => websites.slice(0, 3), [websites]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Dashboard"
         description="Tổng quan realtime về credit, website đã tạo và các giao dịch credit gần nhất của tài khoản hiện tại."
@@ -53,35 +53,25 @@ export default function DashboardPage() {
         <StatCard title="Giao dịch credit gần đây" value={formatNumber(logs.length)} hint="Log được cập nhật ngay sau mutation" icon={Sparkles} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Recent credit activity</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">Theo dõi các thay đổi credit mới nhất trong thời gian thực.</p>
-            </div>
-            <CreditBadge credits={profile?.credits ?? 0} />
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              title="Credit logs"
-              columns={[
-                { key: "type", header: "Loại", render: (row: CreditLog) => row.type },
-                { key: "amount", header: "Amount", render: (row: CreditLog) => `${row.type === "subtract" ? "-" : "+"}${formatNumber(row.amount)}` },
-                { key: "reason", header: "Lý do", render: (row: CreditLog) => row.reason },
-                { key: "createdAt", header: "Thời gian", render: (row: CreditLog) => formatDate(row.createdAt) }
-              ]}
-              rows={logs.slice(0, 5)}
-              empty={<EmptyState title="Chưa có credit log" description="Các lần cộng hoặc trừ credit sẽ xuất hiện ở đây." />}
-            />
-          </CardContent>
-        </Card>
+      <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+        <DataTable
+          title="Recent credit activity"
+          columns={[
+            { key: "type", header: "Loại", render: (row: CreditLog) => row.type },
+            { key: "amount", header: "Amount", render: (row: CreditLog) => `${row.type === "subtract" ? "-" : "+"}${formatNumber(row.amount)}` },
+            { key: "reason", header: "Lý do", render: (row: CreditLog) => row.reason },
+            { key: "createdAt", header: "Thời gian", render: (row: CreditLog) => formatDate(row.createdAt) }
+          ]}
+          rows={logs.slice(0, 5)}
+          empty={<EmptyState title="Chưa có credit log" description="Các lần cộng hoặc trừ credit sẽ xuất hiện ở đây." />}
+        />
 
         <Card>
-          <CardHeader>
-            <CardTitle>Shortcut</CardTitle>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Quick actions</CardTitle>
+            <CreditBadge credits={profile?.credits ?? 0} />
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+          <CardContent className="flex flex-col gap-3">
             <Button asChild className="justify-start">
               <Link href="/websites/create">Tạo website mới</Link>
             </Button>
@@ -95,7 +85,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <section className="flex flex-col gap-5">
+      <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Recent websites</h2>
@@ -107,7 +97,7 @@ export default function DashboardPage() {
         </div>
 
         {recentWebsites.length ? (
-          <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             {recentWebsites.map((website) => (
               <WebsiteCard key={website.id} website={website} />
             ))}

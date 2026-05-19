@@ -16,18 +16,18 @@ export function PlanCard({
   loading?: boolean;
 }) {
   return (
-    <Card className="h-full">
+    <Card className="h-full hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
+          <div className="flex flex-col gap-1.5">
             <CardTitle>{plan.name}</CardTitle>
             <CardDescription>Phù hợp cho luồng audit website cần cấp credit theo batch.</CardDescription>
           </div>
           <CreditBadge credits={plan.credits} />
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-3xl font-semibold">{formatCurrency(plan.price)}</p>
+      <CardContent className="flex flex-col gap-4">
+        <p className="text-2xl font-semibold">{formatCurrency(plan.price)}</p>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <CheckCircle2 className="size-4 text-emerald-500" />
           Kích hoạt thủ công sau khi admin duyệt

@@ -42,7 +42,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={user.displayName ?? user.email}
         description={`UID: ${user.uid}`}
@@ -53,7 +53,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
         ]}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
         <Card>
           <CardHeader>
             <CardTitle>User profile</CardTitle>
@@ -82,8 +82,8 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
           </CardContent>
         </Card>
 
-        <div className="grid gap-6">
-          <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-5">
+          <div className="grid gap-5 md:grid-cols-2">
             <CreditAdjustmentForm userId={user.uid} type="add" />
             <CreditAdjustmentForm userId={user.uid} type="subtract" />
           </div>

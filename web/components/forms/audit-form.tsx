@@ -78,7 +78,7 @@ export function AuditForm({
   });
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Audit website</CardTitle>
         <CardDescription>Nhập mỗi URL một dòng. Danh mục phải theo format `Tên danh mục-https://url`.</CardDescription>

@@ -20,8 +20,8 @@ export function PageHeader({
   action?: { label: string; href: string };
 }) {
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {breadcrumbs.map((item, index) => (
           <div key={`${item.label}-${index}`} className="flex items-center gap-2">
             {item.href ? (
@@ -31,14 +31,14 @@ export function PageHeader({
             ) : (
               <span className="text-foreground">{item.label}</span>
             )}
-            {index < breadcrumbs.length - 1 ? <ChevronRight className="size-4" /> : null}
+            {index < breadcrumbs.length - 1 ? <ChevronRight className="size-3.5" /> : null}
           </div>
         ))}
       </div>
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-balance">{title}</h1>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-normal text-balance">{title}</h1>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
         </div>
 

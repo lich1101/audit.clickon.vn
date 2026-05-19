@@ -37,7 +37,7 @@ export default function WebsitesPage() {
   }, [search, websites]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Websites"
         description="Quản lý toàn bộ website của bạn, tách biệt rõ giữa danh sách, tạo mới, chi tiết và trang audit."
@@ -73,7 +73,7 @@ export default function WebsitesPage() {
       />
 
       {filtered.length ? (
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           {filtered.map((website) => (
             <WebsiteCard key={website.id} website={website} />
           ))}

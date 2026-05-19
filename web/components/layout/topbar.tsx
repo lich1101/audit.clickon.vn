@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, Moon, Search, Sun } from "lucide-react";
+import { HelpCircle, Menu, Moon, Search, Settings2, Sun } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
@@ -25,30 +25,37 @@ export function Topbar() {
   const isDark = mounted && resolvedTheme === "dark";
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-xl">
-      <div className="content-shell flex h-20 items-center gap-3">
+    <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-xl">
+      <div className="flex h-16 items-center gap-3 px-3 sm:px-4">
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="lg:hidden">
               <Menu className="size-4" />
             </Button>
           </SheetTrigger>
-          <SheetContent>
+          <SheetContent className="w-[320px] p-0">
             <SheetHeader>
-              <SheetTitle>Navigation</SheetTitle>
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
             </SheetHeader>
-            <div className="mt-6 flex-1 overflow-hidden rounded-[28px] border border-white/10">
+            <div className="h-full">
               <AppSidebar mobile />
             </div>
           </SheetContent>
         </Sheet>
 
-        <div className="hidden flex-1 items-center gap-3 rounded-2xl border border-border bg-card/70 px-4 py-3 shadow-sm md:flex">
+        <div className="flex h-12 flex-1 items-center gap-3 rounded-full bg-secondary px-4 shadow-sm transition focus-within:bg-card focus-within:shadow-md md:max-w-4xl">
           <Search className="size-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Tìm user, website, plan hoặc credit log</span>
+          <span className="hidden text-sm text-muted-foreground sm:inline">Tìm user, website, plan hoặc credit log</span>
+          <span className="text-sm text-muted-foreground sm:hidden">Tìm kiếm</span>
         </div>
 
         <div className="ml-auto flex items-center gap-3">
+          <Button variant="ghost" size="icon" aria-label="Help">
+            <HelpCircle className="size-4" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Settings">
+            <Settings2 className="size-4" />
+          </Button>
           <Button
             variant="outline"
             size="icon"
@@ -61,7 +68,7 @@ export function Topbar() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-3 rounded-2xl border border-border bg-card/70 px-3 py-2 shadow-sm">
+              <button className="flex h-12 items-center gap-3 rounded-full border border-border bg-card px-2 py-1 shadow-sm transition hover:bg-secondary/70 sm:px-3">
                 <Avatar>
                   <AvatarFallback>{profile?.email?.slice(0, 2).toUpperCase() ?? "CA"}</AvatarFallback>
                 </Avatar>

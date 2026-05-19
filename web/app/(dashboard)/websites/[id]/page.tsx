@@ -56,7 +56,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={website.name}
         description={website.url}
@@ -68,7 +68,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
         action={{ label: audit ? "Cập nhật audit" : "Tạo audit", href: `/websites/${website.id}/audit` }}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-5 xl:grid-cols-[0.86fr_1.14fr]">
         <Card>
           <CardHeader>
             <CardTitle>Website overview</CardTitle>
@@ -96,7 +96,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
                   <p className="mb-3 text-sm font-medium">Article URLs</p>
                   <div className="flex flex-col gap-2">
                     {audit.articleUrls.map((url) => (
-                      <div key={url} className="rounded-2xl border border-border bg-card/70 px-4 py-3 text-sm">
+                      <div key={url} className="mail-row rounded-xl border border-border bg-background/70 px-4 py-3 text-sm break-all">
                         {url}
                       </div>
                     ))}
@@ -106,9 +106,9 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
                   <p className="mb-3 text-sm font-medium">Categories</p>
                   <div className="grid gap-3 md:grid-cols-2">
                     {audit.categories.map((category) => (
-                      <div key={`${category.name}-${category.url}`} className="rounded-2xl border border-border bg-card/70 p-4">
+                      <div key={`${category.name}-${category.url}`} className="mail-row rounded-xl border border-border bg-background/70 p-4">
                         <p className="font-medium">{category.name}</p>
-                        <p className="mt-2 text-sm text-muted-foreground">{category.url}</p>
+                        <p className="mt-2 text-sm text-muted-foreground break-all">{category.url}</p>
                       </div>
                     ))}
                   </div>

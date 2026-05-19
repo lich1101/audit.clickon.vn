@@ -26,17 +26,17 @@ export function DataTable<T>({
   empty: React.ReactNode;
 }) {
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <CardTitle>{title}</CardTitle>
         {typeof search === "string" && onSearchChange ? (
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-10" placeholder="Tìm kiếm..." value={search} onChange={(event) => onSearchChange(event.target.value)} />
+            <Input className="rounded-full bg-secondary pl-10 shadow-none" placeholder="Tìm kiếm..." value={search} onChange={(event) => onSearchChange(event.target.value)} />
           </div>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 pb-0">
         {rows.length ? (
           <Table>
             <TableHeader>

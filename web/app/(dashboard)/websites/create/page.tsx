@@ -13,7 +13,7 @@ export default function CreateWebsitePage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Tạo website"
         description="Khai báo website mới để gắn các bài viết, danh mục và audit tương ứng."

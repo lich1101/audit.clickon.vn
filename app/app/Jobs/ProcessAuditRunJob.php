@@ -13,7 +13,7 @@ class ProcessAuditRunJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 120;
+    public int $timeout = 1800;
 
     public function __construct(
         public readonly int $runId,
@@ -25,8 +25,9 @@ class ProcessAuditRunJob implements ShouldQueue
         $run = AuditRun::query()->with('items')->findOrFail($this->runId);
 
         $auditRunService->markRunProcessing($run);
+        $auditRunService->prepareCategoryContexts($run);
 
-        foreach ($run->items as $item) {
+        foreach ($run->fresh('items')->items as $item) {
             ProcessAuditRunItemJob::dispatch($item->id);
         }
     }

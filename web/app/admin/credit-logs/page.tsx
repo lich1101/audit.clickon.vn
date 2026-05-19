@@ -15,7 +15,7 @@ export default function AdminCreditLogsPage() {
   useEffect(() => listenToAllCreditLogs(setLogs), []);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Credit logs"
         description="Toàn bộ log cộng/trừ credit trên hệ thống, bao gồm nguồn và số dư trước/sau."

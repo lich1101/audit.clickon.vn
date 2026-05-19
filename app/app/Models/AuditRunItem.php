@@ -13,12 +13,14 @@ class AuditRunItem extends Model
         'position',
         'target_url',
         'status',
+        'extraction_source',
         'page_title',
         'meta_description',
         'canonical_url',
         'primary_keyword',
         'category_name',
         'category_url',
+        'category_match_reason',
         'audit_score',
         'audit_findings',
         'audit_recommendations',
@@ -26,6 +28,7 @@ class AuditRunItem extends Model
         'extracted_headings',
         'extracted_metrics',
         'content_excerpt',
+        'prompt_snapshots',
         'error_message',
         'completed_at',
     ];
@@ -37,6 +40,7 @@ class AuditRunItem extends Model
             'audit_score' => 'integer',
             'extracted_headings' => 'array',
             'extracted_metrics' => 'array',
+            'prompt_snapshots' => 'array',
             'completed_at' => 'datetime',
         ];
     }

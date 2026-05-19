@@ -17,6 +17,127 @@ class SeoContentExtractionService
      */
     public function extract(string $url): array
     {
+        if (config('services.audit.use_jina', true)) {
+            try {
+                return $this->extractWithJina($url);
+            } catch (\Throwable) {
+                // Fall back to direct HTML extraction. Some sites throttle Jina or block proxy fetches.
+            }
+        }
+
+        return $this->extractFromHtml($url);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function extractOrFallback(string $url): array
+    {
+        try {
+            return $this->extract($url);
+        } catch (\Throwable $exception) {
+            return [
+                'url' => $url,
+                'title' => '',
+                'metaDescription' => '',
+                'canonicalUrl' => '',
+                'headings' => [
+                    'h1' => [],
+                    'h2' => [],
+                    'h3' => [],
+                ],
+                'metrics' => [
+                    'wordCount' => 0,
+                    'imageCount' => 0,
+                    'missingAltCount' => 0,
+                    'internalLinkCount' => 0,
+                    'externalLinkCount' => 0,
+                    'hasCanonical' => false,
+                    'titleLength' => 0,
+                    'metaDescriptionLength' => 0,
+                    'h1Count' => 0,
+                ],
+                'content' => '',
+                'source' => 'url_only',
+                'extractionError' => $exception->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function extractWithJina(string $url): array
+    {
+        $readerUrl = rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$url;
+        $headers = [
+            'User-Agent' => config('services.audit.user_agent', 'ClickonAuditBot/1.0 (+https://clickon-audit.local)'),
+            'Accept' => 'text/plain',
+        ];
+        $apiKey = config('services.audit.jina_api_key');
+
+        if ($apiKey) {
+            $headers['Authorization'] = "Bearer {$apiKey}";
+        }
+
+        $response = Http::withHeaders($headers)
+            ->timeout(60)
+            ->get($readerUrl);
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Jina Reader failed for [{$url}] with status {$response->status()}.");
+        }
+
+        $text = trim($response->body());
+
+        if ($text === '') {
+            throw new RuntimeException("Jina Reader returned empty content for [{$url}].");
+        }
+
+        $title = '';
+        $metaDescription = '';
+
+        if (preg_match('/^Title:\s*(.+)$/mi', $text, $matches)) {
+            $title = trim($matches[1]);
+        }
+
+        if (preg_match('/^Description:\s*(.+)$/mi', $text, $matches)) {
+            $metaDescription = trim($matches[1]);
+        }
+
+        $content = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+
+        return [
+            'url' => $url,
+            'title' => $title,
+            'metaDescription' => $metaDescription,
+            'canonicalUrl' => $url,
+            'headings' => [
+                'h1' => $title !== '' ? [$title] : [],
+                'h2' => [],
+                'h3' => [],
+            ],
+            'metrics' => [
+                'wordCount' => str_word_count(strip_tags($content)),
+                'imageCount' => 0,
+                'missingAltCount' => 0,
+                'internalLinkCount' => 0,
+                'externalLinkCount' => 0,
+                'hasCanonical' => false,
+                'titleLength' => mb_strlen($title),
+                'metaDescriptionLength' => mb_strlen($metaDescription),
+                'h1Count' => $title !== '' ? 1 : 0,
+            ],
+            'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
+            'source' => 'jina',
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function extractFromHtml(string $url): array
+    {
         $response = Http::withHeaders([
             'User-Agent' => config('services.audit.user_agent', 'ClickonAuditBot/1.0 (+https://clickon-audit.local)'),
             'Accept-Language' => 'vi,en;q=0.8',
@@ -77,6 +198,7 @@ class SeoContentExtractionService
                 'h1Count' => count($h1),
             ],
             'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
+            'source' => 'html',
         ];
     }
 

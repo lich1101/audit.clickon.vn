@@ -100,6 +100,9 @@ export function AuditRunItemsTable({
                     <div className="space-y-2">
                       <p className="font-medium break-all">{item.targetUrl}</p>
                       {item.pageTitle ? <p className="text-xs text-muted-foreground">{item.pageTitle}</p> : null}
+                      {item.extractionSource ? (
+                        <p className="text-xs text-muted-foreground">Nguồn crawl: {item.extractionSource}</p>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -116,6 +119,9 @@ export function AuditRunItemsTable({
                       <div className="space-y-1">
                         <p className="font-medium">{item.categoryName}</p>
                         <p className="text-xs text-muted-foreground break-all">{item.categoryUrl}</p>
+                        {item.categoryMatchReason ? (
+                          <p className="text-xs text-muted-foreground">{item.categoryMatchReason}</p>
+                        ) : null}
                       </div>
                     ) : (
                       <span className="text-sm text-muted-foreground">Chưa phân loại</span>
@@ -157,4 +163,3 @@ export function AuditRunItemsTable({
     </Card>
   );
 }
-

@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/layout/page-header";
 
 export default function CreatePlanPage() {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Tạo gói cước"
         description="Khai báo tên gói cước, giá trị, số credit và trạng thái active/inactive."

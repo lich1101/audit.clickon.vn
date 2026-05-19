@@ -38,7 +38,7 @@ export function WebsiteForm({ userId }: { userId: string }) {
   });
 
   return (
-    <Card>
+    <Card className="max-w-2xl">
       <CardHeader>
         <CardTitle>Tạo website mới</CardTitle>
       </CardHeader>

@@ -8,27 +8,29 @@ import type { Website } from "@/types";
 
 export function WebsiteCard({ website }: { website: Website }) {
   return (
-    <Card className="h-full">
-      <CardHeader className="space-y-4">
-        <div className="flex size-12 items-center justify-center rounded-3xl bg-primary/10 text-primary">
-          <Globe className="size-5" />
-        </div>
-        <div>
-          <CardTitle>{website.name}</CardTitle>
-          <p className="mt-2 truncate text-sm text-muted-foreground">{website.url}</p>
+    <Card className="group h-full hover:-translate-y-0.5 hover:shadow-md">
+      <CardHeader>
+        <div className="flex items-start gap-3">
+          <div className="flex size-11 items-center justify-center rounded-full bg-secondary text-primary">
+            <Globe className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="truncate">{website.name}</CardTitle>
+            <p className="mt-1 truncate text-sm text-muted-foreground">{website.url}</p>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+      <CardContent className="flex items-center gap-2 text-xs text-muted-foreground">
         <FileSearch className="size-4" />
         Tạo lúc {formatDate(website.createdAt)}
       </CardContent>
       <CardFooter className="justify-between">
-        <Button asChild variant="secondary">
+        <Button asChild variant="secondary" size="sm">
           <Link href={`/websites/${website.id}`}>Chi tiết</Link>
         </Button>
         <Button asChild variant="ghost" size="icon">
           <Link href={`/websites/${website.id}/audit`}>
-            <ArrowUpRight className="size-4" />
+            <ArrowUpRight className="size-4 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
         </Button>
       </CardFooter>

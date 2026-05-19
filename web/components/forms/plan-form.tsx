@@ -46,7 +46,7 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
   });
 
   return (
-    <Card>
+    <Card className="max-w-3xl">
       <CardHeader>
         <CardTitle>{plan ? "Cập nhật gói cước" : "Tạo gói cước"}</CardTitle>
       </CardHeader>
@@ -69,7 +69,7 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
               {form.formState.errors.credits ? <p className="text-sm text-destructive">{form.formState.errors.credits.message}</p> : null}
             </div>
           </div>
-          <label className="flex items-center gap-3 rounded-2xl border border-border bg-card/70 px-4 py-3 text-sm">
+          <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">
             <input className="size-4 accent-indigo-600" type="checkbox" {...form.register("isActive")} />
             Gói cước đang active
           </label>

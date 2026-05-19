@@ -4,56 +4,56 @@
 
 @layer base {
   :root {
-    --background: 220 33% 98%;
-    --foreground: 224 36% 14%;
+    --background: 220 40% 97%;
+    --foreground: 222 28% 13%;
     --card: 0 0% 100%;
-    --card-foreground: 224 36% 14%;
+    --card-foreground: 222 28% 13%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 36% 14%;
-    --primary: 232 87% 62%;
+    --popover-foreground: 222 28% 13%;
+    --primary: 217 89% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 215 28% 93%;
-    --secondary-foreground: 224 36% 14%;
-    --muted: 220 22% 94%;
-    --muted-foreground: 220 10% 42%;
-    --accent: 160 84% 38%;
+    --secondary: 216 33% 94%;
+    --secondary-foreground: 222 28% 13%;
+    --muted: 216 28% 94%;
+    --muted-foreground: 220 9% 44%;
+    --accent: 173 72% 36%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 18% 88%;
-    --input: 220 18% 88%;
-    --ring: 232 87% 62%;
-    --sidebar: 222 40% 12%;
-    --sidebar-foreground: 220 15% 92%;
-    --sidebar-muted: 221 22% 25%;
-    --sidebar-accent: 232 87% 62%;
-    --sidebar-border: 221 22% 20%;
+    --border: 218 24% 89%;
+    --input: 218 24% 89%;
+    --ring: 217 89% 55%;
+    --sidebar: 220 40% 97%;
+    --sidebar-foreground: 222 28% 13%;
+    --sidebar-muted: 218 25% 88%;
+    --sidebar-accent: 217 89% 55%;
+    --sidebar-border: 218 24% 89%;
   }
 
   .dark {
-    --background: 222 36% 8%;
-    --foreground: 220 15% 96%;
-    --card: 224 30% 11%;
+    --background: 222 38% 7%;
+    --foreground: 216 24% 94%;
+    --card: 222 30% 10%;
     --card-foreground: 220 15% 96%;
     --popover: 224 30% 11%;
     --popover-foreground: 220 15% 96%;
-    --primary: 232 87% 70%;
+    --primary: 217 91% 68%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 22% 18%;
+    --secondary: 220 22% 16%;
     --secondary-foreground: 220 15% 96%;
-    --muted: 220 22% 16%;
+    --muted: 220 20% 15%;
     --muted-foreground: 220 10% 67%;
-    --accent: 160 84% 42%;
+    --accent: 173 72% 42%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 63% 42%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 18% 20%;
+    --border: 220 18% 18%;
     --input: 220 18% 18%;
-    --ring: 232 87% 70%;
-    --sidebar: 224 41% 9%;
+    --ring: 217 91% 68%;
+    --sidebar: 222 38% 7%;
     --sidebar-foreground: 220 15% 96%;
     --sidebar-muted: 221 18% 20%;
-    --sidebar-accent: 232 87% 70%;
+    --sidebar-accent: 217 91% 68%;
     --sidebar-border: 221 22% 16%;
   }
 
@@ -68,26 +68,30 @@
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(circle at top left, rgba(79, 70, 229, 0.12), transparent 24%),
-      radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.08), transparent 22%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.72), transparent 30%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 248, 252, 0.92) 44%, rgba(246, 248, 252, 1));
   }
 
   .dark body {
     background-image:
-      radial-gradient(circle at top left, rgba(79, 70, 229, 0.16), transparent 26%),
-      radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.12), transparent 28%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.32), transparent 36%);
+      linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(8, 13, 24, 0.96) 42%, rgba(5, 9, 18, 1));
   }
 }
 
 @layer utilities {
   .content-shell {
-    @apply mx-auto w-full max-w-7xl px-4 md:px-6;
+    @apply mx-auto w-full max-w-[1540px] px-3 sm:px-4 md:px-5;
   }
 
   .premium-surface {
-    @apply rounded-3xl border border-white/30 bg-card/85 shadow-soft backdrop-blur-xl dark:border-white/10 dark:bg-card/90;
+    @apply rounded-[22px] border border-border/70 bg-card shadow-sm transition-all duration-200 dark:bg-card/90;
+  }
+
+  .app-canvas {
+    @apply rounded-[28px] border border-border/70 bg-card/90 shadow-sm backdrop-blur dark:bg-card/90;
+  }
+
+  .mail-row {
+    @apply transition-colors duration-150 hover:bg-secondary/60;
   }
 
   .text-balance {

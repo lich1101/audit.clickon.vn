@@ -13,7 +13,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Settings"
         description="Cập nhật thông tin hồ sơ Firebase và quan sát dữ liệu account hiện tại."

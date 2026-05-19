@@ -36,6 +36,7 @@ export type AuditCategory = {
 
 export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
+export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
 
 export type WebsiteAudit = {
   id: string;
@@ -74,6 +75,19 @@ export type PlanRequest = {
   updatedAt: string;
 };
 
+export type AuditPromptStep = "keyword_category_mapping" | "onpage_audit";
+
+export type AuditPromptTemplate = {
+  step: AuditPromptStep;
+  title: string;
+  systemPrompt: string;
+  developerPrompt: string;
+  userPrompt: string;
+  isActive: boolean;
+  isDefault: boolean;
+  updatedAt?: string | null;
+};
+
 export type CreditBalanceResponse = {
   userId: string;
   credits: number;
@@ -89,6 +103,7 @@ export type AuditRunItem = {
   position: number;
   targetUrl: string;
   status: AuditRunItemStatus;
+  extractionSource?: "jina" | "html" | "url_only" | string | null;
   pageTitle?: string | null;
   metaDescription?: string | null;
   canonicalUrl?: string | null;
@@ -101,11 +116,23 @@ export type AuditRunItem = {
   primaryKeyword?: string | null;
   categoryName?: string | null;
   categoryUrl?: string | null;
+  categoryMatchReason?: string | null;
   auditScore?: number | null;
   auditFindings: string[];
   auditRecommendations: string[];
   contentRevisionDirection?: string | null;
   contentExcerpt?: string | null;
+  promptSnapshots?: Record<
+    string,
+    {
+      step?: string;
+      provider?: string | null;
+      model?: string | null;
+      createdAt?: string | null;
+      systemPromptPreview?: string | null;
+      userPromptPreview?: string | null;
+    }
+  >;
   errorMessage?: string | null;
   completedAt?: string | null;
   createdAt: string;
@@ -122,7 +149,17 @@ export type AuditRun = {
   userEmail?: string | null;
   targetUrls: string[];
   categories: AuditCategory[];
+  categoryContexts?: Array<{
+    name?: string | null;
+    url?: string | null;
+    title?: string | null;
+    source?: string | null;
+    error?: string | null;
+    contentExcerpt?: string | null;
+  }>;
   checklistText?: string | null;
+  aiProvider?: AiProvider;
+  aiModel?: string | null;
   status: AuditRunStatus;
   totalUrls: number;
   processedUrls: number;

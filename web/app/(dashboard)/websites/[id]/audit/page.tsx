@@ -74,7 +74,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={`Audit pipeline: ${website.name}`}
         description="Quản lý nguồn URL, danh mục mapping và chạy từng đợt SEO audit theo queue. Kết quả sẽ cập nhật realtime qua Firebase Firestore."
@@ -86,27 +86,27 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         ]}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+      <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
         <Card>
           <CardHeader>
             <CardTitle>Nguồn audit đã lưu</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="rounded-2xl border border-border/70 bg-secondary/35 px-4 py-4">
+            <div className="rounded-xl border border-border/70 bg-secondary/35 px-4 py-4">
               <p className="text-muted-foreground">Website gốc</p>
-              <p className="mt-1 font-medium">{website.url}</p>
+              <p className="mt-1 font-medium break-all">{website.url}</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Article URLs</p>
                 <p className="mt-2 text-2xl font-semibold">{audit?.articleUrls.length ?? 0}</p>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Categories</p>
                 <p className="mt-2 text-2xl font-semibold">{audit?.categories.length ?? 0}</p>
               </div>
             </div>
-            <div className="rounded-2xl border border-dashed border-border/70 bg-background/70 px-4 py-4">
+            <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-4 py-4">
               <p className="text-muted-foreground">Lần cập nhật cuối</p>
               <p className="mt-1 font-medium">{audit ? formatDate(audit.updatedAt) : "Chưa có"}</p>
             </div>

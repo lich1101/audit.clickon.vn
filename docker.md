@@ -105,6 +105,9 @@ Sửa ít nhất các biến sau trong `deploy/env/docker.prod.env`:
 - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 - `OPENAI_API_KEY`
+- `GEMINI_API_KEY` nếu dùng Gemini hoặc Gemini Deep Research
+- `AUDIT_USE_JINA_READER=true` nếu muốn ưu tiên Jina Reader khi crawl URL
+- `JINA_API_KEY` nếu tài khoản Jina của bạn yêu cầu API key
 
 Nếu muốn seed admin nhanh bằng script, điền thêm:
 
@@ -120,6 +123,36 @@ app/storage/app/firebase-service-account.json
 ```
 
 File này được mount cho cả `api`, `queue` và `web`. `web` cũng cần nó vì route `POST /api/auth/session` dùng Firebase Admin để tạo session cookie.
+
+### Biến môi trường cho audit automation
+
+Backend `api` và `queue` dùng các biến này khi crawl và gọi AI:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT=medium
+OPENAI_TIMEOUT_SECONDS=180
+
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-pro
+GEMINI_DEEP_RESEARCH_AGENT=deep-research-preview-04-2026
+GEMINI_TIMEOUT_SECONDS=180
+GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=1800
+DB_QUEUE_RETRY_AFTER=1900
+
+AUDIT_MAX_CONTENT_CHARS=18000
+AUDIT_MAX_CATEGORY_CONTENT_CHARS=7000
+AUDIT_USE_JINA_READER=true
+AUDIT_JINA_BASE_URL=https://r.jina.ai/
+JINA_API_KEY=
+```
+
+Ghi chú vận hành:
+
+- `openai` và `gemini` phù hợp chạy nhiều URL vì trả JSON có cấu trúc nhanh hơn.
+- `gemini_deep_research` chạy qua Interactions API nền, có thể mất vài phút cho mỗi URL; chỉ chọn khi thật sự cần phân tích nghiên cứu sâu.
+- Nếu đổi các biến AI/crawl, rebuild hoặc recreate `api` và `queue` để queue worker nhận env mới.
 
 ## 2. Chạy lần đầu
 

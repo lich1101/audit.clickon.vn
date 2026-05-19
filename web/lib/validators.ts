@@ -27,7 +27,9 @@ export const auditFormSchema = z.object({
 export const auditRunSchema = z.object({
   targetUrlsInput: trimmedString,
   categoriesInput: trimmedString,
-  checklistText: z.string().trim().optional().default("")
+  checklistText: z.string().trim().optional().default(""),
+  aiProvider: z.enum(["openai", "gemini", "gemini_deep_research"]).default("openai"),
+  aiModel: z.string().trim().optional().default("")
 });
 
 export const planSchema = z.object({
@@ -85,14 +87,17 @@ export const parseCategories = (input: string) => {
   }
 
   return lines.map((line) => {
-    const separatorIndex = line.indexOf("-");
+    const urlMatch = line.match(/(https?:\/\/\S+)$/i);
 
-    if (separatorIndex <= 0) {
-      throw new Error(`Dòng danh mục không đúng format: ${line}`);
+    if (!urlMatch?.[1]) {
+      throw new Error(`Dòng danh mục không tìm thấy URL: ${line}`);
     }
 
-    const name = line.slice(0, separatorIndex).trim();
-    const url = line.slice(separatorIndex + 1).trim();
+    const url = urlMatch[1].trim();
+    const name = line
+      .slice(0, urlMatch.index)
+      .replace(/[\t,\-–—:]+$/u, "")
+      .trim();
 
     if (!name) {
       throw new Error(`Tên danh mục trống ở dòng: ${line}`);

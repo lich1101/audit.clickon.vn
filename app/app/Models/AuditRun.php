@@ -17,7 +17,10 @@ class AuditRun extends Model
         'status',
         'target_urls',
         'categories',
+        'category_contexts',
         'checklist_text',
+        'ai_provider',
+        'ai_model',
         'total_urls',
         'processed_urls',
         'completed_urls',
@@ -32,6 +35,7 @@ class AuditRun extends Model
         return [
             'target_urls' => 'array',
             'categories' => 'array',
+            'category_contexts' => 'array',
             'total_urls' => 'integer',
             'processed_urls' => 'integer',
             'completed_urls' => 'integer',

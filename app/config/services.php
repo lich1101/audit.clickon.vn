@@ -42,9 +42,21 @@ return [
         'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 180),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-2.5-pro'),
+        'deep_research_agent' => env('GEMINI_DEEP_RESEARCH_AGENT', 'deep-research-preview-04-2026'),
+        'timeout_seconds' => (int) env('GEMINI_TIMEOUT_SECONDS', 180),
+        'deep_research_timeout_seconds' => (int) env('GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS', 1800),
+    ],
+
     'audit' => [
         'max_content_chars' => (int) env('AUDIT_MAX_CONTENT_CHARS', 18000),
+        'max_category_content_chars' => (int) env('AUDIT_MAX_CATEGORY_CONTENT_CHARS', 7000),
         'user_agent' => env('AUDIT_USER_AGENT', 'ClickonAuditBot/1.0 (+https://clickon-audit.local)'),
+        'use_jina' => (bool) env('AUDIT_USE_JINA_READER', true),
+        'jina_base_url' => env('AUDIT_JINA_BASE_URL', 'https://r.jina.ai/'),
+        'jina_api_key' => env('JINA_API_KEY'),
     ],
 
 ];

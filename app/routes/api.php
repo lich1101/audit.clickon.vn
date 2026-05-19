@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\AuditRunController;
+use App\Http\Controllers\Api\AuditPromptTemplateController;
 use App\Http\Controllers\Api\PlanRequestController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,4 +25,7 @@ Route::prefix('admin')
         Route::get('/plan-requests', [PlanRequestController::class, 'adminIndex']);
         Route::post('/plan-requests/{planRequest}/approve', [PlanRequestController::class, 'approve']);
         Route::post('/plan-requests/{planRequest}/reject', [PlanRequestController::class, 'reject']);
+        Route::get('/audit-prompt-templates', [AuditPromptTemplateController::class, 'index']);
+        Route::put('/audit-prompt-templates/{step}', [AuditPromptTemplateController::class, 'update']);
+        Route::post('/audit-prompt-templates/{step}/reset', [AuditPromptTemplateController::class, 'reset']);
     });

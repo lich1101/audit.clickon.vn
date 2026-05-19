@@ -39,7 +39,7 @@ export default function EditPlanPage({ params }: { params: Promise<{ id: string 
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={`Sửa gói cước: ${plan.name}`}
         description="Điều chỉnh giá trị, số credit hoặc trạng thái active."

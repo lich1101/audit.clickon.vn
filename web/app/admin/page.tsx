@@ -63,7 +63,7 @@ export default function AdminHomePage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Admin overview"
         description="Control room cho user, plan, request duyệt gói cước và credit logs trên toàn hệ thống."
@@ -82,15 +82,15 @@ export default function AdminHomePage() {
           <CardTitle>Realtime operations digest</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-[28px] border border-border bg-card/70 p-5">
+          <div className="mail-row rounded-xl border border-border bg-background/70 p-5">
             <p className="text-sm text-muted-foreground">Credit logs</p>
             <p className="mt-3 text-3xl font-semibold">{formatNumber(creditLogs.length)}</p>
           </div>
-          <div className="rounded-[28px] border border-border bg-card/70 p-5">
+          <div className="mail-row rounded-xl border border-border bg-background/70 p-5">
             <p className="text-sm text-muted-foreground">Admin accounts</p>
             <p className="mt-3 text-3xl font-semibold">{formatNumber(users.filter((user) => user.role === "admin").length)}</p>
           </div>
-          <div className="rounded-[28px] border border-border bg-card/70 p-5">
+          <div className="mail-row rounded-xl border border-border bg-background/70 p-5">
             <p className="text-sm text-muted-foreground">Active plans</p>
             <p className="mt-3 text-3xl font-semibold">{formatNumber(plans.filter((plan) => plan.isActive).length)}</p>
           </div>
@@ -103,9 +103,9 @@ export default function AdminHomePage() {
         </CardHeader>
         <CardContent>
           {planRequests.length ? (
-            <div className="grid gap-4">
+            <div className="grid gap-2">
               {planRequests.map((request) => (
-                <div key={request.id} className="rounded-[28px] border border-border bg-card/70 p-5">
+                <div key={request.id} className="mail-row rounded-xl border border-border bg-background/70 p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <p className="font-semibold">{request.planName}</p>

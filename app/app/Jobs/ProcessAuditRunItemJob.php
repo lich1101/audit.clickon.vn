@@ -13,7 +13,7 @@ class ProcessAuditRunItemJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 300;
+    public int $timeout = 1800;
 
     public function __construct(
         public readonly int $itemId,

@@ -39,7 +39,7 @@ export default function AdminPlansPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Plans"
         description="Tạo, sửa và deactivate gói cước để điều phối credit packages cho người dùng."

@@ -50,7 +50,7 @@ export function SettingsForm({ profile }: { profile: AppUser }) {
   });
 
   return (
-    <Card>
+    <Card className="max-w-4xl">
       <CardHeader>
         <CardTitle>Hồ sơ tài khoản</CardTitle>
         <CardDescription>Thông tin này được đồng bộ vào Firebase Authentication và Firestore.</CardDescription>

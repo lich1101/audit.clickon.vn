@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileUp, Play, Sparkles } from "lucide-react";
+import { BrainCircuit, FileUp, Play, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -9,7 +9,9 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { parseCategoryFile, parseChecklistFile, parseUrlFile } from "@/lib/audit-files";
 import { createAuditRun, formatCategoriesInput } from "@/lib/audit-runs";
@@ -22,6 +24,12 @@ function countNonEmptyLines(input: string) {
     .map((line) => line.trim())
     .filter(Boolean).length;
 }
+
+const providerDescriptions = {
+  openai: "OpenAI Responses API, phù hợp output JSON ổn định và tốc độ cân bằng.",
+  gemini: "Gemini generateContent, trả JSON có schema cho từng URL.",
+  gemini_deep_research: "Gemini Deep Research qua Interactions API, chậm hơn và phù hợp khi cần nghiên cứu sâu."
+} as const;
 
 export function SeoAuditRunForm({
   websiteId,
@@ -46,7 +54,9 @@ export function SeoAuditRunForm({
     defaultValues: {
       targetUrlsInput: defaultArticleUrls?.join("\n") ?? "",
       categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-      checklistText: ""
+      checklistText: "",
+      aiProvider: "openai",
+      aiModel: ""
     }
   });
 
@@ -54,13 +64,16 @@ export function SeoAuditRunForm({
     form.reset({
       targetUrlsInput: defaultArticleUrls?.join("\n") ?? "",
       categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-      checklistText: form.getValues("checklistText")
+      checklistText: form.getValues("checklistText"),
+      aiProvider: form.getValues("aiProvider"),
+      aiModel: form.getValues("aiModel")
     });
   }, [defaultArticleUrls, defaultCategories, form]);
 
   const targetUrlsInput = form.watch("targetUrlsInput");
   const categoriesInput = form.watch("categoriesInput");
   const checklistText = form.watch("checklistText");
+  const aiProvider = form.watch("aiProvider");
   const targetUrlCount = countNonEmptyLines(targetUrlsInput);
   const categoryCount = countNonEmptyLines(categoriesInput);
   const checklistLineCount = countNonEmptyLines(checklistText);
@@ -100,7 +113,9 @@ export function SeoAuditRunForm({
         websiteUrl,
         targetUrlsInput: values.targetUrlsInput,
         categoriesInput: values.categoriesInput,
-        checklistText: values.checklistText
+        checklistText: values.checklistText,
+        aiProvider: values.aiProvider,
+        aiModel: values.aiModel
       });
 
       toast.success("Audit run đã được đưa vào hàng đợi.");
@@ -122,19 +137,19 @@ export function SeoAuditRunForm({
               Chạy SEO audit theo lô
             </CardTitle>
             <CardDescription>
-              Tạo một đợt audit mới từ danh sách URL mục tiêu, danh mục chuẩn và checklist Onpage SEO. Hệ thống sẽ xử lý từng URL theo queue và cập nhật realtime.
+              Tạo một đợt audit mới từ danh sách URL mục tiêu, danh mục chuẩn và checklist Onpage SEO. Hệ thống crawl bằng Jina/HTML, chạy AI từng dòng và cập nhật realtime.
             </CardDescription>
           </div>
           <div className="grid min-w-[240px] grid-cols-3 gap-3 text-center">
-            <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-4">
+            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-4">
               <p className="text-2xl font-semibold">{targetUrlCount}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">Target URLs</p>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-4">
+            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-4">
               <p className="text-2xl font-semibold">{categoryCount}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">Categories</p>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-4">
+            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-4">
               <p className="text-2xl font-semibold">{checklistLineCount}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">Checklist</p>
             </div>
@@ -143,6 +158,54 @@ export function SeoAuditRunForm({
       </CardHeader>
       <CardContent className="pt-6">
         <form className="flex flex-col gap-6" onSubmit={onSubmit}>
+          <div className="grid gap-4 rounded-[22px] border border-border/70 bg-secondary/25 p-5 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="flex items-start gap-3">
+              <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <BrainCircuit className="size-5" />
+              </div>
+              <div>
+                <p className="font-medium">AI provider cho audit run này</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Provider được lưu theo từng run. Admin có thể chỉnh system prompt/user prompt ở trang Audit Prompts mà không ảnh hưởng kết quả cũ.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-[0.8fr_1fr]">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="aiProvider">Provider</Label>
+                <Select
+                  value={aiProvider}
+                  onValueChange={(value) => form.setValue("aiProvider", value as AuditRunValues["aiProvider"], { shouldDirty: true })}
+                >
+                  <SelectTrigger id="aiProvider">
+                    <SelectValue placeholder="Chọn provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="gemini">Gemini</SelectItem>
+                    <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{providerDescriptions[aiProvider]}</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="aiModel">Model / Agent override</Label>
+                <Input
+                  id="aiModel"
+                  placeholder={
+                    aiProvider === "gemini_deep_research"
+                      ? "deep-research-preview-04-2026"
+                      : aiProvider === "gemini"
+                        ? "gemini-2.5-pro"
+                        : "gpt-5.5"
+                  }
+                  {...form.register("aiModel")}
+                />
+                <p className="text-xs text-muted-foreground">Để trống để dùng model mặc định trong file env backend.</p>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-3">
@@ -218,7 +281,7 @@ export function SeoAuditRunForm({
                   }
                 }}
               />
-              <p className="text-sm text-muted-foreground">Mỗi dòng theo format `Tên danh mục-URL`. Với file bảng tính, có thể dùng hai cột `name` và `url`.</p>
+              <p className="text-sm text-muted-foreground">Mỗi dòng có thể dùng `Tên danh mục URL`, tab, hoặc `Tên danh mục-URL`. Với file bảng tính, dùng hai cột `name` và `url`.</p>
               {form.formState.errors.categoriesInput ? (
                 <p className="text-sm text-destructive">{form.formState.errors.categoriesInput.message}</p>
               ) : null}
@@ -262,16 +325,16 @@ export function SeoAuditRunForm({
             <p className="text-sm text-muted-foreground">Checklist này sẽ được đưa vào prompt để AI chấm điểm và đề xuất chỉnh sửa theo đúng chuẩn bạn cung cấp.</p>
           </div>
 
-          <div className="flex flex-col gap-4 rounded-3xl border border-border/70 bg-secondary/35 p-5">
+          <div className="flex flex-col gap-4 rounded-[22px] border border-border/70 bg-secondary/35 p-5">
             <p className="text-sm font-medium">Nguồn dữ liệu hiện tại</p>
             <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                 Website: <span className="font-medium text-foreground">{websiteName}</span>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                 URL gốc: <span className="font-medium text-foreground">{websiteUrl}</span>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                 Luồng xử lý: <span className="font-medium text-foreground">Fetch → AI Analyze → Realtime → Excel</span>
               </div>
             </div>
@@ -285,7 +348,9 @@ export function SeoAuditRunForm({
                 form.reset({
                   targetUrlsInput: defaultArticleUrls?.join("\n") ?? "",
                   categoriesInput: defaultCategories?.length ? formatCategoriesInput(defaultCategories) : "",
-                  checklistText: ""
+                  checklistText: "",
+                  aiProvider: "openai",
+                  aiModel: ""
                 })
               }
             >
@@ -301,4 +366,3 @@ export function SeoAuditRunForm({
     </Card>
   );
 }
-

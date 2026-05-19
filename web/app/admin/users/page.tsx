@@ -30,7 +30,7 @@ export default function AdminUsersPage() {
   }, [search, users]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Users"
         description="Xem danh sách user, search theo email/uid và vào trang chi tiết để cộng trừ credit."

@@ -6,6 +6,7 @@ import { useDeferredValue, useState } from "react";
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
 import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import type { AuditRun } from "@/types";
@@ -52,6 +53,7 @@ export function AuditRunsTable({
             <div className="space-y-1">
               <p className="font-medium">#{run.publicId.slice(-8)}</p>
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
+              <p className="text-xs text-muted-foreground">AI: {run.aiProvider ?? "openai"}</p>
             </div>
           )
         },
@@ -65,14 +67,7 @@ export function AuditRunsTable({
           header: "Tiến độ",
           render: (run) => (
             <div className="min-w-[180px] space-y-2">
-              <div className="h-2 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{
-                    width: `${run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0}%`
-                  }}
-                />
-              </div>
+              <ProgressBar value={run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0} />
               <p className="text-xs text-muted-foreground">{buildProgressLabel(run)}</p>
             </div>
           )
@@ -106,4 +101,3 @@ export function AuditRunsTable({
     />
   );
 }
-

@@ -8,6 +8,7 @@ import { AuditRunItemsTable } from "@/components/dashboard/audit-run-items-table
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
+import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,7 +126,7 @@ export default function AuditRunDetailPage({
   const progressPercent = run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={`Audit run #${run.publicId.slice(-8)}`}
         description="Theo dõi queue fetch nội dung, AI phân tích SEO và trạng thái realtime của từng URL trong cùng một đợt audit."
@@ -145,7 +146,7 @@ export default function AuditRunDetailPage({
         <StatCard title="Lỗi" value={formatNumber(run.failedUrls)} hint="URL fetch/analyze thất bại" icon={TriangleAlert} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Card>
           <CardHeader>
             <CardTitle>Tổng quan batch</CardTitle>
@@ -157,35 +158,42 @@ export default function AuditRunDetailPage({
                 {progressPercent}% tiến độ
               </div>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-secondary">
-              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
-            </div>
-            <div className="grid gap-3 text-sm md:grid-cols-2">
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4">
+            <ProgressBar className="h-3" value={progressPercent} />
+            <div className="grid gap-3 text-sm md:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
                 <p className="text-muted-foreground">Website</p>
                 <p className="mt-1 font-medium">{website.name}</p>
                 <p className="mt-2 text-xs text-muted-foreground break-all">{website.url}</p>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4">
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
                 <p className="text-muted-foreground">Thời gian</p>
                 <p className="mt-1 font-medium">Tạo lúc {formatDate(run.createdAt)}</p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {run.completedAt ? `Kết thúc ${formatDate(run.completedAt)}` : `Cập nhật gần nhất ${formatDate(run.updatedAt)}`}
                 </p>
               </div>
+              <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4">
+                <p className="text-muted-foreground">AI provider</p>
+                <p className="mt-1 font-medium">{run.aiProvider ?? "openai"}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{run.aiModel ? `Model: ${run.aiModel}` : "Đang dùng model mặc định backend"}</p>
+              </div>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-secondary/35 px-4 py-4">
+            <div className="rounded-xl border border-border/70 bg-secondary/35 px-4 py-4">
               <p className="text-sm font-medium">Input của đợt audit</p>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">URL mục tiêu</p>
                   <p className="mt-2 text-2xl font-semibold">{run.targetUrls.length}</p>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+                <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Danh mục</p>
                   <p className="mt-2 text-2xl font-semibold">{run.categories.length}</p>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+                <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Context đã crawl</p>
+                  <p className="mt-2 text-2xl font-semibold">{run.categoryContexts?.length ?? 0}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Item realtime</p>
                   <p className="mt-2 text-2xl font-semibold">{items.length}</p>
                 </div>
@@ -202,18 +210,18 @@ export default function AuditRunDetailPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+            <div className="rounded-xl border border-border/70 bg-background/70 p-4">
               <p className="text-sm font-medium">Checklist SEO</p>
               <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground">
                 {run.checklistText?.trim() || "Đợt audit này đang dùng checklist mặc định ở backend."}
               </p>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+            <div className="rounded-xl border border-border/70 bg-background/70 p-4">
               <p className="text-sm font-medium">Danh mục mục tiêu</p>
               {run.categories.length ? (
                 <div className="mt-3 grid gap-3">
                   {run.categories.map((category) => (
-                    <div key={`${category.name}-${category.url}`} className="rounded-2xl border border-border/70 bg-secondary/35 px-4 py-3">
+                    <div key={`${category.name}-${category.url}`} className="rounded-xl border border-border/70 bg-secondary/35 px-4 py-3">
                       <p className="font-medium">{category.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground break-all">{category.url}</p>
                     </div>
@@ -223,9 +231,9 @@ export default function AuditRunDetailPage({
                 <p className="mt-3 text-sm text-muted-foreground">Đợt audit này không có danh mục truyền vào.</p>
               )}
             </div>
-            <div className="rounded-2xl border border-border/70 bg-secondary/35 px-4 py-4">
+            <div className="rounded-xl border border-border/70 bg-secondary/35 px-4 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <FileSpreadsheet className="size-5" />
                 </div>
                 <div>
@@ -244,4 +252,3 @@ export default function AuditRunDetailPage({
     </div>
   );
 }
-

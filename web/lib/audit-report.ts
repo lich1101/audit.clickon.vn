@@ -17,11 +17,13 @@ export async function exportAuditRunToExcel(run: AuditRun) {
     "Từ khóa SEO chính": item.primaryKeyword ?? "",
     "Danh mục": item.categoryName ?? "",
     "URL danh mục": item.categoryUrl ?? "",
+    "Lý do chọn danh mục": item.categoryMatchReason ?? "",
     "Điểm phân tích Audit": item.auditScore ?? "",
     "Đề xuất audit": item.auditRecommendations.join(" | "),
     "Định hướng chỉnh sửa nội dung theo Audit": item.contentRevisionDirection ?? "",
     "Nhận định audit": item.auditFindings.join(" | "),
     "Trạng thái": item.status,
+    "Nguồn crawl": item.extractionSource ?? "",
     "Tiêu đề trang": item.pageTitle ?? "",
     "Meta description": item.metaDescription ?? "",
     "Canonical": item.canonicalUrl ?? ""
@@ -42,4 +44,3 @@ export async function exportAuditRunToExcel(run: AuditRun) {
 
   XLSX.writeFile(workbook, filename);
 }
-

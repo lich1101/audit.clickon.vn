@@ -56,7 +56,7 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Billing"
         description="Chọn gói cước theo số credit, gửi yêu cầu đăng ký và chờ admin duyệt thủ công trước khi credit được cộng vào tài khoản."
@@ -64,7 +64,7 @@ export default function BillingPage() {
       />
 
       {plans.length ? (
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           {plans.map((plan) => (
             <PlanCard key={plan.id} plan={plan} loading={loading} onSelect={handleRegister} />
           ))}
@@ -79,9 +79,9 @@ export default function BillingPage() {
         </CardHeader>
         <CardContent>
           {requests.length ? (
-            <div className="grid gap-4">
+            <div className="grid gap-2">
               {requests.map((request) => (
-                <div key={request.id} className="rounded-[28px] border border-border bg-card/70 p-5">
+                <div key={request.id} className="mail-row rounded-xl border border-border bg-background/70 px-4 py-3">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <p className="font-semibold">{request.planName}</p>

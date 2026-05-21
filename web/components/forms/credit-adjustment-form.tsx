@@ -14,10 +14,12 @@ import { Label } from "@/components/ui/label";
 
 export function CreditAdjustmentForm({
   userId,
-  type
+  type,
+  onMutated
 }: {
   userId: string;
   type: "add" | "subtract";
+  onMutated?: () => void | Promise<void>;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<CreditMutationValues>({
@@ -42,6 +44,7 @@ export function CreditAdjustmentForm({
         amount: 0,
         reason: ""
       });
+      await onMutated?.();
       toast.success(type === "add" ? "Đã cộng credit." : "Đã trừ credit.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể cập nhật credit.");

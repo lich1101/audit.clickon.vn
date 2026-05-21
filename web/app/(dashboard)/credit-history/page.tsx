@@ -28,7 +28,7 @@ export default function CreditHistoryPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Credit history"
-        description="Theo dõi toàn bộ biến động credit của tài khoản hiện tại theo thời gian thực."
+        description="Theo dõi toàn bộ biến động credit của tài khoản hiện tại từ MySQL qua Laravel API."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Credit History" }]}
       />
 

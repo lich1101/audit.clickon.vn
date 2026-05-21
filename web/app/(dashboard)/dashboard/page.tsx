@@ -41,13 +41,13 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Dashboard"
-        description="Tổng quan realtime về credit, website đã tạo và các giao dịch credit gần nhất của tài khoản hiện tại."
+        description="Tổng quan credit, website đã tạo và các giao dịch credit gần nhất từ MySQL qua Laravel API."
         breadcrumbs={[{ label: "Dashboard" }]}
         action={{ label: "Tạo audit website", href: "/websites/create" }}
       />
 
       <div className="grid gap-5 xl:grid-cols-3">
-        <StatCard title="Credit hiện tại" value={formatNumber(profile?.credits ?? 0)} hint="Được lắng nghe realtime từ users/{uid}" icon={Wallet} />
+        <StatCard title="Credit hiện tại" value={formatNumber(profile?.credits ?? 0)} hint="Lấy từ phiên đăng nhập và Laravel API" icon={Wallet} />
         <StatCard title="Website đang quản lý" value={formatNumber(websites.length)} hint="Mỗi user chỉ thấy dữ liệu của chính mình" icon={Globe2} />
         <StatCard title="Giao dịch credit gần đây" value={formatNumber(logs.length)} hint="Log được cập nhật ngay sau mutation" icon={Sparkles} />
       </div>

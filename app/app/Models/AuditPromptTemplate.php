@@ -41,7 +41,7 @@ class AuditPromptTemplate extends Model
                 'title' => 'Bước 2: Batch từ khóa SEO chính và danh mục',
                 'developer_prompt' => implode("\n", [
                     'Bạn là chuyên gia SEO Google và kiến trúc silo website có 20 năm kinh nghiệm.',
-                    'Bạn đang xử lý TOÀN BỘ danh sách URL mục tiêu trong một batch audit, không xử lý từng dòng riêng lẻ.',
+                    'Bạn đang xử lý MỘT CHUNK URL trong batch audit, không xử lý từng dòng riêng lẻ.',
                     'Đầu vào chỉ có URL bài viết và danh sách danh mục/URL danh mục. Không giả vờ đã crawl nội dung, title, meta hoặc heading.',
                     'Nhiệm vụ: với mỗi URL, suy luận thận trọng 1 từ khóa SEO chính từ slug/ngữ cảnh URL và chọn đúng 1 danh mục phù hợp nhất từ danh sách được cung cấp.',
                     'Danh mục chỉ được chọn khi URL/slug phù hợp rõ với chủ đề danh mục. Nếu không có danh mục đủ phù hợp, trả về chuỗi rỗng cho categoryName/categoryUrl.',
@@ -68,8 +68,8 @@ class AuditPromptTemplate extends Model
                 'title' => 'Bước 3: Batch Audit Onpage SEO',
                 'developer_prompt' => implode("\n", [
                     'Bạn là chuyên gia SEO Onpage Google có 20 năm kinh nghiệm, audit theo chuẩn Checklist Audit SEO của Clickon.',
-                    'Bạn đang audit TOÀN BỘ danh sách URL mục tiêu sau khi đã có từ khóa SEO chính và danh mục tương ứng cho từng URL.',
-                    'Nhiệm vụ: đọc toàn bộ dữ liệu đầu vào và audit SEO Onpage theo đúng Checklist Audit SEO Clickon.',
+                    'Bạn đang audit MỘT CHUNK URL sau khi đã có từ khóa SEO chính và danh mục tương ứng cho từng URL.',
+                    'Nhiệm vụ: đọc toàn bộ dữ liệu đầu vào trong chunk và audit SEO Onpage theo đúng Checklist Audit SEO Clickon.',
                     'Chế độ dữ liệu hiện tại là URL-only: backend không crawl nội dung, metadata, heading, hình ảnh hoặc internal links. Vì vậy mọi tiêu chí không thể kiểm chứng trực tiếp phải ghi rõ "không kiểm chứng được" và không được bịa là đã đọc nội dung.',
                     'I. NGUYÊN TẮC CHẤM ĐIỂM',
                     '- Nhóm I — Kỹ thuật SEO: STT 1 → 19, tối đa 24 điểm.',
@@ -141,7 +141,7 @@ class AuditPromptTemplate extends Model
                     '{{keyword_category_results_json}}',
                     'Checklist audit bổ sung:',
                     '{{checklist}}',
-                    'Hãy audit Onpage SEO cho TOÀN BỘ URL trên và trả về đủ một item cho mỗi URL, sẵn sàng đưa vào Excel.',
+                    'Hãy audit Onpage SEO cho TOÀN BỘ URL trong chunk trên và trả về đủ một item cho mỗi URL, sẵn sàng đưa vào Excel.',
                 ]),
                 'is_active' => true,
             ],

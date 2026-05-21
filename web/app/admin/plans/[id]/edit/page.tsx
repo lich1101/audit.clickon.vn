@@ -35,7 +35,7 @@ export default function EditPlanPage({ params }: { params: Promise<{ id: string 
   }
 
   if (!plan) {
-    return <EmptyState title="Không tìm thấy gói cước" description="Plan này không tồn tại trong Firestore." action={{ label: "Về plans", href: "/admin/plans" }} />;
+    return <EmptyState title="Không tìm thấy gói cước" description="Plan này không tồn tại trong MySQL." action={{ label: "Về plans", href: "/admin/plans" }} />;
   }
 
   return (

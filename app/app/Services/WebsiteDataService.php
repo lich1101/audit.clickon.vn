@@ -104,7 +104,7 @@ class WebsiteDataService
      */
     private function importLegacyWebsite(string $websiteId): ?array
     {
-        if (! config('services.audit.firestore_fallback', true)) {
+        if (! config('services.audit.firestore_fallback', false)) {
             return null;
         }
 

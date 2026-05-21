@@ -1,25 +1,15 @@
 "use client";
 
 import {
-  collection,
   doc,
-  getDoc,
-  getDocs,
-  limit,
   onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
   type DocumentData,
-  type QueryConstraint
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, websiteSchema, type WebsiteValues } from "@/lib/validators";
+import { getAuditRun, listAuditRunsByWebsite } from "@/lib/audit-runs";
 import type { AiProvider, AppUser, AuditRun, AuditRunItem, CreditLog, Plan, Website, WebsiteAudit } from "@/types";
 
 function serializeTimestamp(value: unknown) {
@@ -160,40 +150,25 @@ export function mapAuditRunItem(docId: string, data: DocumentData): AuditRunItem
   };
 }
 
-function onCollectionSnapshot<T>(
-  path: string,
-  constraints: QueryConstraint[],
-  mapper: (id: string, data: DocumentData) => T,
-  callback: (data: T[]) => void,
-  onError?: (error: Error) => void
-) {
-  const target = query(collection(db, path), ...constraints);
-  return onSnapshot(
-    target,
-    (snapshot) => callback(snapshot.docs.map((entry) => mapper(entry.id, entry.data()))),
-    (error) => onError?.(error)
-  );
-}
-
 export function listenToUser(uid: string, callback: (user: AppUser | null) => void, onError?: (error: Error) => void) {
-  return onSnapshot(
-    doc(db, "users", uid),
-    (snapshot) => callback(snapshot.exists() ? mapUser(snapshot.id, snapshot.data()) : null),
-    (error) => onError?.(error)
-  );
+  void laravelRequest<{ data: AppUser }>("/api/me", { method: "GET", cache: "no-store" })
+    .then((payload) => callback(payload.data.uid === uid ? payload.data : null))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải hồ sơ user.")));
+
+  return () => undefined;
 }
 
 export async function fetchWebsites() {
-  const payload = await laravelRequest<{ data: Website[] }>("/api/websites");
+  const payload = await laravelRequest<{ data: Website[] }>("/api/websites", { method: "GET", cache: "no-store" });
   return payload.data;
 }
 
 export async function fetchCreditLogs(userId: string, take = 20) {
-  const snapshots = await getDocs(
-    query(collection(db, "creditLogs"), where("userId", "==", userId), orderBy("createdAt", "desc"), limit(take))
-  );
-
-  return snapshots.docs.map((entry) => mapCreditLog(entry.id, entry.data()));
+  const payload = await laravelRequest<{ data: CreditLog[] }>(`/api/credit-transactions?userId=${encodeURIComponent(userId)}&limit=${take}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return payload.data;
 }
 
 export function listenToWebsites(userId: string, callback: (websites: Website[]) => void, onError?: (error: Error) => void) {
@@ -213,23 +188,27 @@ export function listenToPlans(callback: (plans: Plan[]) => void, onError?: (erro
 }
 
 export async function fetchPlans(activeOnly = true) {
-  const constraints = [orderBy("createdAt", "desc")] as QueryConstraint[];
-
-  if (activeOnly) {
-    constraints.unshift(where("isActive", "==", true));
-  }
-
-  const snapshots = await getDocs(query(collection(db, "plans"), ...constraints));
-
-  return snapshots.docs.map((entry) => mapPlan(entry.id, entry.data()));
+  const payload = await laravelRequest<{ data: Plan[] }>(`/api/plans?activeOnly=${activeOnly ? "1" : "0"}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return payload.data;
 }
 
 export function listenToAllUsers(callback: (users: AppUser[]) => void, onError?: (error: Error) => void) {
-  return onCollectionSnapshot("users", [orderBy("createdAt", "desc")], mapUser, callback, onError);
+  void laravelRequest<{ data: AppUser[] }>("/api/admin/users", { method: "GET", cache: "no-store" })
+    .then((payload) => callback(payload.data))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải danh sách users.")));
+
+  return () => undefined;
 }
 
 export function listenToAllPlans(callback: (plans: Plan[]) => void, onError?: (error: Error) => void) {
-  return onCollectionSnapshot("plans", [orderBy("createdAt", "desc")], mapPlan, callback, onError);
+  void laravelRequest<{ data: Plan[] }>("/api/admin/plans?activeOnly=0", { method: "GET", cache: "no-store" })
+    .then((payload) => callback(payload.data))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải danh sách plans.")));
+
+  return () => undefined;
 }
 
 export function listenToCreditLogs(
@@ -238,17 +217,19 @@ export function listenToCreditLogs(
   onError?: (error: Error) => void,
   take = 20
 ) {
-  return onCollectionSnapshot(
-    "creditLogs",
-    [where("userId", "==", userId), orderBy("createdAt", "desc"), limit(take)],
-    mapCreditLog,
-    callback,
-    onError
-  );
+  void fetchCreditLogs(userId, take)
+    .then(callback)
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải credit logs.")));
+
+  return () => undefined;
 }
 
 export function listenToAllCreditLogs(callback: (logs: CreditLog[]) => void, onError?: (error: Error) => void, take = 100) {
-  return onCollectionSnapshot("creditLogs", [orderBy("createdAt", "desc"), limit(take)], mapCreditLog, callback, onError);
+  void laravelRequest<{ data: CreditLog[] }>(`/api/admin/credit-transactions?limit=${take}`, { method: "GET", cache: "no-store" })
+    .then((payload) => callback(payload.data))
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải credit logs.")));
+
+  return () => undefined;
 }
 
 export function listenToAuditRunsByWebsite(
@@ -256,62 +237,56 @@ export function listenToAuditRunsByWebsite(
   callback: (runs: AuditRun[]) => void,
   onError?: (error: Error) => void
 ) {
-  return onCollectionSnapshot(
-    "auditRuns",
-    [where("websiteId", "==", websiteId), orderBy("createdAt", "desc"), limit(30)],
-    mapAuditRun,
-    (runs) => callback(runs),
-    onError
-  );
+  void listAuditRunsByWebsite(websiteId)
+    .then(callback)
+    .catch((error) => onError?.(error instanceof Error ? error : new Error("Không thể tải audit runs.")));
+
+  return () => undefined;
 }
 
-export function listenToAuditRun(
+export function listenToAuditRunSignal(
   publicId: string,
   callback: (run: AuditRun | null) => void,
   onError?: (error: Error) => void
 ) {
-  return onSnapshot(
-    doc(db, "auditRuns", publicId),
-    (snapshot) => callback(snapshot.exists() ? mapAuditRun(snapshot.id, snapshot.data()) : null),
-    (error) => onError?.(error)
-  );
-}
+  let disposed = false;
+  let lastVersion: unknown = null;
 
-export function listenToAuditRunItems(
-  publicId: string,
-  callback: (items: AuditRunItem[]) => void,
-  onError?: (error: Error) => void
-) {
-  return onCollectionSnapshot(
-    "auditRunItems",
-    [where("auditRunId", "==", publicId)],
-    mapAuditRunItem,
-    (items) => callback([...items].sort((left, right) => left.position - right.position)),
-    onError
-  );
-}
-
-export async function createOrUpdateUserProfile(input: {
-  uid: string;
-  email: string;
-  displayName?: string;
-  role?: "admin" | "user";
-}) {
-  const userRef = doc(db, "users", input.uid);
-  const current = await getDoc(userRef);
-  const currentData = current.exists() ? current.data() : null;
-
-  const payload = {
-    uid: input.uid,
-    email: input.email,
-    displayName: input.displayName ?? "",
-    role: input.role ?? (currentData?.role === "admin" ? "admin" : "user"),
-    credits: currentData ? Number(currentData.credits ?? 0) : 0,
-    createdAt: currentData ? currentData.createdAt : serverTimestamp(),
-    updatedAt: serverTimestamp()
+  const reload = () => {
+    void getAuditRun(publicId)
+      .then((run) => {
+        if (!disposed) {
+          callback(run);
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          onError?.(error instanceof Error ? error : new Error("Không thể tải audit run."));
+        }
+      });
   };
 
-  await setDoc(userRef, payload, { merge: true });
+  reload();
+
+  const unsubscribe = onSnapshot(
+    doc(db, "auditRunSignals", publicId),
+    (snapshot) => {
+      const version = snapshot.exists() ? snapshot.data().version ?? snapshot.data().updatedAt : null;
+
+      if (version === lastVersion) {
+        return;
+      }
+
+      lastVersion = version;
+      reload();
+    },
+    (error) => onError?.(error)
+  );
+
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
 }
 
 export async function createWebsite(userId: string, values: WebsiteValues) {
@@ -328,18 +303,13 @@ export async function createWebsite(userId: string, values: WebsiteValues) {
 }
 
 export async function getWebsiteById(id: string) {
-  try {
-    const payload = await laravelRequest<{ data: Website }>(`/api/websites/${id}`);
-    return payload.data;
-  } catch {
-    const snapshot = await getDoc(doc(db, "websites", id));
-    return snapshot.exists() ? mapWebsite(snapshot.id, snapshot.data()) : null;
-  }
+  const payload = await laravelRequest<{ data: Website }>(`/api/websites/${id}`, { method: "GET", cache: "no-store" });
+  return payload.data;
 }
 
 export async function getPlanById(id: string) {
-  const snapshot = await getDoc(doc(db, "plans", id));
-  return snapshot.exists() ? mapPlan(snapshot.id, snapshot.data()) : null;
+  const payload = await laravelRequest<{ data: Plan }>(`/api/admin/plans/${id}`, { method: "GET", cache: "no-store" });
+  return payload.data;
 }
 
 export async function saveWebsiteAudit(input: {
@@ -365,35 +335,25 @@ export async function saveWebsiteAudit(input: {
 }
 
 export async function getAuditByWebsiteId(websiteId: string) {
-  try {
-    const payload = await laravelRequest<{ data: WebsiteAudit | null }>(`/api/websites/${websiteId}/audit`);
-    return payload.data;
-  } catch {
-    const snapshots = await getDocs(query(collection(db, "websiteAudits"), where("websiteId", "==", websiteId), limit(1)));
-
-    if (snapshots.empty) {
-      return null;
-    }
-
-    const first = snapshots.docs[0];
-    return mapAudit(first.id, first.data());
-  }
+  const payload = await laravelRequest<{ data: WebsiteAudit | null }>(`/api/websites/${websiteId}/audit`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return payload.data;
 }
 
 export async function updatePlan(id: string, data: Partial<Plan>) {
-  const ref = doc(db, "plans", id);
-  await updateDoc(ref, {
-    ...data,
-    updatedAt: serverTimestamp()
+  const payload = await laravelRequest<{ data: Plan }>(`/api/admin/plans/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data)
   });
+  return payload.data;
 }
 
 export async function createPlan(data: Pick<Plan, "name" | "price" | "credits" | "isActive">) {
-  const ref = doc(collection(db, "plans"));
-  await setDoc(ref, {
-    ...data,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+  const payload = await laravelRequest<{ data: Plan }>("/api/admin/plans", {
+    method: "POST",
+    body: JSON.stringify(data)
   });
-  return ref.id;
+  return payload.data.id;
 }

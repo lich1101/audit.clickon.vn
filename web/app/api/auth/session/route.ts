@@ -1,29 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { getAdminAuth } from "@/lib/firebase-admin";
 import { getRoleCookieOptions, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
 import { sessionSchema } from "@/lib/validators";
-
-function serializeDate(value: unknown, fallback: string) {
-  if (!value) {
-    return fallback;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "object" && value !== null && "toDate" in value && typeof value.toDate === "function") {
-    return value.toDate().toISOString();
-  }
-
-  return new Date(String(value)).toISOString();
-}
 
 export async function POST(request: Request) {
   try {
     const adminAuth = getAdminAuth();
-    const adminDb = getAdminDb();
     const body = await request.json();
     const { idToken } = sessionSchema.parse(body);
     const decoded = await adminAuth.verifyIdToken(idToken);
@@ -42,72 +25,47 @@ export async function POST(request: Request) {
       updatedAt: string;
     };
 
-    if (baseUrl) {
-      const meResponse = await fetch(`${baseUrl}/api/me`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${idToken}`
-        },
-        cache: "no-store"
-      });
+    if (!baseUrl) {
+      throw new Error("LARAVEL_API_URL chưa được cấu hình.");
+    }
 
-      if (meResponse.ok) {
-        const mePayload = (await meResponse.json()) as {
-          data?: {
-            uid: string;
-            email: string;
-            displayName?: string;
-            role: "admin" | "user";
-            credits: number;
-            createdAt: string;
-            updatedAt: string;
-          };
-        };
+    const meResponse = await fetch(`${baseUrl}/api/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      },
+      cache: "no-store"
+    });
 
-        if (mePayload.data) {
-          profile = {
-            uid: mePayload.data.uid,
-            email: mePayload.data.email,
-            displayName: mePayload.data.displayName ?? "",
-            role: mePayload.data.role === "admin" ? "admin" : "user",
-            credits: Number(mePayload.data.credits ?? 0),
-            createdAt: mePayload.data.createdAt,
-            updatedAt: mePayload.data.updatedAt
-          };
-        } else {
-          throw new Error("Laravel API không trả về hồ sơ người dùng.");
-        }
-      } else {
-        throw new Error("Không thể đồng bộ hồ sơ từ Laravel API.");
-      }
-    } else {
-      const userRef = adminDb.collection("users").doc(decoded.uid);
-      const snapshot = await userRef.get();
-      const existing = snapshot.data() ?? {};
-      const now = new Date().toISOString();
-      profile = {
-        uid: decoded.uid,
-        email: decoded.email ?? String(existing.email ?? ""),
-        displayName: String(existing.displayName ?? decoded.name ?? ""),
-        role: existing.role === "admin" ? "admin" : "user",
-        credits: Number(existing.credits ?? 0),
-        createdAt: serializeDate(existing.createdAt, now),
-        updatedAt: now
+    if (!meResponse.ok) {
+      throw new Error("Không thể đồng bộ hồ sơ từ Laravel API.");
+    }
+
+    const mePayload = (await meResponse.json()) as {
+      data?: {
+        uid: string;
+        email: string;
+        displayName?: string;
+        role: "admin" | "user";
+        credits: number;
+        createdAt: string;
+        updatedAt: string;
       };
+    };
+
+    if (!mePayload.data) {
+      throw new Error("Laravel API không trả về hồ sơ người dùng.");
     }
 
-    const userRef = adminDb.collection("users").doc(decoded.uid);
-    const snapshot = await userRef.get();
-    const existing = snapshot.data() ?? {};
-    const shouldSyncProfile =
-      String(existing.email ?? "") !== profile.email
-      || String(existing.displayName ?? "") !== profile.displayName
-      || existing.role !== profile.role
-      || Number(existing.credits ?? 0) !== profile.credits;
-
-    if (shouldSyncProfile) {
-      await userRef.set(profile, { merge: true });
-    }
+    profile = {
+      uid: mePayload.data.uid || decoded.uid,
+      email: mePayload.data.email || decoded.email || "",
+      displayName: mePayload.data.displayName ?? "",
+      role: mePayload.data.role === "admin" ? "admin" : "user",
+      credits: Number(mePayload.data.credits ?? 0),
+      createdAt: mePayload.data.createdAt,
+      updatedAt: mePayload.data.updatedAt
+    };
 
     const response = NextResponse.json({ message: "Session created.", user: profile });
     response.cookies.set(SESSION_COOKIE, sessionCookie, {

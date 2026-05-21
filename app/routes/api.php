@@ -21,6 +21,7 @@ Route::prefix('credits')->group(function (): void {
 
 Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/me', [MeController::class, 'show']);
+    Route::put('/me', [MeController::class, 'update']);
     Route::get('/credit-transactions', [CreditTransactionController::class, 'index']);
     Route::get('/plans', [PlanController::class, 'index']);
     Route::get('/websites', [WebsiteController::class, 'index']);

@@ -2,7 +2,7 @@
 
 Clickon Audit là SaaS quản lý credit và audit website.
 
-- `web/`: Next.js App Router, React, TailwindCSS, Firebase Authentication, Firestore realtime
+- `web/`: Next.js App Router, React, TailwindCSS, Firebase Authentication, Firestore signal cho audit đang chạy
 - `app/`: Laravel API, MySQL, queue worker, OpenAI audit pipeline
 - `firestore.rules`: rule bảo mật Firestore
 - `deploy/nginx/audit.clickon.vn.conf`: Nginx host proxy **trực tiếp** tới Next.js `3000` + Laravel `8000` (mode cũ, không phải mode Docker stack khuyến nghị)
@@ -27,15 +27,9 @@ Clickon Audit là SaaS quản lý credit và audit website.
   - `web`
   - `nginx`
 - Apache/Nginx host chỉ là lựa chọn thêm cho public SSL / multi-site, không phải bắt buộc của app stack
-- Laravel queue xử lý từng `audit run` theo từng URL
-- Firestore realtime sync:
-  - `users`
-  - `plans`
-  - `websites`
-  - `websiteAudits`
-  - `creditLogs`
-  - `auditRuns`
-  - `auditRunItems`
+- Laravel queue xử lý `audit run` theo batch cấu hình được.
+- MySQL/Laravel API là nguồn dữ liệu chính cho users, plans, websites, audits, credit logs và audit results.
+- Firestore chỉ dùng collection `auditRunSignals` để bắn tín hiệu realtime khi audit đang chạy; frontend nhận tín hiệu rồi refetch dữ liệu từ Laravel/MySQL.
 
 ## Setup local nhanh
 
@@ -362,7 +356,7 @@ Script này sẽ đọc:
 
 trong `deploy/env/docker.prod.env`.
 
-Lệnh/script này tạo hoặc cập nhật Firebase Authentication user, seed Firestore `users/{uid}`, đồng thời promote MySQL `app_users.role = admin` để Laravel API admin hoạt động đúng.
+Lệnh/script này tạo hoặc cập nhật Firebase Authentication user và promote MySQL `app_users.role = admin` để Laravel API admin hoạt động đúng. Firestore không còn dùng làm nơi lưu profile.
 
 ### Cách 2. Promote một user Firebase có sẵn thành admin
 
@@ -376,7 +370,7 @@ cd /var/www/clickon-audit
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <firebase_uid> <email>
 ```
 
-Lệnh này sẽ upsert `users/{uid}` trong Firestore và user tương ứng trong MySQL `app_users` với:
+Lệnh này sẽ upsert user tương ứng trong MySQL `app_users` với:
 
 - `role = admin`
 - giữ nguyên `credits` hiện có nếu tài khoản đã tồn tại
@@ -429,15 +423,13 @@ SKIP_PULL=1 bash deploy/scripts/prod-update.sh
    - danh sách categories
 3. Tạo `audit run`
 4. Frontend gửi request tới `POST https://audit.clickon.vn/backend/api/audit-runs`
-5. Laravel queue xử lý từng URL:
+5. Laravel queue xử lý batch:
    - `queued`
-   - `fetching`
-   - `analyzing`
+   - `processing`
    - `completed` hoặc `failed`
-6. Kết quả sync sang Firestore:
-   - `auditRuns/{publicId}`
-   - `auditRunItems/{publicId}`
-7. Frontend nghe realtime và có thể export `.xlsx`
+6. Kết quả ghi vào MySQL.
+7. Nếu bật `AUDIT_FIRESTORE_SYNC=true`, server chỉ ghi tín hiệu nhỏ vào `auditRunSignals/{publicId}`.
+8. Frontend nghe tín hiệu realtime, refetch Laravel API và có thể export `.xlsx`.
 
 ## 17. Lưu ý kỹ thuật
 

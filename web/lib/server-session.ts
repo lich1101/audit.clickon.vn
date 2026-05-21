@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { getAdminAuth } from "@/lib/firebase-admin";
 import { ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
 
 export async function getVerifiedSession() {
@@ -12,16 +12,14 @@ export async function getVerifiedSession() {
   }
 
   const adminAuth = getAdminAuth();
-  const adminDb = getAdminDb();
   const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const profile = await adminDb.collection("users").doc(decoded.uid).get();
-  const data = profile.data() ?? {};
+  const role = store.get(ROLE_COOKIE)?.value === "admin" ? "admin" : "user";
 
   return {
     uid: decoded.uid,
     email: decoded.email ?? "",
-    role: data.role === "admin" ? "admin" : "user",
-    credits: Number(data.credits ?? 0)
+    role,
+    credits: 0
   };
 }
 

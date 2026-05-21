@@ -4,7 +4,7 @@ import type { AuditRunItemStatus, AuditRunStatus } from "@/types";
 const labelMap: Record<AuditRunStatus | AuditRunItemStatus, string> = {
   queued: "Chờ xử lý",
   processing: "Đang chạy",
-  fetching: "Đang lấy nội dung",
+  fetching: "Đang chờ AI",
   analyzing: "Đang phân tích",
   completed: "Hoàn tất",
   partial: "Hoàn tất một phần",
@@ -24,4 +24,3 @@ const variantMap: Record<AuditRunStatus | AuditRunItemStatus, "default" | "warni
 export function AuditStatusBadge({ status }: { status: AuditRunStatus | AuditRunItemStatus }) {
   return <Badge variant={variantMap[status]}>{labelMap[status]}</Badge>;
 }
-

@@ -8,6 +8,14 @@ export async function fetchMe() {
   return response.data;
 }
 
+export async function updateMe(input: { displayName?: string | null }) {
+  const response = await laravelRequest<{ data: AppUser }>("/api/me", {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
 export async function fetchAdminUsers(search = "") {
   const query = search ? `?search=${encodeURIComponent(search)}` : "";
   const response = await laravelRequest<{ data: AppUser[] }>(`/api/admin/users${query}`, { method: "GET", cache: "no-store" });

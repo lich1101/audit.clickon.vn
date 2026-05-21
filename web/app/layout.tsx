@@ -6,7 +6,7 @@ import { Providers } from "@/components/layout/providers";
 
 export const metadata: Metadata = {
   title: "Clickon Audit",
-  description: "SaaS quản lý credit và audit website với Firebase realtime và Laravel API.",
+  description: "SaaS quản lý credit và audit website với Laravel API/MySQL, Firebase signal cho audit realtime.",
   icons: {
     icon: "/favicon.svg"
   }

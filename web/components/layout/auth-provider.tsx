@@ -1,7 +1,7 @@
 "use client";
 
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { fetchMe } from "@/lib/account";
@@ -30,6 +30,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshProfile = useCallback(async () => {
+    if (!auth.currentUser) {
+      setProfile(null);
+      return null;
+    }
+
+    const nextProfile = await fetchMe();
+    setProfile((current) => (isSameProfile(current, nextProfile) ? current : nextProfile));
+
+    return nextProfile;
+  }, []);
+
   useEffect(() => {
     if (!isFirebaseConfigured) {
       setError("Firebase chưa được cấu hình.");
@@ -37,31 +49,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    let refreshTimer: number | undefined;
     let disposed = false;
-
-    async function refreshProfile() {
-      try {
-        const nextProfile = await fetchMe();
-        if (!disposed) {
-          setProfile((current) => (isSameProfile(current, nextProfile) ? current : nextProfile));
-          setError(null);
-        }
-      } catch (profileError) {
-        if (!disposed) {
-          setError(profileError instanceof Error ? profileError.message : "Không thể tải hồ sơ người dùng.");
-        }
-      }
-    }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
       setFirebaseUser(nextUser);
       setError(null);
-
-      if (refreshTimer) {
-        window.clearInterval(refreshTimer);
-        refreshTimer = undefined;
-      }
 
       if (!nextUser) {
         setProfile(null);
@@ -74,11 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
         const token = await nextUser.getIdToken();
         const sessionProfile = await syncClientSession(token);
-        setProfile(sessionProfile);
-        await refreshProfile();
-        refreshTimer = window.setInterval(() => {
-          void refreshProfile();
-        }, 15000);
+        setProfile((current) => (isSameProfile(current, sessionProfile) ? current : sessionProfile));
       } catch (sessionError) {
         setProfile(null);
         setError(sessionError instanceof Error ? sessionError.message : "Không thể đồng bộ phiên đăng nhập.");
@@ -92,11 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       disposed = true;
       unsubscribeAuth();
-      if (refreshTimer) {
-        window.clearInterval(refreshTimer);
-      }
     };
   }, []);
 
-  return <AuthContext.Provider value={{ firebaseUser, profile, loading, error }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ firebaseUser, profile, loading, error, refreshProfile }}>{children}</AuthContext.Provider>;
 }

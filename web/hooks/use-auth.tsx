@@ -10,6 +10,7 @@ export type AuthContextValue = {
   profile: AppUser | null;
   loading: boolean;
   error: string | null;
+  refreshProfile: () => Promise<AppUser | null>;
 };
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

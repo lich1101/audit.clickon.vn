@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditRunItemJob;
+use App\Jobs\ProcessAuditRunStep2BatchJob;
+use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -14,6 +16,11 @@ use RuntimeException;
 
 class AuditRunService
 {
+    private const SOURCE_STEP2_RUNNING = 'url_only_batch_step2_running';
+    private const SOURCE_STEP2_DONE = 'url_only_batch_step2_done';
+    private const SOURCE_STEP3_RUNNING = 'url_only_batch_step3_running';
+    private const SOURCE_COMPLETED = 'url_only_batch';
+
     public function __construct(
         private readonly SeoContentExtractionService $contentExtractionService,
         private readonly SeoAiAuditService $seoAiAuditService,
@@ -62,10 +69,9 @@ class AuditRunService
 
         $settings = $this->auditSettingsService->getAuditSettings();
         $targetUrls = array_values(array_unique($payload['targetUrls']));
-        $requiredCredits = $this->minimumCreditsPerRun($settings['aiProvider'], $settings['aiModel']);
 
-        if ($this->creditService->getBalance($userUid) < $requiredCredits) {
-            throw new RuntimeException("Không đủ credit. Cần tối thiểu {$requiredCredits} credit để khởi chạy batch audit ".count($targetUrls).' URL (ước tính theo model hiện tại).');
+        if ($this->creditService->getBalance($userUid) <= 0) {
+            throw new RuntimeException('Không đủ credit. Cần có credit trong tài khoản để khởi chạy audit; hệ thống sẽ trừ theo token AI thực tế sau mỗi lần gọi model.');
         }
 
         $activeRun = AuditRun::query()
@@ -123,9 +129,29 @@ class AuditRunService
         return $this->minimumCreditsPerRun($provider, $model);
     }
 
-    public function minimumCreditsPerRun(string $provider, ?string $model): int
+    public function minimumCreditsPerAiCall(string $provider, ?string $model): int
     {
-        return $this->tokenBillingService->estimateMinimumCreditsForBatchRun($provider, $model);
+        return $this->tokenBillingService->estimateMinimumCreditsForAiCall($provider, $model);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $settings
+     */
+    public function minimumCreditsPerRun(string $provider, ?string $model, ?int $totalUrls = null, ?array $settings = null): int
+    {
+        if ($totalUrls === null) {
+            return $this->tokenBillingService->estimateMinimumCreditsForBatchRun($provider, $model);
+        }
+
+        $settings ??= $this->auditSettingsService->getAuditSettings();
+
+        return $this->tokenBillingService->estimateMinimumCreditsForChunkedRun(
+            provider: $provider,
+            model: $model,
+            totalUrls: $totalUrls,
+            step2BatchSize: (int) ($settings['step2BatchSize'] ?? 60),
+            step3BatchSize: (int) ($settings['step3BatchSize'] ?? 30),
+        );
     }
 
     public function prepareCategoryContexts(AuditRun $run): void
@@ -165,6 +191,364 @@ class AuditRunService
         ])->save();
 
         $this->syncRunIfEnabled($run->fresh());
+    }
+
+    public function startChunkedBatchUrlOnly(AuditRun $run): void
+    {
+        $run = $run->fresh('items');
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        if ($run->items()->count() === 0) {
+            $this->markRunFailed($run, 'Audit run does not have any URL items.');
+
+            return;
+        }
+
+        $this->dispatchStep2Batches($run);
+    }
+
+    public function dispatchStep2Batches(AuditRun $run): void
+    {
+        $state = DB::transaction(function () use ($run): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return ['chunks' => [], 'step2Complete' => false];
+            }
+
+            $settings = $this->auditSettingsService->getAuditSettings();
+            $batchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
+            $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
+            $activeItems = $freshRun->items()
+                ->where('status', 'fetching')
+                ->where('extraction_source', self::SOURCE_STEP2_RUNNING)
+                ->count();
+            $activeBatches = (int) ceil($activeItems / $batchSize);
+            $slots = max(0, $maxParallel - $activeBatches);
+
+            if ($slots === 0) {
+                return ['chunks' => [], 'step2Complete' => false];
+            }
+
+            $pendingItems = $freshRun->items()
+                ->where('status', 'queued')
+                ->orderBy('position')
+                ->limit($slots * $batchSize)
+                ->get(['id']);
+
+            $chunks = $pendingItems
+                ->pluck('id')
+                ->chunk($batchSize)
+                ->map(fn ($chunk): array => $chunk->values()->all())
+                ->values()
+                ->all();
+
+            foreach ($chunks as $chunk) {
+                $freshRun->items()
+                    ->whereIn('id', $chunk)
+                    ->update([
+                        'status' => 'fetching',
+                        'extraction_source' => self::SOURCE_STEP2_RUNNING,
+                        'error_message' => null,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            $hasQueued = $freshRun->items()->where('status', 'queued')->exists();
+            $hasRunning = $freshRun->items()
+                ->where('status', 'fetching')
+                ->where('extraction_source', self::SOURCE_STEP2_RUNNING)
+                ->exists();
+
+            return [
+                'chunks' => $chunks,
+                'step2Complete' => ! $hasQueued && ! $hasRunning,
+            ];
+        });
+
+        if (count($state['chunks']) > 0) {
+            $this->syncRunIfEnabled($run->fresh());
+        }
+
+        foreach ($state['chunks'] as $chunk) {
+            ProcessAuditRunStep2BatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['step2Complete']) {
+            $this->dispatchStep3Batches($run);
+        }
+    }
+
+    public function dispatchStep3Batches(AuditRun $run): void
+    {
+        $state = DB::transaction(function () use ($run): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            if ($freshRun->items()
+                ->whereIn('status', ['queued', 'fetching'])
+                ->exists()) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            $settings = $this->auditSettingsService->getAuditSettings();
+            $batchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
+            $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
+            $activeItems = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+                ->count();
+            $activeBatches = (int) ceil($activeItems / $batchSize);
+            $slots = max(0, $maxParallel - $activeBatches);
+
+            if ($slots === 0) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            $pendingItems = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->orderBy('position')
+                ->limit($slots * $batchSize)
+                ->get(['id']);
+
+            $chunks = $pendingItems
+                ->pluck('id')
+                ->chunk($batchSize)
+                ->map(fn ($chunk): array => $chunk->values()->all())
+                ->values()
+                ->all();
+
+            foreach ($chunks as $chunk) {
+                $freshRun->items()
+                    ->whereIn('id', $chunk)
+                    ->update([
+                        'status' => 'analyzing',
+                        'extraction_source' => self::SOURCE_STEP3_RUNNING,
+                        'error_message' => null,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            $hasPending = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->exists();
+            $hasRunning = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+                ->exists();
+
+            return [
+                'chunks' => $chunks,
+                'stageComplete' => ! $hasPending && ! $hasRunning,
+            ];
+        });
+
+        if (count($state['chunks']) > 0) {
+            $this->syncRunIfEnabled($run->fresh());
+        }
+
+        foreach ($state['chunks'] as $chunk) {
+            ProcessAuditRunStep3BatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['stageComplete']) {
+            $this->refreshRunProgress($run);
+        }
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function processStep2Batch(AuditRun $run, array $itemIds): void
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $analysis = $this->seoAiAuditService->analyzeBatchKeywordCategoryUrlOnly(
+            targetUrls: $items->pluck('target_url')->values()->all(),
+            categories: $run->categories ?? [],
+            provider: $run->ai_provider ?? 'openai',
+            model: $run->ai_model,
+            auditRunId: $run->id,
+            persistStep: $this->chunkStepKey('batch_keyword_category_mapping', $items),
+        );
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $firstItem = $items->first();
+
+        if ($firstItem) {
+            foreach ($analysis['usageEvents'] ?? [] as $usage) {
+                if (is_array($usage)) {
+                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_keyword_category_mapping'), $usage);
+                }
+            }
+        }
+
+        $resultList = collect($analysis['items'] ?? [])
+            ->filter(fn (mixed $item): bool => is_array($item))
+            ->values();
+        $resultsByUrl = $resultList
+            ->filter(fn (mixed $item): bool => is_array($item) && isset($item['targetUrl']))
+            ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
+
+        foreach ($items->values() as $index => $item) {
+            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+
+            if (! is_array($result)) {
+                $item->forceFill([
+                    'status' => 'failed',
+                    'extraction_source' => self::SOURCE_STEP2_DONE,
+                    'error_message' => 'Batch AI bước 2 không trả kết quả cho URL này.',
+                    'completed_at' => now(),
+                ])->save();
+                $this->syncItemIfEnabled($item->fresh('run'));
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+                continue;
+            }
+
+            $item->forceFill([
+                'status' => 'analyzing',
+                'extraction_source' => self::SOURCE_STEP2_DONE,
+                'primary_keyword' => $result['primaryKeyword'] ?? null,
+                'category_name' => $result['categoryName'] ?? null,
+                'category_url' => $result['categoryUrl'] ?? null,
+                'category_match_reason' => $result['categoryMatchReason'] ?? null,
+                'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], [
+                    'keywordCategory' => $analysis['promptSnapshot'] ?? null,
+                ]),
+                'error_message' => null,
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+        }
+
+        $this->refreshRunProgress($run);
+        $this->dispatchStep2Batches($run);
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function processStep3Batch(AuditRun $run, array $itemIds): void
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $keywordCategoryItems = $items->map(fn (AuditRunItem $item): array => [
+            'targetUrl' => $item->target_url,
+            'primaryKeyword' => $item->primary_keyword,
+            'categoryName' => $item->category_name,
+            'categoryUrl' => $item->category_url,
+            'categoryMatchReason' => $item->category_match_reason,
+        ])->values()->all();
+
+        $analysis = $this->seoAiAuditService->analyzeBatchOnpageUrlOnly(
+            targetUrls: $items->pluck('target_url')->values()->all(),
+            categories: $run->categories ?? [],
+            checklistText: $run->checklist_text,
+            keywordCategoryItems: $keywordCategoryItems,
+            provider: $run->ai_provider ?? 'openai',
+            model: $run->ai_model,
+            auditRunId: $run->id,
+            persistStep: $this->chunkStepKey('batch_onpage_audit', $items),
+        );
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $firstItem = $items->first();
+
+        if ($firstItem) {
+            foreach ($analysis['usageEvents'] ?? [] as $usage) {
+                if (is_array($usage)) {
+                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_onpage_audit'), $usage);
+                }
+            }
+        }
+
+        $resultList = collect($analysis['items'] ?? [])
+            ->filter(fn (mixed $item): bool => is_array($item))
+            ->values();
+        $resultsByUrl = $resultList
+            ->filter(fn (mixed $item): bool => is_array($item) && isset($item['targetUrl']))
+            ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
+
+        foreach ($items->values() as $index => $item) {
+            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+
+            if (! is_array($result)) {
+                $item->forceFill([
+                    'status' => 'failed',
+                    'error_message' => 'Batch AI bước 3 không trả kết quả cho URL này.',
+                    'completed_at' => now(),
+                ])->save();
+                $this->syncItemIfEnabled($item->fresh('run'));
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+                continue;
+            }
+
+            $item->forceFill([
+                'status' => 'completed',
+                'extraction_source' => self::SOURCE_COMPLETED,
+                'primary_keyword' => $result['primaryKeyword'] ?? $item->primary_keyword,
+                'category_name' => $result['categoryName'] ?? $item->category_name,
+                'category_url' => $result['categoryUrl'] ?? $item->category_url,
+                'category_match_reason' => $result['categoryMatchReason'] ?? $item->category_match_reason,
+                'audit_score' => max(0, min(100, (int) ($result['auditScore'] ?? 0))),
+                'audit_findings' => implode("\n", array_filter($result['auditFindings'] ?? [], 'is_string')),
+                'audit_recommendations' => implode("\n", array_filter($result['auditRecommendations'] ?? [], 'is_string')),
+                'content_revision_direction' => is_string($result['contentRevisionDirection'] ?? null) ? $result['contentRevisionDirection'] : null,
+                'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], [
+                    'onpageAudit' => $analysis['promptSnapshot'] ?? null,
+                ]),
+                'error_message' => null,
+                'completed_at' => now(),
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
+
+        $this->refreshRunProgress($run);
+        $this->dispatchStep3Batches($run);
     }
 
     public function processBatchUrlOnly(AuditRun $run): void
@@ -328,6 +712,46 @@ class AuditRunService
             $this->syncItemIfEnabled($item->fresh('run'));
             $this->urlResultService->upsertFromItem($item->fresh('run'));
         }
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function markBatchItemIdsFailed(AuditRun $run, array $itemIds, string $message): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        $run->items()
+            ->whereIn('id', $itemIds)
+            ->whereIn('status', ['queued', 'fetching', 'analyzing'])
+            ->update([
+                'status' => 'failed',
+                'error_message' => $message,
+                'completed_at' => now(),
+            ]);
+
+        foreach ($run->items()->whereIn('id', $itemIds)->get() as $item) {
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
+
+        $this->refreshRunProgress($run);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
+     */
+    private function chunkStepKey(string $base, \Illuminate\Support\Collection $items): string
+    {
+        $positions = $items->pluck('position')->filter(fn ($position): bool => is_numeric($position))->map(fn ($position): int => (int) $position);
+
+        if ($positions->isEmpty()) {
+            return $base.'_'.Str::lower((string) Str::ulid());
+        }
+
+        return sprintf('%s_%03d_%03d', $base, $positions->min(), $positions->max());
     }
 
     public function isRunCancelled(AuditRun $run): bool
@@ -600,6 +1024,7 @@ class AuditRunService
             'position' => $item->position,
             'targetUrl' => $item->target_url,
             'status' => $item->status,
+            'extractionSource' => $item->extraction_source,
             'pageTitle' => $item->page_title,
             'primaryKeyword' => $item->primary_keyword,
             'categoryName' => $item->category_name,

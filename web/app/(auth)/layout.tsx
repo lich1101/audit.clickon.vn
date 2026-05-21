@@ -6,15 +6,15 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="premium-surface overflow-hidden p-8">
             <p className="text-sm uppercase tracking-[0.3em] text-primary">Credit-centered audit ops</p>
             <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-tight text-balance xl:text-5xl">
-              Clickon Audit giúp đội vận hành website kiểm soát credit, gói cước và audit theo thời gian thực.
+              Clickon Audit giúp đội vận hành website kiểm soát credit, gói cước và audit có tiến trình rõ ràng.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-8 text-muted-foreground">
-              Thiết kế dạng SaaS control room với Firebase realtime cho credit balance, Laravel API cho giao dịch tín dụng,
+              Thiết kế dạng SaaS control room với Laravel API/MySQL cho dữ liệu chính, Firebase chỉ dùng để bắn tín hiệu cập nhật audit đang chạy,
               và luồng quản lý website/audit tách page rõ ràng để triển khai production.
             </p>
             <div className="mt-8 grid gap-3 md:grid-cols-3">
               {[
-                "Realtime credit listener",
+                "MySQL source of truth",
                 "Manual approval for plans",
                 "Website & category audit forms"
               ].map((item) => (

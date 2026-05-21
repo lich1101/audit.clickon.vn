@@ -60,14 +60,10 @@ class TokenBillingService
     {
         $pricing = $this->resolvePricing($provider, $model);
 
-        if (($pricing['credits_per_1k_input'] ?? 0) == 0 && ($pricing['credits_per_1k_output'] ?? 0) == 0) {
-            return (int) $pricing['min_credits_per_call'];
-        }
-
         $raw = (($inputTokens / 1000) * (float) $pricing['credits_per_1k_input'])
             + (($outputTokens / 1000) * (float) $pricing['credits_per_1k_output']);
 
-        return max((int) $pricing['min_credits_per_call'], (int) ceil($raw));
+        return max(0, (int) ceil($raw));
     }
 
     public function estimateMinimumCreditsForUrl(string $provider, ?string $model): int
@@ -77,10 +73,26 @@ class TokenBillingService
 
     public function estimateMinimumCreditsForBatchRun(string $provider, ?string $model): int
     {
-        $modelName = $model ?: $this->defaultModelForProvider($provider);
-        $pricing = $this->resolvePricing($provider, $modelName);
+        return 0;
+    }
 
-        return ((int) $pricing['min_credits_per_call']) * 2;
+    public function estimateMinimumCreditsForAiCall(string $provider, ?string $model): int
+    {
+        return 0;
+    }
+
+    public function estimateMinimumCreditsForChunkedRun(
+        string $provider,
+        ?string $model,
+        int $totalUrls,
+        int $step2BatchSize,
+        int $step3BatchSize,
+    ): int {
+        if ($totalUrls <= 0) {
+            return 0;
+        }
+
+        return 0;
     }
 
     /**

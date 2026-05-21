@@ -96,7 +96,13 @@ class AuditRunController extends Controller
             ->all();
 
         $systemSettings = $this->auditSettingsService->getAuditSettings();
-        $minimumCreditsPerRun = $this->auditRunService->minimumCreditsPerRun($systemSettings['aiProvider'], $systemSettings['aiModel']);
+        $auditUrlCount = is_array($audit['articleUrls'] ?? null) ? count($audit['articleUrls']) : 0;
+        $minimumCreditsPerRun = $this->auditRunService->minimumCreditsPerRun(
+            $systemSettings['aiProvider'],
+            $systemSettings['aiModel'],
+            $auditUrlCount,
+            $systemSettings,
+        );
 
         return response()->json([
             'data' => [
@@ -112,6 +118,9 @@ class AuditRunController extends Controller
                     'aiProvider' => $systemSettings['aiProvider'],
                     'aiModel' => $systemSettings['aiModel'],
                     'maxParallelItems' => $systemSettings['maxParallelItems'],
+                    'step2BatchSize' => $systemSettings['step2BatchSize'],
+                    'step3BatchSize' => $systemSettings['step3BatchSize'],
+                    'minCreditsPerAiCall' => $this->auditRunService->minimumCreditsPerAiCall($systemSettings['aiProvider'], $systemSettings['aiModel']),
                     'minCreditsPerRun' => $minimumCreditsPerRun,
                     'minCreditsPerUrl' => $minimumCreditsPerRun,
                 ],

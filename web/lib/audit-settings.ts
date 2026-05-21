@@ -16,6 +16,8 @@ export type AuditSystemSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
   maxParallelItems: number;
+  step2BatchSize: number;
+  step3BatchSize: number;
   modelPricing?: ModelPricingRow[];
 };
 
@@ -23,6 +25,9 @@ export type PublicAuditSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
   maxParallelItems?: number;
+  step2BatchSize?: number;
+  step3BatchSize?: number;
+  minCreditsPerAiCall?: number;
   minCreditsPerRun?: number;
   minCreditsPerUrl?: number;
 };

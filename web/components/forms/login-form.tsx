@@ -53,7 +53,7 @@ export function LoginForm() {
         </div>
         <div className="space-y-2">
           <CardTitle className="text-3xl">Đăng nhập</CardTitle>
-          <CardDescription>Truy cập dashboard credit và quản lý audit website theo thời gian thực.</CardDescription>
+          <CardDescription>Truy cập dashboard credit và quản lý audit website với tiến trình audit rõ ràng.</CardDescription>
         </div>
       </CardHeader>
       <CardContent>

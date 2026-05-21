@@ -7,7 +7,8 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
-import { createOrUpdateUserProfile } from "@/lib/firestore";
+import { useAuth } from "@/hooks/use-auth";
+import { updateMe } from "@/lib/account";
 import { settingsSchema, type SettingsValues } from "@/lib/validators";
 import type { AppUser } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function SettingsForm({ profile }: { profile: AppUser }) {
+  const { refreshProfile } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<SettingsValues>({
     resolver: zodResolver(settingsSchema),
@@ -34,12 +36,8 @@ export function SettingsForm({ profile }: { profile: AppUser }) {
         });
       }
 
-      await createOrUpdateUserProfile({
-        uid: profile.uid,
-        email: profile.email,
-        displayName: values.displayName,
-        role: profile.role
-      });
+      await updateMe({ displayName: values.displayName });
+      await refreshProfile();
 
       toast.success("Thông tin hồ sơ đã được cập nhật.");
     } catch (error) {
@@ -53,7 +51,7 @@ export function SettingsForm({ profile }: { profile: AppUser }) {
     <Card className="max-w-4xl">
       <CardHeader>
         <CardTitle>Hồ sơ tài khoản</CardTitle>
-        <CardDescription>Thông tin này được đồng bộ vào Firebase Authentication và Firestore.</CardDescription>
+        <CardDescription>Thông tin này được đồng bộ vào Firebase Authentication và hồ sơ MySQL qua Laravel API.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-5" onSubmit={onSubmit}>

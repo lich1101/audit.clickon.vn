@@ -43,6 +43,22 @@ function filterItem(item: AuditRunItem, search: string) {
   ].some((value) => value.toLowerCase().includes(search));
 }
 
+function stageLabel(source?: string | null) {
+  if (source === "url_only_batch_step2_running") {
+    return "Bước 2: keyword + danh mục";
+  }
+
+  if (source === "url_only_batch_step2_done") {
+    return "Chờ bước 3: audit onpage";
+  }
+
+  if (source === "url_only_batch_step3_running") {
+    return "Bước 3: audit onpage";
+  }
+
+  return source;
+}
+
 export function AuditRunItemsTable({
   run,
   items,
@@ -64,7 +80,7 @@ export function AuditRunItemsTable({
         <div className="space-y-1">
           <CardTitle>Kết quả chi tiết theo URL</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Theo dõi realtime trạng thái từng URL, điểm audit, từ khóa chính và định hướng chỉnh sửa nội dung.
+            Theo dõi trạng thái từng URL; khi audit đang chạy, Firebase chỉ bắn tín hiệu để refetch dữ liệu từ MySQL.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
@@ -102,7 +118,7 @@ export function AuditRunItemsTable({
                       <p className="font-medium break-all">{item.targetUrl}</p>
                       {item.pageTitle ? <p className="text-xs text-muted-foreground">{item.pageTitle}</p> : null}
                       {item.extractionSource ? (
-                        <p className="text-xs text-muted-foreground">Nguồn dữ liệu: {item.extractionSource}</p>
+                        <p className="text-xs text-muted-foreground">Nguồn dữ liệu: {stageLabel(item.extractionSource)}</p>
                       ) : null}
                     </div>
                   </TableCell>
@@ -159,7 +175,7 @@ export function AuditRunItemsTable({
             title="Chưa có kết quả hiển thị"
             description={
               items.length === 0
-                ? "Audit run này chưa có item nào hoặc dữ liệu realtime chưa đồng bộ xong."
+                ? "Audit run này chưa có item nào hoặc dữ liệu MySQL chưa cập nhật xong."
                 : "Không có URL nào khớp với từ khóa tìm kiếm hiện tại."
             }
           />

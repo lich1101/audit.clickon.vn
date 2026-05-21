@@ -20,13 +20,37 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const [logs, setLogs] = useState<CreditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
+  async function loadUser() {
+    const [profile, creditLogs] = await Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })]);
+    setUser(profile);
+    setLogs(creditLogs);
+  }
+
   useEffect(() => {
-    void Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })])
-      .then(([profile, creditLogs]) => {
-        setUser(profile);
-        setLogs(creditLogs);
-      })
-      .finally(() => setLoading(false));
+    let mounted = true;
+
+    async function load() {
+      const [profile, creditLogs] = await Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })]);
+
+      if (!mounted) {
+        return;
+      }
+
+      setUser(profile);
+      setLogs(creditLogs);
+    }
+
+    setLoading(true);
+    void load()
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [id]);
 
   if (loading) {
@@ -80,8 +104,8 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
 
         <div className="grid gap-5">
           <div className="grid gap-5 md:grid-cols-2">
-            <CreditAdjustmentForm userId={user.uid} type="add" />
-            <CreditAdjustmentForm userId={user.uid} type="subtract" />
+            <CreditAdjustmentForm userId={user.uid} type="add" onMutated={() => void loadUser()} />
+            <CreditAdjustmentForm userId={user.uid} type="subtract" onMutated={() => void loadUser()} />
           </div>
 
           <DataTable

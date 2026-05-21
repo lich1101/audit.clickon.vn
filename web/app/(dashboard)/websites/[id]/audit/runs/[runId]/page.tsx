@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
-import { getWebsiteById, listenToAuditRun, listenToAuditRunItems } from "@/lib/firestore";
+import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { AuditRun, AuditRunItem, Website } from "@/types";
 
@@ -25,7 +25,7 @@ export default function AuditRunDetailPage({
   params: Promise<{ id: string; runId: string }>;
 }) {
   const { id, runId } = use(params);
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [website, setWebsite] = useState<Website | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
   const [items, setItems] = useState<AuditRunItem[]>([]);
@@ -33,6 +33,7 @@ export default function AuditRunDetailPage({
   const [exporting, setExporting] = useState(false);
   const runFinishedRef = useRef(false);
   const runLoadedRef = useRef(false);
+  const lastProfileRefreshRef = useRef(0);
   const profileUid = profile?.uid;
 
   async function loadRun(options?: { silent?: boolean }) {
@@ -84,26 +85,38 @@ export default function AuditRunDetailPage({
 
     runFinishedRef.current = false;
 
-    const unsubRun = listenToAuditRun(run.publicId, (liveRun) => {
+    function refreshProfileFromAuditSignal(force = false) {
+      const now = Date.now();
+
+      if (!force && now - lastProfileRefreshRef.current < 5000) {
+        return;
+      }
+
+      lastProfileRefreshRef.current = now;
+      void refreshProfile().catch(() => undefined);
+    }
+
+    const unsubscribe = listenToAuditRunSignal(run.publicId, (liveRun) => {
       if (!liveRun) {
         return;
       }
 
-      setRun((prev) => (prev ? normalizeAuditRun({ ...prev, ...liveRun, items: prev.items }) : liveRun));
+      const normalizedRun = normalizeAuditRun(liveRun);
+      setRun(normalizedRun);
+      setItems(normalizedRun.items ?? []);
+      refreshProfileFromAuditSignal(false);
 
       if (!isActiveAuditRun(liveRun.status) && !runFinishedRef.current) {
         runFinishedRef.current = true;
+        refreshProfileFromAuditSignal(true);
         void loadRun({ silent: true });
       }
     });
 
-    const unsubItems = listenToAuditRunItems(run.publicId, setItems);
-
     return () => {
-      unsubRun();
-      unsubItems();
+      unsubscribe();
     };
-  }, [run?.publicId, run?.status]);
+  }, [run?.publicId, run?.status, refreshProfile]);
 
   async function handleExport() {
     if (!run) {
@@ -137,7 +150,7 @@ export default function AuditRunDetailPage({
     <div className="flex flex-col gap-6">
       <PageHeader
         title={`Run #${run.publicId.slice(-8)}`}
-        description="Chi tiết audit run — cập nhật realtime qua Firebase khi đang chạy."
+        description="Chi tiết audit run — dữ liệu chính từ MySQL, Firebase chỉ bắn tín hiệu cập nhật khi đang chạy."
         breadcrumbs={[
           { label: "Websites", href: "/websites" },
           { label: website.name, href: `/websites/${website.id}` },

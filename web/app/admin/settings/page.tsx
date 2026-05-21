@@ -28,7 +28,9 @@ export default function AdminAuditSettingsPage() {
   const [settings, setSettings] = useState<AuditSystemSettings>({
     aiProvider: "openai",
     aiModel: null,
-    maxParallelItems: 3
+    maxParallelItems: 3,
+    step2BatchSize: 60,
+    step3BatchSize: 30
   });
 
   useEffect(() => {
@@ -111,14 +113,50 @@ export default function AdminAuditSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Thông số batch legacy</CardTitle>
+          <CardTitle>Chunk AI song song</CardTitle>
           <CardDescription>
-            Batch URL-only hiện chạy một job cho toàn bộ URL đã chọn. Giá trị này chỉ giữ tương thích cho flow xử lý từng dòng cũ.
+            Bước 2 chia theo nhóm URL để lấy keyword + danh mục; bước 3 chia nhóm nhỏ hơn để audit onpage. Các chunk chạy song song theo giới hạn bên dưới.
           </CardDescription>
         </CardHeader>
-        <CardContent className="max-w-sm">
+        <CardContent className="grid gap-5 lg:grid-cols-3">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="max-parallel">Giới hạn song song legacy</Label>
+            <Label htmlFor="step2-batch-size">Bước 2: URL / batch</Label>
+            <Input
+              id="step2-batch-size"
+              type="number"
+              min={1}
+              max={300}
+              value={settings.step2BatchSize}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  step2BatchSize: Math.max(1, Math.min(300, Number(event.target.value) || 60))
+                }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">Mặc định 60 URL/lần gọi AI cho keyword và danh mục.</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="step3-batch-size">Bước 3: URL / batch</Label>
+            <Input
+              id="step3-batch-size"
+              type="number"
+              min={1}
+              max={300}
+              value={settings.step3BatchSize}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  step3BatchSize: Math.max(1, Math.min(300, Number(event.target.value) || 30))
+                }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">Mặc định 30 URL/lần gọi AI để giảm rủi ro JSON quá dài.</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="max-parallel">Số batch AI chạy song song</Label>
             <Input
               id="max-parallel"
               type="number"
@@ -132,7 +170,7 @@ export default function AdminAuditSettingsPage() {
                 }))
               }
             />
-            <p className="text-xs text-muted-foreground">Flow batch mới không nhân request AI theo số URL; mỗi run chỉ gọi AI theo từng bước batch.</p>
+            <p className="text-xs text-muted-foreground">Giới hạn cứng 10. Thực tế còn phụ thuộc số queue worker trong Docker.</p>
           </div>
         </CardContent>
       </Card>
@@ -141,7 +179,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Bảng giá credit theo model (token)</CardTitle>
           <CardDescription>
-            Mỗi batch audit gọi 2 lần AI: bước 2 cho toàn bộ URL và bước 3 cho toàn bộ URL. Credit trừ theo token thực tế, tối thiểu mỗi lần gọi.
+            Mỗi chunk AI trừ credit theo token thực tế mà provider trả về. Số call ước tính = ceil(URL/batch bước 2) + ceil(URL/batch bước 3).
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -151,7 +189,6 @@ export default function AdminAuditSettingsPage() {
                 <th className="py-2 pr-4">Model</th>
                 <th className="py-2 pr-4">Credit / 1K input</th>
                 <th className="py-2 pr-4">Credit / 1K output</th>
-                <th className="py-2">Tối thiểu / lần gọi</th>
               </tr>
             </thead>
             <tbody>
@@ -163,7 +200,6 @@ export default function AdminAuditSettingsPage() {
                   </td>
                   <td className="py-3 pr-4">{row.creditsPer1kInput}</td>
                   <td className="py-3 pr-4">{row.creditsPer1kOutput}</td>
-                  <td className="py-3">{row.minCreditsPerCall}</td>
                 </tr>
               ))}
             </tbody>

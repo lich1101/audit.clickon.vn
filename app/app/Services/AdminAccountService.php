@@ -9,7 +9,6 @@ use RuntimeException;
 class AdminAccountService
 {
     public function __construct(
-        private readonly FirestoreService $firestoreService,
         private readonly CreditService $creditService,
     ) {
     }
@@ -115,8 +114,6 @@ class AdminAccountService
 
     private function seedAdminProfile(string $uid, string $email, ?string $displayName = null): void
     {
-        $this->firestoreService->seedAdmin($uid, $email, $displayName);
-
         $user = $this->creditService->ensureUser($uid, $email, $displayName);
         $user->forceFill(['role' => 'admin'])->save();
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppUser;
 use App\Services\CreditService;
 use Illuminate\Http\Request;
 
@@ -24,6 +25,26 @@ class MeController extends Controller
 
         return response()->json([
             'data' => $this->creditService->serializeUser($user),
+        ]);
+    }
+
+    public function update(Request $request)
+    {
+        $validated = $request->validate([
+            'displayName' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $uid = (string) $request->attributes->get('firebase_uid');
+        $email = (string) $request->attributes->get('firebase_email');
+
+        /** @var AppUser $user */
+        $user = $this->creditService->ensureUser($uid, $email);
+        $user->forceFill([
+            'display_name' => array_key_exists('displayName', $validated) ? $validated['displayName'] : $user->display_name,
+        ])->save();
+
+        return response()->json([
+            'data' => $this->creditService->serializeUser($user->fresh()),
         ]);
     }
 }

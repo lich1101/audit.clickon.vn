@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listenToAllCreditLogs, listenToAllPlans, listenToAllUsers } from "@/lib/firestore";
+import { fetchAdminCreditTransactions, fetchAdminPlans, fetchAdminUsers } from "@/lib/account";
 import { laravelRequest } from "@/lib/laravel";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog, Plan, PlanRequest, AppUser } from "@/types";
@@ -22,22 +22,31 @@ export default function AdminHomePage() {
   const [planRequests, setPlanRequests] = useState<PlanRequest[]>([]);
 
   useEffect(() => {
-    async function loadRequests() {
-      const payload = await laravelRequest<{ data: PlanRequest[] }>("/api/admin/plan-requests");
-      setPlanRequests(payload.data);
+    let mounted = true;
+
+    async function loadAdminOverview() {
+      const [nextUsers, nextPlans, nextCreditLogs, requestsPayload] = await Promise.all([
+        fetchAdminUsers(),
+        fetchAdminPlans(),
+        fetchAdminCreditTransactions(100),
+        laravelRequest<{ data: PlanRequest[] }>("/api/admin/plan-requests")
+      ]);
+
+      if (!mounted) {
+        return;
+      }
+
+      setUsers(nextUsers);
+      setPlans(nextPlans);
+      setCreditLogs(nextCreditLogs);
+      setPlanRequests(requestsPayload.data);
     }
 
-    const unsubUsers = listenToAllUsers(setUsers);
-    const unsubPlans = listenToAllPlans(setPlans);
-    const unsubLogs = listenToAllCreditLogs(setCreditLogs);
-
-    void loadRequests()
-      .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải plan requests."));
+    void loadAdminOverview()
+      .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải admin overview."));
 
     return () => {
-      unsubUsers();
-      unsubPlans();
-      unsubLogs();
+      mounted = false;
     };
   }, []);
 
@@ -71,7 +80,7 @@ export default function AdminHomePage() {
       />
 
       <div className="grid gap-5 xl:grid-cols-4">
-        <StatCard title="Total users" value={formatNumber(users.length)} hint="Toàn bộ hồ sơ trong Firestore collection users" icon={Users} />
+        <StatCard title="Total users" value={formatNumber(users.length)} hint="Toàn bộ hồ sơ trong MySQL users" icon={Users} />
         <StatCard title="Published plans" value={formatNumber(plans.length)} hint="Bao gồm active và inactive plans" icon={CreditCard} />
         <StatCard title="Pending requests" value={formatNumber(pendingRequests)} hint="Đăng ký gói cước đang chờ admin duyệt" icon={BarChart3} />
         <StatCard title="Credits in circulation" value={formatNumber(totalCredits)} hint="Tổng credit đang hiện hữu trên các tài khoản" icon={DatabaseZap} />
@@ -79,7 +88,7 @@ export default function AdminHomePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Realtime operations digest</CardTitle>
+          <CardTitle>Operations digest</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="mail-row rounded-xl border border-border bg-background/70 p-5">

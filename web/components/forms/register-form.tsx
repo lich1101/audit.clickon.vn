@@ -9,7 +9,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
-import { createOrUpdateUserProfile } from "@/lib/firestore";
 import { syncClientSession } from "@/lib/session-client";
 import { registerSchema, type RegisterValues } from "@/lib/validators";
 import { Button } from "@/components/ui/button";
@@ -35,12 +34,6 @@ export function RegisterForm() {
       const credential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       await updateProfile(credential.user, {
         displayName: values.displayName
-      });
-      await createOrUpdateUserProfile({
-        uid: credential.user.uid,
-        email: credential.user.email ?? values.email,
-        displayName: values.displayName,
-        role: "user"
       });
       await syncClientSession(await credential.user.getIdToken(true));
       toast.success("Tài khoản đã được tạo.");

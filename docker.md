@@ -157,8 +157,12 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-pro
 GEMINI_DEEP_RESEARCH_AGENT=deep-research-preview-04-2026
 GEMINI_TIMEOUT_SECONDS=180
-GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=1800
-DB_QUEUE_RETRY_AFTER=1900
+GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=0
+AUDIT_BATCH_JOB_TIMEOUT_SECONDS=0
+AUDIT_AI_HTTP_TIMEOUT_SECONDS=0
+AUDIT_MAX_AI_STEP_RESPONSE_BYTES=0
+DB_QUEUE_RETRY_AFTER=86400
+QUEUE_WORKERS=3
 
 AUDIT_MAX_CONTENT_CHARS=18000
 AUDIT_MAX_CATEGORY_CONTENT_CHARS=7000
@@ -166,13 +170,16 @@ AUDIT_USE_JINA_READER=true
 AUDIT_JINA_BASE_URL=https://r.jina.ai/
 JINA_API_KEY=
 AUDIT_FIRESTORE_SYNC=true
-AUDIT_FIRESTORE_FALLBACK=true
+AUDIT_FIRESTORE_FALLBACK=false
 ```
 
 Ghi chú vận hành:
 
 - `openai` và `gemini` phù hợp chạy nhiều URL vì trả JSON có cấu trúc nhanh hơn.
-- `gemini_deep_research` chạy qua Interactions API nền, có thể mất vài phút cho mỗi URL; chỉ chọn khi thật sự cần phân tích nghiên cứu sâu.
+- Audit URL-only hiện chạy theo chunk: bước 2 mặc định 60 URL/lần gọi AI, bước 3 mặc định 30 URL/lần gọi AI. Admin có thể đổi hai số này tại `/admin/settings`.
+- `AUDIT_FIRESTORE_SYNC=true` chỉ dùng để bắn tín hiệu realtime nhỏ vào `auditRunSignals`; dữ liệu thật vẫn đọc/ghi từ MySQL qua Laravel API. `AUDIT_FIRESTORE_FALLBACK=false` để tránh fallback sang Firestore làm trang bị delay.
+- `QUEUE_WORKERS` là số worker queue chạy song song trong Docker. `maxParallelItems` trong admin là số batch AI được phép chạy song song; hiệu lực thực tế không vượt quá số worker queue.
+- `gemini_deep_research` chạy qua Interactions API nền, có thể mất lâu theo từng chunk; chỉ chọn khi thật sự cần phân tích nghiên cứu sâu và đã có quota.
 - Checklist mặc định của bước 3 nằm tại `app/resources/audit/seo-checklist.txt`; nếu user không nhập checklist riêng trong form audit thì backend dùng file này.
 - Nếu đổi các biến AI/crawl, rebuild hoặc recreate `api` và `queue` để queue worker nhận env mới.
 
@@ -228,9 +235,8 @@ Command này sẽ:
 
 1. tạo hoặc cập nhật user trong Firebase Authentication
 2. đặt lại password nếu user đã tồn tại
-3. seed profile `users/{uid}` trong Firestore với role `admin`
-4. tạo/cập nhật user tương ứng trong MySQL `app_users` với role `admin` để Laravel API nhận đúng quyền
-5. giữ nguyên credit hiện có nếu tài khoản đã từng tồn tại
+3. tạo/cập nhật user tương ứng trong MySQL `app_users` với role `admin` để Laravel API nhận đúng quyền
+4. giữ nguyên credit hiện có nếu tài khoản đã từng tồn tại
 
 ### Chạy artisan trực tiếp
 
@@ -238,7 +244,7 @@ Command này sẽ:
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:create-admin admin@audit.clickon.vn 'StrongPassword123!' --name='Clickon Audit Admin'
 ```
 
-Nếu bạn đã có sẵn một Firebase UID và chỉ muốn promote role admin trong Firestore + MySQL:
+Nếu bạn đã có sẵn một Firebase UID và chỉ muốn promote role admin trong MySQL:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan clickon:seed-admin <uid> <email> --name='Clickon Audit Admin'

@@ -52,7 +52,16 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
       : null,
     run: response.data.run ? normalizeAuditRun(response.data.run) : null,
     urlResults: Array.isArray(response.data.urlResults) ? response.data.urlResults : [],
-    systemAi: response.data.systemAi ?? { aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 }
+    systemAi: response.data.systemAi ?? {
+      aiProvider: "openai",
+      aiModel: null,
+      maxParallelItems: 3,
+      step2BatchSize: 60,
+      step3BatchSize: 30,
+      minCreditsPerAiCall: 0,
+      minCreditsPerRun: 0,
+      minCreditsPerUrl: 0
+    }
   };
 }
 
@@ -112,6 +121,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],
     aiProvider: run.aiProvider ?? "openai",
     aiModel: run.aiModel ?? null,
+    aiStepResponses: run.aiStepResponses ?? {},
     items: Array.isArray(run.items) ? run.items.map((item) => ({
       ...item,
       auditFindings: Array.isArray(item.auditFindings) ? item.auditFindings : [],

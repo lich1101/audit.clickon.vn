@@ -16,8 +16,8 @@ import { laravelRequest } from "@/lib/laravel";
 import type { AuditPromptTemplate } from "@/types";
 
 const variables = [
-  { token: "{{target_urls_json}}", description: "Toàn bộ URL đã chọn trong run, dạng JSON array." },
-  { token: "{{target_urls_text}}", description: "Toàn bộ URL đã chọn, mỗi URL một dòng." },
+  { token: "{{target_urls_json}}", description: "Danh sách URL trong chunk AI hiện tại, dạng JSON array." },
+  { token: "{{target_urls_text}}", description: "Danh sách URL trong chunk AI hiện tại, mỗi URL một dòng." },
   { token: "{{categories_json}}", description: "Danh sách tên danh mục và URL danh mục được phép chọn." },
   { token: "{{keyword_category_results_json}}", description: "Kết quả batch bước 2: URL, keyword chính, danh mục, URL danh mục." },
   { token: "{{checklist}}", description: "Checklist AuditSEO người dùng nhập hoặc mặc định backend." }
@@ -91,8 +91,8 @@ export default function AdminAuditPromptsPage() {
       new Map([
         ["primary_keyword", "Legacy: không dùng trong batch flow hiện tại."],
         ["category_mapping", "Legacy: không dùng trong batch flow hiện tại."],
-        ["keyword_category_mapping", "Bước 2 chạy một lần cho toàn bộ URL đã chọn: dùng URL + danh mục để trả keyword chính và danh mục cho từng dòng."],
-        ["onpage_audit", "Bước 3 chạy một lần cho toàn bộ URL đã chọn: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng."]
+        ["keyword_category_mapping", "Bước 2 chạy theo chunk: dùng URL + danh mục để trả keyword chính và danh mục cho từng dòng trong chunk."],
+        ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."]
       ]),
     []
   );
@@ -158,7 +158,7 @@ export default function AdminAuditPromptsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit prompts"
-        description="Cấu hình prompt admin cho batch AI: bước 2 gom tất cả URL đã chọn, bước 3 audit tất cả URL đã chọn."
+        description="Cấu hình prompt admin cho chunk AI: bước 2 mặc định 60 URL/lần, bước 3 mặc định 30 URL/lần và có thể chỉnh trong Audit Settings."
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Audit Prompts" }]}
       />
 

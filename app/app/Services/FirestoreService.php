@@ -590,6 +590,38 @@ class FirestoreService
     }
 
     /**
+     * Realtime transport only. MySQL remains the source of truth; Firestore only
+     * stores a tiny signal so clients know when to re-fetch the run from Laravel.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function touchAuditRunSignal(array $payload): void
+    {
+        $documentId = (string) ($payload['publicId'] ?? '');
+
+        if ($documentId === '') {
+            throw new RuntimeException('Audit run publicId is required.');
+        }
+
+        $signal = [
+            'publicId' => $documentId,
+            'websiteId' => (string) ($payload['websiteId'] ?? ''),
+            'userId' => (string) ($payload['userId'] ?? ''),
+            'status' => (string) ($payload['status'] ?? ''),
+            'totalUrls' => (int) ($payload['totalUrls'] ?? 0),
+            'processedUrls' => (int) ($payload['processedUrls'] ?? 0),
+            'completedUrls' => (int) ($payload['completedUrls'] ?? 0),
+            'failedUrls' => (int) ($payload['failedUrls'] ?? 0),
+            'lastItemPublicId' => (string) ($payload['lastItemPublicId'] ?? ''),
+            'lastItemStatus' => (string) ($payload['lastItemStatus'] ?? ''),
+            'version' => now()->getTimestampMs(),
+            'updatedAt' => now(),
+        ];
+
+        $this->patchDocument('auditRunSignals', $documentId, $signal);
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     private function patchDocument(string $collection, string $documentId, array $payload): void

@@ -25,6 +25,8 @@ return new class extends Migration
                     'aiProvider' => env('AUDIT_DEFAULT_AI_PROVIDER', 'openai'),
                     'aiModel' => env('OPENAI_MODEL', ''),
                     'maxParallelItems' => 3,
+                    'step2BatchSize' => 60,
+                    'step3BatchSize' => 30,
                 ], JSON_THROW_ON_ERROR),
                 'created_at' => $now,
                 'updated_at' => $now,

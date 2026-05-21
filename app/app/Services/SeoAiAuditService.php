@@ -124,6 +124,59 @@ TEXT;
     }
 
     /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    public function analyzeBatchKeywordCategoryUrlOnly(
+        array $targetUrls,
+        array $categories,
+        string $provider = 'openai',
+        ?string $model = null,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $result = $this->analyzeBatchKeywordAndCategory($provider, $resolvedModel, $targetUrls, $categories, $auditRunId, $persistStep);
+
+        return [
+            'items' => $result['items'],
+            'promptSnapshot' => $result['promptSnapshot'],
+            'usageEvents' => [
+                $result['usage'],
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $keywordCategoryItems
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    public function analyzeBatchOnpageUrlOnly(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        array $keywordCategoryItems,
+        string $provider = 'openai',
+        ?string $model = null,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $result = $this->analyzeBatchOnpage($provider, $resolvedModel, $targetUrls, $categories, $checklistText, $keywordCategoryItems, $auditRunId, $persistStep);
+
+        return [
+            'items' => $result['items'],
+            'promptSnapshot' => $result['promptSnapshot'],
+            'usageEvents' => [
+                $result['usage'],
+            ],
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $page
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
@@ -170,7 +223,14 @@ TEXT;
      * @param  array<int, array<string, mixed>>  $categories
      * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
      */
-    private function analyzeBatchKeywordAndCategory(string $provider, ?string $model, array $targetUrls, array $categories, ?int $auditRunId = null): array
+    private function analyzeBatchKeywordAndCategory(
+        string $provider,
+        ?string $model,
+        array $targetUrls,
+        array $categories,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+    ): array
     {
         $categoryPayload = array_map(
             fn (array $category): array => [
@@ -192,7 +252,7 @@ TEXT;
 
         $batchContract = implode("\n", [
             '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
-            'Mode: URL-only batch. Process all selected URLs in one response.',
+            'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
             'Do not claim that page HTML/content/title/meta/headings were crawled.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}',
@@ -215,7 +275,7 @@ TEXT;
             userPrompt: $prompts['user'],
             schema: $this->batchKeywordCategorySchema(),
             auditRunId: $auditRunId,
-            persistStep: 'batch_keyword_category_mapping',
+            persistStep: $persistStep ?? 'batch_keyword_category_mapping',
         );
 
         $data = $response['data'];
@@ -301,6 +361,7 @@ TEXT;
         ?string $checklistText,
         array $keywordCategoryItems,
         ?int $auditRunId = null,
+        ?string $persistStep = null,
     ): array {
         $categoryPayload = array_map(
             fn (array $category): array => [
@@ -326,7 +387,7 @@ TEXT;
 
         $batchContract = implode("\n", [
             '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
-            'Mode: URL-only batch. Process all selected URLs in one response.',
+            'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
             'Backend did not crawl content, title, meta, headings, images or internal links.',
             'For unverified checklist criteria, state "không kiểm chứng được" instead of inventing evidence.',
             'Return exactly this JSON shape and include every target URL once:',
@@ -352,7 +413,7 @@ TEXT;
             userPrompt: $prompts['user'],
             schema: $this->batchOnpageSchema(),
             auditRunId: $auditRunId,
-            persistStep: 'batch_onpage_audit',
+            persistStep: $persistStep ?? 'batch_onpage_audit',
         );
 
         $data = $response['data'];
@@ -541,6 +602,14 @@ TEXT;
 
     private function stepLabel(string $step): string
     {
+        if (str_starts_with($step, 'batch_keyword_category_mapping_')) {
+            return 'Bước 2: Từ khóa + danh mục (chunk)';
+        }
+
+        if (str_starts_with($step, 'batch_onpage_audit_')) {
+            return 'Bước 3: Audit onpage (chunk)';
+        }
+
         return match ($step) {
             'batch_keyword_category_mapping' => 'Bước 2: Từ khóa + danh mục (batch)',
             'batch_onpage_audit' => 'Bước 3: Audit onpage (batch)',

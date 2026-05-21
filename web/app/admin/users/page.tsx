@@ -59,7 +59,7 @@ export default function AdminUsersPage() {
             )
           }
         ]}
-        empty={<EmptyState title="Không có user nào" description="Firestore collection users đang trống." />}
+        empty={<EmptyState title="Không có user nào" description="Bảng user trong MySQL đang trống." />}
       />
     </div>
   );

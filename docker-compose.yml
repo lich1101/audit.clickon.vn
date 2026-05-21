@@ -47,7 +47,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    command: php artisan queue:work --tries=1 --timeout=300
+    command: sh -c 'workers="$${QUEUE_WORKERS:-3}"; for i in $$(seq 1 "$$workers"); do php artisan queue:work --tries=1 --timeout=0 & done; wait'
 
   composer:
     image: composer:2

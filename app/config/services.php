@@ -58,7 +58,7 @@ return [
         'jina_base_url' => env('AUDIT_JINA_BASE_URL', 'https://r.jina.ai/'),
         'jina_api_key' => env('JINA_API_KEY'),
         'firestore_sync' => (bool) env('AUDIT_FIRESTORE_SYNC', false),
-        'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', true),
+        'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', false),
         'max_ai_step_response_bytes' => (int) env('AUDIT_MAX_AI_STEP_RESPONSE_BYTES', 0),
         'batch_job_timeout_seconds' => (int) env('AUDIT_BATCH_JOB_TIMEOUT_SECONDS', 0),
         'ai_http_timeout_seconds' => (int) env('AUDIT_AI_HTTP_TIMEOUT_SECONDS', 0),

@@ -6,77 +6,40 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function currentUser() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    // MySQL/Laravel is the source of truth. These legacy data collections are
+    // intentionally closed to clients so Firebase cannot become application storage.
+    match /users/{document=**} {
+      allow read, write: if false;
     }
 
-    function isAdmin() {
-      return signedIn() && currentUser().data.role == "admin";
+    match /websites/{document=**} {
+      allow read, write: if false;
     }
 
-    function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
+    match /websiteAudits/{document=**} {
+      allow read, write: if false;
     }
 
-    function ownsWebsite(websiteId) {
-      return isAdmin() || get(/databases/$(database)/documents/websites/$(websiteId)).data.userId == request.auth.uid;
+    match /plans/{document=**} {
+      allow read, write: if false;
     }
 
-    match /users/{uid} {
-      allow create: if isOwner(uid)
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.email is string
-        && request.resource.data.role == "user"
-        && request.resource.data.credits == 0;
-
-      allow read: if isOwner(uid) || isAdmin();
-
-      allow update: if isAdmin()
-        || (
-          isOwner(uid)
-          && request.resource.data.uid == resource.data.uid
-          && !request.resource.data.diff(resource.data).changedKeys().hasAny(["credits", "role", "createdAt"])
-        );
-
-      allow delete: if isAdmin();
+    match /creditLogs/{document=**} {
+      allow read, write: if false;
     }
 
-    match /websites/{websiteId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if signedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
-      allow update, delete: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+    match /auditRuns/{document=**} {
+      allow read, write: if false;
     }
 
-    match /websiteAudits/{auditId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if signedIn() && (
-        isAdmin()
-        || (request.resource.data.userId == request.auth.uid && ownsWebsite(request.resource.data.websiteId))
-      );
-      allow update, delete: if signedIn() && (
-        isAdmin()
-        || (resource.data.userId == request.auth.uid && ownsWebsite(resource.data.websiteId))
-      );
+    match /auditRunItems/{document=**} {
+      allow read, write: if false;
     }
 
-    match /plans/{planId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.isActive == true);
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /creditLogs/{logId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isAdmin();
-      allow update, delete: if false;
-    }
-
-    match /auditRuns/{runId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create, update, delete: if false;
-    }
-
-    match /auditRunItems/{itemId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+    // Realtime transport only. Server writes a small signal; clients refetch
+    // full audit data from Laravel/MySQL when this document changes.
+    match /auditRunSignals/{runId} {
+      allow read: if signedIn();
       allow create, update, delete: if false;
     }
   }

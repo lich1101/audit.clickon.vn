@@ -122,7 +122,16 @@ export type AuditRunItem = {
   position: number;
   targetUrl: string;
   status: AuditRunItemStatus;
-  extractionSource?: "jina" | "html" | "url_only" | "url_only_batch" | string | null;
+  extractionSource?:
+    | "jina"
+    | "html"
+    | "url_only"
+    | "url_only_batch"
+    | "url_only_batch_step2_running"
+    | "url_only_batch_step2_done"
+    | "url_only_batch_step3_running"
+    | string
+    | null;
   pageTitle?: string | null;
   metaDescription?: string | null;
   canonicalUrl?: string | null;
@@ -158,6 +167,22 @@ export type AuditRunItem = {
   updatedAt: string;
 };
 
+export type AuditAiStepResponse = {
+  step?: string;
+  stepLabel?: string | null;
+  status?: "parsed" | "parse_failed" | string | null;
+  provider?: AiProvider | string | null;
+  model?: string | null;
+  interactionId?: string | null;
+  parseError?: string | null;
+  rawTextPath?: string | null;
+  rawTextBytes?: number | null;
+  rawTextOriginalBytes?: number | null;
+  rawTextTruncated?: boolean;
+  rawTextPreview?: string | null;
+  createdAt?: string | null;
+};
+
 export type AuditRun = {
   publicId: string;
   databaseId?: number;
@@ -189,5 +214,6 @@ export type AuditRun = {
   createdAt: string;
   updatedAt: string;
   lastError?: string | null;
+  aiStepResponses?: Record<string, AuditAiStepResponse>;
   items?: AuditRunItem[];
 };

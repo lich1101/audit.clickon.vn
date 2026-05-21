@@ -10,7 +10,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int}
+     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function getAuditSettings(): array
     {
@@ -25,19 +25,27 @@ class AuditSettingsService
             $maxParallel = (int) ($value['maxParallelItems'] ?? 3);
             $maxParallel = max(1, min(10, $maxParallel));
 
+            $step2BatchSize = (int) ($value['step2BatchSize'] ?? 60);
+            $step2BatchSize = max(1, min(300, $step2BatchSize));
+
+            $step3BatchSize = (int) ($value['step3BatchSize'] ?? 30);
+            $step3BatchSize = max(1, min(300, $step3BatchSize));
+
             $aiModel = trim((string) ($value['aiModel'] ?? ''));
 
             return [
                 'aiProvider' => $provider,
                 'aiModel' => $aiModel !== '' ? $aiModel : null,
                 'maxParallelItems' => $maxParallel,
+                'step2BatchSize' => $step2BatchSize,
+                'step3BatchSize' => $step3BatchSize,
             ];
         });
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, maxParallelItems?: int}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int}
+     * @param  array{aiProvider?: string, aiModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -51,6 +59,14 @@ class AuditSettingsService
             ? max(1, min(10, (int) $payload['maxParallelItems']))
             : $current['maxParallelItems'];
 
+        $step2BatchSize = isset($payload['step2BatchSize'])
+            ? max(1, min(300, (int) $payload['step2BatchSize']))
+            : $current['step2BatchSize'];
+
+        $step3BatchSize = isset($payload['step3BatchSize'])
+            ? max(1, min(300, (int) $payload['step3BatchSize']))
+            : $current['step3BatchSize'];
+
         $aiModel = array_key_exists('aiModel', $payload)
             ? (trim((string) ($payload['aiModel'] ?? '')) ?: null)
             : $current['aiModel'];
@@ -59,6 +75,8 @@ class AuditSettingsService
             'aiProvider' => $provider,
             'aiModel' => $aiModel,
             'maxParallelItems' => $maxParallel,
+            'step2BatchSize' => $step2BatchSize,
+            'step3BatchSize' => $step3BatchSize,
         ];
 
         SystemSetting::query()->updateOrCreate(
@@ -74,6 +92,16 @@ class AuditSettingsService
     public function maxParallelItems(): int
     {
         return $this->getAuditSettings()['maxParallelItems'];
+    }
+
+    public function step2BatchSize(): int
+    {
+        return $this->getAuditSettings()['step2BatchSize'];
+    }
+
+    public function step3BatchSize(): int
+    {
+        return $this->getAuditSettings()['step3BatchSize'];
     }
 
     public function aiProvider(): string

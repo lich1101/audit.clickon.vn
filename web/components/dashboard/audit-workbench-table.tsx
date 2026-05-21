@@ -13,6 +13,7 @@ import type { AuditRunItemStatus } from "@/types";
 
 export type AuditWorkbenchRow = {
   status?: AuditRunItemStatus;
+  extractionSource?: string | null;
   pageTitle?: string | null;
   primaryKeyword?: string | null;
   categoryName?: string | null;
@@ -125,6 +126,14 @@ export function AuditWorkbenchTable({
               urls.map((url, index) => {
                 const item = itemsByUrl[url];
                 const status = item?.status;
+                const stageLabel =
+                  item?.extractionSource === "url_only_batch_step2_running"
+                    ? "Bước 2: keyword + danh mục"
+                    : item?.extractionSource === "url_only_batch_step2_done"
+                      ? "Chờ bước 3: audit onpage"
+                      : item?.extractionSource === "url_only_batch_step3_running"
+                        ? "Bước 3: audit onpage"
+                        : null;
 
                 return (
                   <TableRow key={url}>
@@ -140,7 +149,10 @@ export function AuditWorkbenchTable({
                       {!status ? (
                         <span className="text-sm text-muted-foreground">Chưa chạy</span>
                       ) : (
-                        <AuditStatusBadge status={status} />
+                        <div className="space-y-1">
+                          <AuditStatusBadge status={status} />
+                          {stageLabel ? <p className="text-xs text-muted-foreground">{stageLabel}</p> : null}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>{item?.primaryKeyword ?? "—"}</TableCell>

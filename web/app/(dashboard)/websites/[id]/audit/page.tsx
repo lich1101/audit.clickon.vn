@@ -25,7 +25,7 @@ import {
   normalizeAuditRun,
   stopAuditRun
 } from "@/lib/audit-runs";
-import { listenToAuditRun, listenToAuditRunItems, saveWebsiteAudit } from "@/lib/firestore";
+import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 import type { AuditRun, AuditRunItem, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
@@ -40,12 +40,21 @@ function progressFor(run?: AuditRun | null) {
 
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
   const [urlResults, setUrlResults] = useState<WebsiteAuditUrlResult[]>([]);
-  const [systemAi, setSystemAi] = useState<PublicAuditSettings>({ aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 });
+  const [systemAi, setSystemAi] = useState<PublicAuditSettings>({
+    aiProvider: "openai",
+    aiModel: null,
+    maxParallelItems: 3,
+    step2BatchSize: 60,
+    step3BatchSize: 30,
+    minCreditsPerAiCall: 0,
+    minCreditsPerRun: 0,
+    minCreditsPerUrl: 0
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -57,6 +66,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const saveUrlsTimerRef = useRef<number | undefined>(undefined);
   const runFinishedRef = useRef(false);
   const boardLoadedRef = useRef(false);
+  const lastProfileRefreshRef = useRef(0);
   const profileUid = profile?.uid;
 
   useEffect(() => {
@@ -84,7 +94,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       setAudit(board.audit);
       setRun(board.run);
       setUrlResults(board.urlResults ?? []);
-      setSystemAi(board.systemAi ?? { aiProvider: "openai", aiModel: null, minCreditsPerRun: 0, minCreditsPerUrl: 0 });
+      setSystemAi(board.systemAi ?? {
+        aiProvider: "openai",
+        aiModel: null,
+        maxParallelItems: 3,
+        step2BatchSize: 60,
+        step3BatchSize: 30,
+        minCreditsPerAiCall: 0,
+        minCreditsPerRun: 0,
+        minCreditsPerUrl: 0
+      });
     } catch (error) {
       if (!options?.silent) {
         setWebsite(null);
@@ -114,6 +133,17 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
   const isRunActive = isActiveAuditRun(run?.status);
 
+  function refreshProfileFromAuditSignal(force = false) {
+    const now = Date.now();
+
+    if (!force && now - lastProfileRefreshRef.current < 5000) {
+      return;
+    }
+
+    lastProfileRefreshRef.current = now;
+    void refreshProfile().catch(() => undefined);
+  }
+
   useEffect(() => {
     const publicId = run?.publicId;
     if (!publicId || !isRunActive) {
@@ -122,34 +152,25 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     runFinishedRef.current = false;
 
-    const unsubRun = listenToAuditRun(publicId, (liveRun) => {
+    const unsubscribe = listenToAuditRunSignal(publicId, (liveRun) => {
       if (!liveRun) {
         return;
       }
 
-      setRun((prev) =>
-        normalizeAuditRun({
-          ...(prev ?? liveRun),
-          ...liveRun,
-          items: prev?.items ?? []
-        })
-      );
+      setRun(normalizeAuditRun(liveRun));
+      refreshProfileFromAuditSignal(false);
 
       if (!isActiveAuditRun(liveRun.status) && !runFinishedRef.current) {
         runFinishedRef.current = true;
+        refreshProfileFromAuditSignal(true);
         void loadBoard({ silent: true });
       }
     });
 
-    const unsubItems = listenToAuditRunItems(publicId, (items) => {
-      setRun((prev) => (prev ? { ...prev, items } : prev));
-    });
-
     return () => {
-      unsubRun();
-      unsubItems();
+      unsubscribe();
     };
-  }, [run?.publicId, isRunActive]);
+  }, [run?.publicId, isRunActive, refreshProfile]);
 
   const itemsByUrl = useMemo(() => {
     const map: Record<string, AuditRunItem | WebsiteAuditUrlResult> = {};
@@ -168,13 +189,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const progressPercent = progressFor(run);
   const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
   const displayError = run?.lastError ?? firstItemError;
-  const activeUrls = (run?.items ?? []).filter((item) => item.status === "fetching" || item.status === "analyzing").length;
-  const queuedUrls = (run?.items ?? []).filter((item) => item.status === "queued").length;
+  const activeUrls = (run?.items ?? []).filter(
+    (item) => item.status === "fetching" || (item.status === "analyzing" && item.extractionSource !== "url_only_batch_step2_done")
+  ).length;
+  const queuedUrls = (run?.items ?? []).filter((item) => item.status === "queued" || item.extractionSource === "url_only_batch_step2_done").length;
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
-  const minCreditsPerRun = Math.max(0, Number(systemAi.minCreditsPerRun ?? systemAi.minCreditsPerUrl ?? 0));
-  const requiredCredits = selectedUrls.length ? minCreditsPerRun : 0;
+  const step2BatchSize = Math.max(1, Number(systemAi.step2BatchSize ?? 60));
+  const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
+  const estimatedAiCalls = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) + Math.ceil(selectedUrls.length / step3BatchSize) : 0;
   const currentCredits = profile?.credits ?? 0;
-  const hasEnoughCredits = requiredCredits === 0 || currentCredits >= requiredCredits;
+  const hasEnoughCredits = currentCredits > 0;
 
   async function persistUrlList(nextUrls: string[]) {
     if (!audit || !website || !profile) {
@@ -254,13 +278,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       return;
     }
 
-    if (!hasEnoughCredits) {
-      toast.error(`Không đủ credit. Cần tối thiểu ${requiredCredits} credit cho batch ${selectedUrls.length} URL, hiện có ${currentCredits}.`);
-      return;
-    }
-
     try {
       setRunning(true);
+      const latestProfile = await refreshProfile().catch(() => profile);
+      const latestCredits = latestProfile?.credits ?? currentCredits;
+
+      if (latestCredits <= 0) {
+        toast.error(`Không đủ credit. Cần có credit trong tài khoản để chạy audit; hệ thống sẽ trừ theo token AI thực tế. Hiện có ${latestCredits}.`);
+        return;
+      }
+
       await createAuditRun({
         websiteId: website!.id,
         websiteName: website!.name,
@@ -347,7 +374,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </p>
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
-              Cần tối thiểu {requiredCredits} credit cho batch {selectedUrls.length} URL; hiện có {currentCredits} credit.
+              Dự kiến {estimatedAiCalls} AI batch call ({selectedUrls.length} URL; bước 2/{step2BatchSize}, bước 3/{step3BatchSize}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có {currentCredits} credit.
             </p>
           ) : null}
           {run ? (
@@ -355,13 +382,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
               <p className="text-xs text-muted-foreground">
                 Run #{run.publicId.slice(-8)} · {run.processedUrls}/{run.totalUrls} hoàn tất · {activeUrls} đang chạy · {queuedUrls} chờ xử lý · {progressPercent}%
-                {isPreparingRun ? " · Đang chuẩn bị batch URL-only" : ""}
+                {isPreparingRun ? " · Đang chuẩn bị chunk AI" : ""}
               </p>
             </div>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0 || !hasEnoughCredits}>
+          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0}>
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
           </Button>

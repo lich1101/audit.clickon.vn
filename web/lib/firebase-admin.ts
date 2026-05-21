@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { getApps, initializeApp, cert, type App, type ServiceAccount } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
 
 let cachedApp: App | null = null;
 
@@ -75,8 +74,4 @@ export function getFirebaseAdminApp() {
 
 export function getAdminAuth() {
   return getAuth(getFirebaseAdminApp());
-}
-
-export function getAdminDb() {
-  return getFirestore(getFirebaseAdminApp());
 }

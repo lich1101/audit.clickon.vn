@@ -72,8 +72,19 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     const urls = audit?.articleUrls ?? [];
     setUrlList(urls);
-    setSelectedUrls((current) => (current.length ? current.filter((url) => urls.includes(url)) : urls));
+    setSelectedUrls((current) => current.filter((url) => urls.includes(url)));
   }, [audit]);
+
+  useEffect(() => {
+    const runUrls = run?.targetUrls ?? [];
+
+    if (!runUrls.length || !isActiveAuditRun(run?.status)) {
+      return;
+    }
+
+    const urlSet = new Set(urlList);
+    setSelectedUrls(runUrls.filter((url) => urlSet.has(url)));
+  }, [run?.publicId, run?.status, urlList, run?.targetUrls]);
 
   async function loadBoard(options?: { silent?: boolean }) {
     try {

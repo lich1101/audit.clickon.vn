@@ -11,12 +11,22 @@ class ProcessAuditRunStep3BatchJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     /**
      * 0 = không giới hạn thời gian (Laravel queue).
      */
     public int $timeout = 0;
+
+    /**
+     * Back off transient provider failures such as Gemini deadline exceeded.
+     *
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        return [60, 180];
+    }
 
     /**
      * @param  array<int, int>  $itemIds

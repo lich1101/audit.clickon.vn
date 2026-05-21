@@ -256,6 +256,7 @@ TEXT;
             '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
             'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
             'Do not claim that page HTML/content/title/meta/headings were crawled.',
+            'If allowed categories are provided, choose the best matching categoryName/categoryUrl from that list for each URL. Return empty category fields only when the URL is completely outside every allowed category.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}',
             'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
@@ -518,6 +519,19 @@ TEXT;
             default => $provider,
         };
 
+        if ($auditRunId && $persistStep) {
+            $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'provider' => $provider,
+                'model' => $resolvedModel,
+                'systemPrompt' => $systemPrompt,
+                'userPrompt' => $userPrompt,
+                'schema' => $schema,
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
@@ -570,6 +584,50 @@ TEXT;
     /**
      * @param  array<string, mixed>  $record
      */
+    private function persistAiRequestSnapshot(int $auditRunId, string $step, array $record): void
+    {
+        $run = AuditRun::query()->find($auditRunId);
+
+        if (! $run) {
+            return;
+        }
+
+        $payload = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+
+        if (! is_string($payload)) {
+            return;
+        }
+
+        $responses = is_array($run->ai_step_responses) ? $run->ai_step_responses : [];
+        $existing = is_array($responses[$step] ?? null) ? $responses[$step] : [];
+
+        try {
+            $request = $this->aiStepResponseStorage->storeRequest($run->public_id, $step, $payload);
+            $responses[$step] = array_merge($existing, [
+                'step' => $step,
+                'stepLabel' => $this->stepLabel($step),
+                'provider' => $record['provider'] ?? null,
+                'model' => $record['model'] ?? null,
+                'requestCreatedAt' => $record['createdAt'] ?? now()->toIso8601String(),
+            ], $request);
+        } catch (RuntimeException $exception) {
+            $responses[$step] = array_merge($existing, [
+                'step' => $step,
+                'stepLabel' => $this->stepLabel($step),
+                'provider' => $record['provider'] ?? null,
+                'model' => $record['model'] ?? null,
+                'requestStorageError' => $exception->getMessage(),
+                'requestPreview' => mb_substr($payload, 0, 4000),
+                'requestBytes' => strlen($payload),
+            ]);
+        }
+
+        $run->forceFill(['ai_step_responses' => $responses])->save();
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
     private function persistAiStepResponse(int $auditRunId, string $step, array $record): void
     {
         $run = AuditRun::query()->find($auditRunId);
@@ -598,7 +656,8 @@ TEXT;
             }
         }
 
-        $responses[$step] = $record;
+        $existing = is_array($responses[$step] ?? null) ? $responses[$step] : [];
+        $responses[$step] = array_merge($existing, $record);
         $run->forceFill(['ai_step_responses' => $responses])->save();
     }
 

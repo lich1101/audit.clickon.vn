@@ -175,6 +175,12 @@ export type AuditAiStepResponse = {
   model?: string | null;
   interactionId?: string | null;
   parseError?: string | null;
+  requestPath?: string | null;
+  requestBytes?: number | null;
+  requestOriginalBytes?: number | null;
+  requestTruncated?: boolean;
+  requestPreview?: string | null;
+  requestCreatedAt?: string | null;
   rawTextPath?: string | null;
   rawTextBytes?: number | null;
   rawTextOriginalBytes?: number | null;

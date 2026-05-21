@@ -440,12 +440,14 @@ class AuditRunService
                 continue;
             }
 
+            $category = $this->resolveCategoryFields($result, $run->categories ?? [], $item->target_url);
+
             $item->forceFill([
                 'status' => 'analyzing',
                 'extraction_source' => self::SOURCE_STEP2_DONE,
                 'primary_keyword' => $result['primaryKeyword'] ?? null,
-                'category_name' => $result['categoryName'] ?? null,
-                'category_url' => $result['categoryUrl'] ?? null,
+                'category_name' => $category['name'],
+                'category_url' => $category['url'],
                 'category_match_reason' => $result['categoryMatchReason'] ?? null,
                 'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], [
                     'keywordCategory' => $analysis['promptSnapshot'] ?? null,
@@ -545,12 +547,20 @@ class AuditRunService
                 continue;
             }
 
+            $category = $this->resolveCategoryFields(
+                $result,
+                $run->categories ?? [],
+                $item->target_url,
+                $item->category_name,
+                $item->category_url,
+            );
+
             $item->forceFill([
                 'status' => 'completed',
                 'extraction_source' => self::SOURCE_COMPLETED,
                 'primary_keyword' => $result['primaryKeyword'] ?? $item->primary_keyword,
-                'category_name' => $result['categoryName'] ?? $item->category_name,
-                'category_url' => $result['categoryUrl'] ?? $item->category_url,
+                'category_name' => $category['name'],
+                'category_url' => $category['url'],
                 'category_match_reason' => $result['categoryMatchReason'] ?? $item->category_match_reason,
                 'audit_score' => max(0, min(100, (int) ($result['auditScore'] ?? 0))),
                 'audit_findings' => implode("\n", array_filter($result['auditFindings'] ?? [], 'is_string')),
@@ -758,6 +768,142 @@ class AuditRunService
         }
 
         $this->refreshRunProgress($run);
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{name: string|null, url: string|null}
+     */
+    private function resolveCategoryFields(array $result, array $categories, string $targetUrl, ?string $currentName = null, ?string $currentUrl = null): array
+    {
+        $name = $this->cleanCategoryValue($result['categoryName'] ?? $currentName ?? '');
+        $url = $this->cleanCategoryValue($result['categoryUrl'] ?? $currentUrl ?? '');
+
+        $exact = $this->findCategoryByNameOrUrl($categories, $name, $url);
+
+        if ($exact) {
+            return $exact;
+        }
+
+        if ($name !== '' || $url !== '') {
+            return [
+                'name' => $name !== '' ? $name : ($currentName ?: null),
+                'url' => $url !== '' ? $url : ($currentUrl ?: null),
+            ];
+        }
+
+        $keyword = trim((string) ($result['primaryKeyword'] ?? ''));
+        $guessed = $this->guessCategoryFromUrl($categories, $targetUrl, $keyword);
+
+        if ($guessed) {
+            return $guessed;
+        }
+
+        return [
+            'name' => $currentName ?: null,
+            'url' => $currentUrl ?: null,
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{name: string|null, url: string|null}|null
+     */
+    private function findCategoryByNameOrUrl(array $categories, string $name, string $url): ?array
+    {
+        $normalizedName = $this->normalizeCategoryText($name);
+        $normalizedUrl = rtrim($url, '/');
+
+        foreach ($categories as $category) {
+            $categoryName = trim((string) ($category['name'] ?? ''));
+            $categoryUrl = trim((string) ($category['url'] ?? ''));
+
+            if ($categoryName === '' && $categoryUrl === '') {
+                continue;
+            }
+
+            if ($normalizedName !== '' && $normalizedName === $this->normalizeCategoryText($categoryName)) {
+                return ['name' => $categoryName ?: null, 'url' => $categoryUrl ?: null];
+            }
+
+            if ($normalizedUrl !== '' && rtrim($categoryUrl, '/') === $normalizedUrl) {
+                return ['name' => $categoryName ?: null, 'url' => $categoryUrl ?: null];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{name: string|null, url: string|null}|null
+     */
+    private function guessCategoryFromUrl(array $categories, string $targetUrl, string $keyword): ?array
+    {
+        $haystack = $this->normalizeCategoryText($targetUrl.' '.$keyword);
+        $best = null;
+        $bestScore = 0;
+
+        foreach ($categories as $category) {
+            $categoryName = trim((string) ($category['name'] ?? ''));
+            $categoryUrl = trim((string) ($category['url'] ?? ''));
+            $tokens = $this->categoryTokens($categoryName.' '.$categoryUrl);
+
+            if ($tokens === []) {
+                continue;
+            }
+
+            $score = 0;
+            $phrase = implode(' ', $tokens);
+
+            if ($phrase !== '' && str_contains($haystack, $phrase)) {
+                $score += 8;
+            }
+
+            foreach ($tokens as $token) {
+                if (str_contains($haystack, $token)) {
+                    $score += 2;
+                }
+            }
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = ['name' => $categoryName ?: null, 'url' => $categoryUrl ?: null];
+            }
+        }
+
+        return $bestScore >= 4 ? $best : null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function categoryTokens(string $value): array
+    {
+        $stopWords = ['https', 'http', 'www', 'com', 'vn', 'html', 'php', 'thu', 'mua', 'gia', 'cao', 'tot', 'nhat', 'tai', 'cac', 'cho'];
+
+        return array_values(array_unique(array_filter(
+            explode(' ', $this->normalizeCategoryText($value)),
+            fn (string $token): bool => mb_strlen($token) >= 3 && ! in_array($token, $stopWords, true),
+        )));
+    }
+
+    private function normalizeCategoryText(string $value): string
+    {
+        $value = Str::ascii(Str::lower($value));
+
+        return trim(preg_replace('/[^a-z0-9]+/', ' ', $value) ?? '');
+    }
+
+    private function cleanCategoryValue(mixed $value): string
+    {
+        $text = trim((string) $value);
+        $normalized = $this->normalizeCategoryText($text);
+
+        return in_array($normalized, ['', 'null', 'none', 'na', 'n a'], true) || $text === '-' || $text === '—'
+            ? ''
+            : $text;
     }
 
     /**
@@ -1219,6 +1365,12 @@ class AuditRunService
                 'model' => $record['model'] ?? null,
                 'interactionId' => $record['interactionId'] ?? null,
                 'parseError' => $record['parseError'] ?? null,
+                'requestPath' => $record['requestPath'] ?? null,
+                'requestBytes' => $record['requestBytes'] ?? null,
+                'requestOriginalBytes' => $record['requestOriginalBytes'] ?? null,
+                'requestTruncated' => (bool) ($record['requestTruncated'] ?? false),
+                'requestPreview' => $record['requestPreview'] ?? null,
+                'requestCreatedAt' => $record['requestCreatedAt'] ?? null,
                 'rawTextPath' => $record['rawTextPath'] ?? null,
                 'rawTextBytes' => $record['rawTextBytes'] ?? null,
                 'rawTextOriginalBytes' => $record['rawTextOriginalBytes'] ?? null,

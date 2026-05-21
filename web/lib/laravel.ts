@@ -36,18 +36,18 @@ function messageFromPayload(payload: unknown): string | null {
   }
 
   const record = payload as Record<string, unknown>;
-  const message = record.message ?? record.error;
-
-  if (typeof message === "string" && message.trim()) {
-    return message;
-  }
-
   if (record.errors && typeof record.errors === "object") {
     const first = Object.values(record.errors as Record<string, unknown>)[0];
 
     if (Array.isArray(first) && typeof first[0] === "string") {
       return first[0];
     }
+  }
+
+  const message = record.message ?? record.error;
+
+  if (typeof message === "string" && message.trim()) {
+    return message;
   }
 
   return null;

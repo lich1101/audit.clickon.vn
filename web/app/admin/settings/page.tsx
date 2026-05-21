@@ -204,9 +204,9 @@ export default function AdminAuditSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Chunk AI song song</CardTitle>
+          <CardTitle>Kích thước batch và giới hạn đồng thời</CardTitle>
           <CardDescription>
-            Bước 2 chia theo nhóm URL để lấy keyword + danh mục; bước 3 chia nhóm nhỏ hơn để audit onpage. Các chunk chạy song song theo giới hạn bên dưới.
+            Hệ thống tự chia batch theo số URL đã chọn. Trường đồng thời chỉ là giới hạn tối đa số batch được phép chạy cùng lúc, không phải tổng số batch.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-3">
@@ -247,7 +247,7 @@ export default function AdminAuditSettingsPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="max-parallel">Số batch AI chạy song song</Label>
+            <Label htmlFor="max-parallel">Giới hạn batch chạy đồng thời</Label>
             <Input
               id="max-parallel"
               type="number"
@@ -261,7 +261,9 @@ export default function AdminAuditSettingsPage() {
                 }))
               }
             />
-            <p className="text-xs text-muted-foreground">Giới hạn cứng 10. Thực tế còn phụ thuộc số queue worker trong Docker.</p>
+            <p className="text-xs text-muted-foreground">
+              Ví dụ 215 URL, bước 2/60 tạo 4 batch; nếu giới hạn là 1 thì chạy lần lượt, nếu là 2 thì tối đa 2 batch cùng lúc. Thực tế còn phụ thuộc queue worker Docker.
+            </p>
           </div>
         </CardContent>
       </Card>

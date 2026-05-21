@@ -61,6 +61,22 @@ export const sessionSchema = z.object({
   idToken: trimmedString
 });
 
+function isHttpUrl(value: string) {
+  const url = value.trim();
+
+  if (!url || /\s/u.test(url)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    return ["http:", "https:"].includes(parsed.protocol) && parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export const parseArticleUrls = (input: string) => {
   const urls = input
     .split("\n")
@@ -71,9 +87,9 @@ export const parseArticleUrls = (input: string) => {
     throw new Error("Cần ít nhất một Article URL.");
   }
 
-  urls.forEach((url) => {
-    if (!z.string().url().safeParse(url).success) {
-      throw new Error(`Article URL không hợp lệ: ${url}`);
+  urls.forEach((url, index) => {
+    if (!isHttpUrl(url)) {
+      throw new Error(`Article URL dòng ${index + 1} không hợp lệ: ${url}`);
     }
   });
 
@@ -98,7 +114,7 @@ export const parseCategories = (input: string) => {
     throw new Error("Cần ít nhất một danh mục.");
   }
 
-  return lines.map((line) => {
+  return lines.map((line, index) => {
     const backtickMatch = line.match(/^`([^`]+)`\s*-\s*`([^`]+)`\s*$/u);
 
     if (backtickMatch) {
@@ -109,8 +125,8 @@ export const parseCategories = (input: string) => {
         throw new Error(`Tên danh mục trống ở dòng: ${line}`);
       }
 
-      if (!z.string().url().safeParse(url).success) {
-        throw new Error(`URL danh mục không hợp lệ: ${url}`);
+      if (!isHttpUrl(url)) {
+        throw new Error(`URL danh mục dòng ${index + 1} không hợp lệ: ${url}`);
       }
 
       return { name, url };
@@ -126,8 +142,8 @@ export const parseCategories = (input: string) => {
         throw new Error(`Tên danh mục trống ở dòng: ${line}`);
       }
 
-      if (!z.string().url().safeParse(url).success) {
-        throw new Error(`URL danh mục không hợp lệ: ${url}`);
+      if (!isHttpUrl(url)) {
+        throw new Error(`URL danh mục dòng ${index + 1} không hợp lệ: ${url}`);
       }
 
       return { name, url };
@@ -151,8 +167,8 @@ export const parseCategories = (input: string) => {
       throw new Error(`Tên danh mục trống ở dòng: ${line}`);
     }
 
-    if (!z.string().url().safeParse(url).success) {
-      throw new Error(`URL danh mục không hợp lệ: ${url}`);
+    if (!isHttpUrl(url)) {
+      throw new Error(`URL danh mục dòng ${index + 1} không hợp lệ: ${url}`);
     }
 
     return { name, url };

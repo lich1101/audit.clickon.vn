@@ -217,7 +217,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
   const step2Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) : 0;
   const step3Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step3BatchSize) : 0;
-  const estimatedAiCalls = step2Chunks + step3Chunks + (systemAi.aiProvider === "gemini_deep_research" ? step2Chunks + step3Chunks : 0);
+  const formatterChunks = systemAi.aiProvider === "gemini_deep_research" ? step2Chunks + step3Chunks : 0;
+  const estimatedAiCalls = step2Chunks + step3Chunks + formatterChunks;
   const currentCredits = profile?.credits ?? 0;
   const hasEnoughCredits = currentCredits > 0;
 
@@ -395,8 +396,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </p>
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
-              Dự kiến tối đa {estimatedAiCalls} AI call ({selectedUrls.length} URL; bước 2/{step2BatchSize}, bước 3/{step3BatchSize}
-              {systemAi.aiProvider === "gemini_deep_research" ? "; có thêm bước 2.5/3.5 để ép JSON" : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có {currentCredits} credit.
+              Dự kiến tối đa {estimatedAiCalls} AI call ({selectedUrls.length} URL; bước 2 tạo {step2Chunks} batch x {step2BatchSize} URL, bước 3 tạo {step3Chunks} batch x {step3BatchSize} URL
+              {formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có {currentCredits} credit.
             </p>
           ) : null}
           {run ? (

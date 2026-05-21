@@ -384,24 +384,14 @@ class AuditRunService
             return;
         }
 
-        try {
-            $analysis = $this->seoAiAuditService->analyzeBatchKeywordCategoryUrlOnly(
-                targetUrls: $items->pluck('target_url')->values()->all(),
-                categories: $run->categories ?? [],
-                provider: $run->ai_provider ?? 'openai',
-                model: $run->ai_model,
-                auditRunId: $run->id,
-                persistStep: $this->chunkStepKey('batch_keyword_category_mapping', $items),
-            );
-        } catch (RuntimeException $exception) {
-            if ($this->shouldSplitDeepResearchBatch($run, $itemIds, $exception)) {
-                $this->redispatchSplitBatch($run, $itemIds, step: 2);
-
-                return;
-            }
-
-            throw $exception;
-        }
+        $analysis = $this->seoAiAuditService->analyzeBatchKeywordCategoryUrlOnly(
+            targetUrls: $items->pluck('target_url')->values()->all(),
+            categories: $run->categories ?? [],
+            provider: $run->ai_provider ?? 'openai',
+            model: $run->ai_model,
+            auditRunId: $run->id,
+            persistStep: $this->chunkStepKey('batch_keyword_category_mapping', $items),
+        );
 
         if ($this->isRunCancelled($run->fresh())) {
             return;
@@ -490,26 +480,16 @@ class AuditRunService
             'categoryMatchReason' => $item->category_match_reason,
         ])->values()->all();
 
-        try {
-            $analysis = $this->seoAiAuditService->analyzeBatchOnpageUrlOnly(
-                targetUrls: $items->pluck('target_url')->values()->all(),
-                categories: $run->categories ?? [],
-                checklistText: $run->checklist_text,
-                keywordCategoryItems: $keywordCategoryItems,
-                provider: $run->ai_provider ?? 'openai',
-                model: $run->ai_model,
-                auditRunId: $run->id,
-                persistStep: $this->chunkStepKey('batch_onpage_audit', $items),
-            );
-        } catch (RuntimeException $exception) {
-            if ($this->shouldSplitDeepResearchBatch($run, $itemIds, $exception)) {
-                $this->redispatchSplitBatch($run, $itemIds, step: 3);
-
-                return;
-            }
-
-            throw $exception;
-        }
+        $analysis = $this->seoAiAuditService->analyzeBatchOnpageUrlOnly(
+            targetUrls: $items->pluck('target_url')->values()->all(),
+            categories: $run->categories ?? [],
+            checklistText: $run->checklist_text,
+            keywordCategoryItems: $keywordCategoryItems,
+            provider: $run->ai_provider ?? 'openai',
+            model: $run->ai_model,
+            auditRunId: $run->id,
+            persistStep: $this->chunkStepKey('batch_onpage_audit', $items),
+        );
 
         if ($this->isRunCancelled($run->fresh())) {
             return;
@@ -904,52 +884,6 @@ class AuditRunService
         return in_array($normalized, ['', 'null', 'none', 'na', 'n a'], true) || $text === '-' || $text === '—'
             ? ''
             : $text;
-    }
-
-    /**
-     * Gemini Deep Research often fails server-side with "deadline exceeded" on oversized batches.
-     * In that case we split the batch recursively instead of failing the whole audit run.
-     *
-     * @param  array<int, int>  $itemIds
-     */
-    private function shouldSplitDeepResearchBatch(AuditRun $run, array $itemIds, RuntimeException $exception): bool
-    {
-        if (($run->ai_provider ?? 'openai') !== 'gemini_deep_research') {
-            return false;
-        }
-
-        if (count($itemIds) <= 1) {
-            return false;
-        }
-
-        $message = mb_strtolower($exception->getMessage());
-
-        return str_contains($message, 'deadline expired before operation could complete')
-            || str_contains($message, 'deadline exceeded')
-            || str_contains($message, 'timed out')
-            || str_contains($message, 'timeout');
-    }
-
-    /**
-     * @param  array<int, int>  $itemIds
-     */
-    private function redispatchSplitBatch(AuditRun $run, array $itemIds, int $step): void
-    {
-        $chunks = collect($itemIds)
-            ->chunk((int) ceil(count($itemIds) / 2))
-            ->map(fn ($chunk): array => $chunk->values()->all())
-            ->filter(fn (array $chunk): bool => $chunk !== [])
-            ->values();
-
-        foreach ($chunks as $chunk) {
-            if ($step === 2) {
-                ProcessAuditRunStep2BatchJob::dispatch($run->id, $chunk);
-
-                continue;
-            }
-
-            ProcessAuditRunStep3BatchJob::dispatch($run->id, $chunk);
-        }
     }
 
     /**

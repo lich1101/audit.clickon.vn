@@ -11,22 +11,12 @@ class ProcessAuditRunStep3BatchJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+    public int $tries = 1;
 
     /**
      * 0 = không giới hạn thời gian (Laravel queue).
      */
     public int $timeout = 0;
-
-    /**
-     * Back off transient provider failures such as Gemini deadline exceeded.
-     *
-     * @return array<int, int>
-     */
-    public function backoff(): array
-    {
-        return [60, 180];
-    }
 
     /**
      * @param  array<int, int>  $itemIds
@@ -67,7 +57,7 @@ class ProcessAuditRunStep3BatchJob implements ShouldQueue
             return;
         }
 
-        $auditRunService->markBatchItemIdsFailed($run, $this->itemIds, $exception->getMessage());
-        $auditRunService->dispatchStep3Batches($run);
+        $auditRunService->markBatchItemsFailed($run, $exception->getMessage());
+        $auditRunService->markRunFailed($run, $exception->getMessage());
     }
 }

@@ -160,8 +160,11 @@ GEMINI_TIMEOUT_SECONDS=180
 GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=0
 AUDIT_BATCH_JOB_TIMEOUT_SECONDS=0
 AUDIT_AI_HTTP_TIMEOUT_SECONDS=0
+AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS=30
+AUDIT_AI_HTTP_RETRY_ATTEMPTS=3
+AUDIT_AI_HTTP_RETRY_SLEEP_MS=2000
 AUDIT_MAX_AI_STEP_RESPONSE_BYTES=0
-DB_QUEUE_RETRY_AFTER=86400
+DB_QUEUE_RETRY_AFTER=604800
 QUEUE_WORKERS=3
 
 AUDIT_MAX_CONTENT_CHARS=18000
@@ -178,9 +181,44 @@ Ghi chú vận hành:
 - `openai` và `gemini` phù hợp chạy nhiều URL vì trả JSON có cấu trúc nhanh hơn.
 - Audit URL-only hiện chạy theo chunk: bước 2 mặc định 60 URL/lần gọi AI, bước 3 mặc định 30 URL/lần gọi AI. Admin có thể đổi hai số này tại `/admin/settings`.
 - `AUDIT_FIRESTORE_SYNC=true` chỉ dùng để bắn tín hiệu realtime nhỏ vào `auditRunSignals`; dữ liệu thật vẫn đọc/ghi từ MySQL qua Laravel API. `AUDIT_FIRESTORE_FALLBACK=false` để tránh fallback sang Firestore làm trang bị delay.
+- `AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS` xử lý riêng timeout kết nối/DNS đến OpenAI/Gemini; nên để 30–60 giây trên VPS mạng yếu.
+- `AUDIT_AI_HTTP_RETRY_ATTEMPTS` và `AUDIT_AI_HTTP_RETRY_SLEEP_MS` giúp retry lỗi mạng tạm thời như DNS resolving timeout, không dùng để bypass quota/rate limit.
+- `DB_QUEUE_RETRY_AFTER=604800` nghĩa là job đang chạy được giữ tối đa 7 ngày trước khi Laravel xem là mất worker và đưa lại vào queue. Không đặt thấp hơn thời gian audit dài nhất, nếu không có thể bị chạy trùng job.
 - `QUEUE_WORKERS` là số worker queue chạy song song trong Docker. `maxParallelItems` trong admin là số batch AI được phép chạy song song; hiệu lực thực tế không vượt quá số worker queue.
 - `gemini_deep_research` chạy qua Interactions API nền, có thể mất lâu theo từng chunk; chỉ chọn khi thật sự cần phân tích nghiên cứu sâu và đã có quota.
 - Checklist mặc định của bước 3 nằm tại `app/resources/audit/seo-checklist.txt`; nếu user không nhập checklist riêng trong form audit thì backend dùng file này.
+
+### Cấu hình thời gian chạy audit
+
+Mặc định production đang để audit chạy dài gần như không giới hạn:
+
+```bash
+AUDIT_BATCH_JOB_TIMEOUT_SECONDS=0
+AUDIT_AI_HTTP_TIMEOUT_SECONDS=0
+GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=0
+DB_QUEUE_RETRY_AFTER=604800
+```
+
+Ý nghĩa:
+
+- `0` ở các biến timeout audit = không giới hạn ở tầng Laravel job / HTTP AI / Deep Research polling.
+- `DB_QUEUE_RETRY_AFTER=604800` = 7 ngày, dùng để tránh Laravel đưa lại job dài vào queue và chạy trùng.
+- `AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS` vẫn nên có giới hạn 30–60 giây vì đây là thời gian mở kết nối/DNS; nếu để treo vô hạn thì lỗi mạng có thể làm worker kẹt mãi.
+
+Nếu muốn giới hạn đúng 23 giờ 59 phút, dùng `86340` giây:
+
+```bash
+AUDIT_BATCH_JOB_TIMEOUT_SECONDS=86340
+AUDIT_AI_HTTP_TIMEOUT_SECONDS=86340
+GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=86340
+DB_QUEUE_RETRY_AFTER=86400
+```
+
+Sau khi đổi các biến này, recreate queue/API:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d --force-recreate api queue
+```
 - Nếu đổi các biến AI/crawl, rebuild hoặc recreate `api` và `queue` để queue worker nhận env mới.
 
 ## 2. Chạy lần đầu
@@ -507,7 +545,47 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env logs -f api
 ```
 
-## 15. Không nên commit các file này vào Git
+## 15. Lỗi DNS/timeout khi gọi OpenAI hoặc Gemini
+
+Ví dụ lỗi:
+
+```text
+cURL error 28: Resolving timed out after 10010 milliseconds for https://generativelanguage.googleapis.com/...
+```
+
+Ý nghĩa:
+
+- container `queue` hoặc `api` không resolve DNS đến Google/OpenAI kịp thời
+- đây là lỗi network/DNS của Docker hoặc VPS, không phải lỗi format prompt, JSON hay credit
+- Gemini Deep Research dễ gặp hơn vì chạy lâu và phải poll endpoint `interactions/{id}` nhiều lần
+
+Kiểm tra DNS từ container:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env exec queue getent hosts generativelanguage.googleapis.com
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env exec queue cat /etc/resolv.conf
+```
+
+Kiểm tra gọi API:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env exec queue sh -lc 'curl -v --connect-timeout 30 "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY"'
+```
+
+Stack production đã cấu hình DNS công khai `8.8.8.8` và `1.1.1.1` cho `api`, `queue`, `artisan`. Sau khi cập nhật compose, recreate service:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d --force-recreate api queue
+```
+
+Nếu VPS vẫn timeout:
+
+- tăng `AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS=60`
+- giảm `QUEUE_WORKERS=1` hoặc giảm `maxParallelItems` trong `/admin/settings`
+- đổi provider sang `gemini` hoặc `openai` thường nếu Deep Research không ổn định trên mạng hiện tại
+- kiểm tra firewall/DNS provider của VPS có chặn hoặc làm chậm `generativelanguage.googleapis.com`
+
+## 16. Không nên commit các file này vào Git
 
 Đã được ignore:
 

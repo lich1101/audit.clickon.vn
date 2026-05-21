@@ -13,7 +13,10 @@ class ProcessAuditRunItemJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 1800;
+    /**
+     * 0 = không giới hạn thời gian (Laravel queue).
+     */
+    public int $timeout = 0;
 
     /**
      * Back off AI calls so provider token-per-minute limits can reset.
@@ -28,6 +31,11 @@ class ProcessAuditRunItemJob implements ShouldQueue
     public function __construct(
         public readonly int $itemId,
     ) {
+        $configured = (int) config('services.audit.batch_job_timeout_seconds', 0);
+
+        if ($configured > 0) {
+            $this->timeout = $configured;
+        }
     }
 
     public function handle(AuditRunService $auditRunService): void

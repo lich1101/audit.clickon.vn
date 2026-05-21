@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\AuditPromptTemplate;
 use App\Models\AuditRun;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -652,10 +654,14 @@ TEXT;
             ],
         ];
 
-        $response = Http::withToken($apiKey)
-            ->acceptJson()
-            ->timeout($this->aiHttpTimeoutSeconds())
-            ->post('https://api.openai.com/v1/responses', $payload);
+        $response = $this->sendAiRequest(
+            fn (): Response => Http::withToken($apiKey)
+                ->acceptJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->post('https://api.openai.com/v1/responses', $payload),
+            'OpenAI'
+        );
 
         $this->throwIfAiRequestFailed($response, 'OpenAI');
 
@@ -711,13 +717,17 @@ TEXT;
             ],
         ];
 
-        $response = Http::withHeaders([
-            'x-goog-api-key' => $apiKey,
-            'Content-Type' => 'application/json',
-        ])
-            ->acceptJson()
-            ->timeout($this->aiHttpTimeoutSeconds())
-            ->post("https://generativelanguage.googleapis.com/v1beta/models/{$modelName}:generateContent", $payload);
+        $response = $this->sendAiRequest(
+            fn (): Response => Http::withHeaders([
+                'x-goog-api-key' => $apiKey,
+                'Content-Type' => 'application/json',
+            ])
+                ->acceptJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->post("https://generativelanguage.googleapis.com/v1beta/models/{$modelName}:generateContent", $payload),
+            'Gemini'
+        );
 
         $this->throwIfAiRequestFailed($response, 'Gemini');
 
@@ -759,23 +769,27 @@ TEXT;
             'Bắt buộc trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.',
         ]);
 
-        $start = Http::withHeaders([
-            'x-goog-api-key' => $apiKey,
-            'Content-Type' => 'application/json',
-            'Api-Revision' => '2026-05-20',
-        ])
-            ->acceptJson()
-            ->timeout($this->aiHttpTimeoutSeconds())
-            ->post('https://generativelanguage.googleapis.com/v1beta/interactions', [
-                'input' => $input,
-                'agent' => $agent,
-                'agent_config' => [
-                    'type' => 'deep-research',
-                    'collaborative_planning' => false,
-                ],
-                'background' => true,
-                'store' => true,
-            ]);
+        $start = $this->sendAiRequest(
+            fn (): Response => Http::withHeaders([
+                'x-goog-api-key' => $apiKey,
+                'Content-Type' => 'application/json',
+                'Api-Revision' => '2026-05-20',
+            ])
+                ->acceptJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->post('https://generativelanguage.googleapis.com/v1beta/interactions', [
+                    'input' => $input,
+                    'agent' => $agent,
+                    'agent_config' => [
+                        'type' => 'deep-research',
+                        'collaborative_planning' => false,
+                    ],
+                    'background' => true,
+                    'store' => true,
+                ]),
+            'Gemini Deep Research'
+        );
 
         $this->ensureGeminiSuccess($start, 'Gemini Deep Research start failed');
 
@@ -791,13 +805,17 @@ TEXT;
             $this->assertAuditRunActive($auditRunId);
             sleep(10);
 
-            $poll = Http::withHeaders([
-                'x-goog-api-key' => $apiKey,
-                'Api-Revision' => '2026-05-20',
-            ])
-                ->acceptJson()
-                ->timeout($this->aiHttpTimeoutSeconds())
-                ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}");
+            $poll = $this->sendAiRequest(
+                fn (): Response => Http::withHeaders([
+                    'x-goog-api-key' => $apiKey,
+                    'Api-Revision' => '2026-05-20',
+                ])
+                    ->acceptJson()
+                    ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                    ->timeout($this->aiHttpTimeoutSeconds())
+                    ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}"),
+                'Gemini Deep Research'
+            );
 
             $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
             $payload = $poll->json();
@@ -854,6 +872,40 @@ TEXT;
         return 0;
     }
 
+    private function aiHttpConnectTimeoutSeconds(): int
+    {
+        return max(5, (int) config('services.audit.ai_http_connect_timeout_seconds', 30));
+    }
+
+    /**
+     * @param  callable(): Response  $callback
+     */
+    private function sendAiRequest(callable $callback, string $provider): Response
+    {
+        $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
+        $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                return $callback();
+            } catch (ConnectionException $exception) {
+                $lastException = $exception;
+
+                if ($attempt < $attempts) {
+                    usleep($sleepMs * 1000);
+                }
+            }
+        }
+
+        $message = trim((string) ($lastException?->getMessage() ?? 'Unknown connection error.'));
+        $hint = str_contains($message, 'Resolving timed out') || str_contains($message, 'Could not resolve host')
+            ? ' Đây là lỗi DNS/network trong container hoặc VPS; kiểm tra Docker DNS, firewall hoặc kết nối đến Google/OpenAI.'
+            : '';
+
+        throw new RuntimeException("{$provider} network error after {$attempts} attempts: {$message}.{$hint}");
+    }
+
     /**
      * null = poll không giới hạn (chỉ dừng khi completed/failed hoặc user cancel run).
      */
@@ -881,7 +933,7 @@ TEXT;
         }
     }
 
-    private function ensureGeminiSuccess(\Illuminate\Http\Client\Response $response, string $fallback): void
+    private function ensureGeminiSuccess(Response $response, string $fallback): void
     {
         $payload = $response->json();
 
@@ -898,7 +950,7 @@ TEXT;
         $this->throwIfAiRequestFailed($response, 'Gemini Deep Research');
     }
 
-    private function throwIfAiRequestFailed(\Illuminate\Http\Client\Response $response, string $provider): void
+    private function throwIfAiRequestFailed(Response $response, string $provider): void
     {
         if ($response->successful()) {
             return;

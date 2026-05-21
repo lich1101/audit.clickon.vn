@@ -94,7 +94,13 @@ export type PlanRequest = {
   updatedAt: string;
 };
 
-export type AuditPromptStep = "keyword_category_mapping" | "onpage_audit";
+export type JsonFormatterProvider = "openai" | "gemini";
+
+export type AuditPromptStep =
+  | "keyword_category_mapping"
+  | "keyword_category_json_formatter"
+  | "onpage_audit"
+  | "onpage_audit_json_formatter";
 
 export type AuditPromptTemplate = {
   step: AuditPromptStep;
@@ -210,6 +216,10 @@ export type AuditRun = {
   checklistText?: string | null;
   aiProvider?: AiProvider;
   aiModel?: string | null;
+  step2FormatterProvider?: JsonFormatterProvider | null;
+  step2FormatterModel?: string | null;
+  step3FormatterProvider?: JsonFormatterProvider | null;
+  step3FormatterModel?: string | null;
   status: AuditRunStatus;
   totalUrls: number;
   processedUrls: number;

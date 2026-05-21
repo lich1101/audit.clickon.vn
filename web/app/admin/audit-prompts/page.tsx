@@ -20,7 +20,9 @@ const variables = [
   { token: "{{target_urls_text}}", description: "Danh sách URL trong chunk AI hiện tại, mỗi URL một dòng." },
   { token: "{{categories_json}}", description: "Danh sách tên danh mục và URL danh mục được phép chọn." },
   { token: "{{keyword_category_results_json}}", description: "Kết quả batch bước 2: URL, keyword chính, danh mục, URL danh mục." },
-  { token: "{{checklist}}", description: "Checklist AuditSEO người dùng nhập hoặc mặc định backend." }
+  { token: "{{checklist}}", description: "Checklist AuditSEO người dùng nhập hoặc mặc định backend." },
+  { token: "{{raw_ai_output}}", description: "Raw output từ bước 2 hoặc bước 3 cần ép về JSON ở bước .5." },
+  { token: "{{expected_schema_json}}", description: "Schema JSON backend yêu cầu cho bước formatter." }
 ];
 
 const sampleVariables: Record<string, unknown> = {
@@ -56,7 +58,23 @@ const sampleVariables: Record<string, unknown> = {
       categoryMatchReason: "Slug nói trực tiếp về học bổng Philinter."
     }
   ],
-  checklist: "Điểm kỹ thuật SEO: 18/24 | Điểm nội dung: 4/6 | Hướng: Audit Content — xem checklist chuẩn Clickon (25 tiêu chí, tổng 30đ) trong deploy/checklist hoặc resources/audit/seo-checklist.txt"
+  checklist: "Điểm kỹ thuật SEO: 18/24 | Điểm nội dung: 4/6 | Hướng: Audit Content — xem checklist chuẩn Clickon (25 tiêu chí, tổng 30đ) trong deploy/checklist hoặc resources/audit/seo-checklist.txt",
+  raw_ai_output: "# Báo cáo mẫu\n\nURL: https://hoctienganhtaiphilippines.vn/uu-dai-du-hoc-philippines-tai-ims/\nTừ khóa chính: ưu đãi du học Philippines tại IMS\nDanh mục: Trường Anh ngữ IMS\nĐiểm audit: 72/100\nĐề xuất: cập nhật title, bổ sung FAQ, thêm internal link.",
+  expected_schema_json: {
+    items: [
+      {
+        targetUrl: "string",
+        primaryKeyword: "string",
+        categoryName: "string",
+        categoryUrl: "string",
+        categoryMatchReason: "string",
+        auditScore: 0,
+        auditFindings: ["string"],
+        auditRecommendations: ["string"],
+        contentRevisionDirection: "string"
+      }
+    ]
+  }
 };
 
 function stringifyPromptValue(value: unknown) {
@@ -92,7 +110,9 @@ export default function AdminAuditPromptsPage() {
         ["primary_keyword", "Legacy: không dùng trong batch flow hiện tại."],
         ["category_mapping", "Legacy: không dùng trong batch flow hiện tại."],
         ["keyword_category_mapping", "Bước 2 chạy theo chunk: dùng URL + danh mục để trả keyword chính và danh mục cho từng dòng trong chunk."],
-        ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."]
+        ["keyword_category_json_formatter", "Bước 2.5 chạy khi output bước 2 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
+        ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."],
+        ["onpage_audit_json_formatter", "Bước 3.5 chạy khi output bước 3 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."]
       ]),
     []
   );

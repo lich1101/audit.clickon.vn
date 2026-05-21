@@ -13,12 +13,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchAdminAuditSettings, updateAdminAuditSettings, type AuditSystemSettings } from "@/lib/audit-settings";
-import type { AiProvider } from "@/types";
+import type { AiProvider, JsonFormatterProvider } from "@/types";
 
 const providerDescriptions = {
   openai: "OpenAI Responses API, phù hợp output JSON ổn định.",
   gemini: "Gemini generateContent với JSON schema.",
   gemini_deep_research: "Gemini Deep Research — chậm hơn, cần quyền project."
+} as const;
+
+const formatterProviderDescriptions = {
+  openai: "Dùng OpenAI để ép raw report về JSON.",
+  gemini: "Dùng Gemini generateContent + JSON schema để ép raw report về JSON."
 } as const;
 
 export default function AdminAuditSettingsPage() {
@@ -28,6 +33,10 @@ export default function AdminAuditSettingsPage() {
   const [settings, setSettings] = useState<AuditSystemSettings>({
     aiProvider: "openai",
     aiModel: null,
+    step2FormatterProvider: "gemini",
+    step2FormatterModel: "gemini-2.5-flash",
+    step3FormatterProvider: "gemini",
+    step3FormatterModel: "gemini-2.5-flash",
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30
@@ -108,6 +117,88 @@ export default function AdminAuditSettingsPage() {
             onChange={(model) => setSettings((current) => ({ ...current, aiModel: model || null }))}
             description="Danh sách model lấy từ API provider (admin)."
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Model ép JSON riêng cho bước 2.5 và 3.5</CardTitle>
+          <CardDescription>
+            Khi bước 2/3 trả raw text hoặc báo cáo Markdown, hệ thống gọi model formatter để chuyển về JSON đúng schema. Formatter chỉ dùng OpenAI/Gemini thường, không dùng Deep Research.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 2.5: keyword + danh mục JSON</p>
+              <p className="mt-1 text-xs text-muted-foreground">Chạy khi raw output bước 2 không parse được JSON hoặc thiếu items.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="step2-formatter-provider">Provider</Label>
+              <Select
+                value={settings.step2FormatterProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step2FormatterProvider: value as JsonFormatterProvider,
+                    step2FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
+                  }))
+                }
+              >
+                <SelectTrigger id="step2-formatter-provider">
+                  <SelectValue placeholder="Chọn formatter provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{formatterProviderDescriptions[settings.step2FormatterProvider]}</p>
+            </div>
+            <AiModelSelect
+              key={`step2-${settings.step2FormatterProvider}`}
+              provider={settings.step2FormatterProvider}
+              value={settings.step2FormatterModel ?? ""}
+              onChange={(model) => setSettings((current) => ({ ...current, step2FormatterModel: model || null }))}
+              description="Model riêng cho bước 2.5."
+            />
+          </div>
+
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 3.5: audit JSON</p>
+              <p className="mt-1 text-xs text-muted-foreground">Chạy khi raw output bước 3 không parse được JSON hoặc thiếu items.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="step3-formatter-provider">Provider</Label>
+              <Select
+                value={settings.step3FormatterProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step3FormatterProvider: value as JsonFormatterProvider,
+                    step3FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
+                  }))
+                }
+              >
+                <SelectTrigger id="step3-formatter-provider">
+                  <SelectValue placeholder="Chọn formatter provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{formatterProviderDescriptions[settings.step3FormatterProvider]}</p>
+            </div>
+            <AiModelSelect
+              key={`step3-${settings.step3FormatterProvider}`}
+              provider={settings.step3FormatterProvider}
+              value={settings.step3FormatterModel ?? ""}
+              onChange={(model) => setSettings((current) => ({ ...current, step3FormatterModel: model || null }))}
+              description="Model riêng cho bước 3.5."
+            />
+          </div>
         </CardContent>
       </Card>
 

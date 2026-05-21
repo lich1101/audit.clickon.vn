@@ -117,6 +117,10 @@ class AuditRunController extends Controller
                 'systemAi' => [
                     'aiProvider' => $systemSettings['aiProvider'],
                     'aiModel' => $systemSettings['aiModel'],
+                    'step2FormatterProvider' => $systemSettings['step2FormatterProvider'],
+                    'step2FormatterModel' => $systemSettings['step2FormatterModel'],
+                    'step3FormatterProvider' => $systemSettings['step3FormatterProvider'],
+                    'step3FormatterModel' => $systemSettings['step3FormatterModel'],
                     'maxParallelItems' => $systemSettings['maxParallelItems'],
                     'step2BatchSize' => $systemSettings['step2BatchSize'],
                     'step3BatchSize' => $systemSettings['step3BatchSize'],

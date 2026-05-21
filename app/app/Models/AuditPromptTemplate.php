@@ -9,11 +9,15 @@ class AuditPromptTemplate extends Model
     public const STEP_PRIMARY_KEYWORD = 'primary_keyword';
     public const STEP_CATEGORY_MAPPING = 'category_mapping';
     public const STEP_KEYWORD_CATEGORY_MAPPING = 'keyword_category_mapping';
+    public const STEP_KEYWORD_CATEGORY_JSON_FORMATTER = 'keyword_category_json_formatter';
     public const STEP_ONPAGE_AUDIT = 'onpage_audit';
+    public const STEP_ONPAGE_AUDIT_JSON_FORMATTER = 'onpage_audit_json_formatter';
 
     public const STEPS = [
         self::STEP_KEYWORD_CATEGORY_MAPPING,
+        self::STEP_KEYWORD_CATEGORY_JSON_FORMATTER,
         self::STEP_ONPAGE_AUDIT,
+        self::STEP_ONPAGE_AUDIT_JSON_FORMATTER,
     ];
 
     protected $fillable = [
@@ -142,6 +146,65 @@ class AuditPromptTemplate extends Model
                     'Checklist audit bổ sung:',
                     '{{checklist}}',
                     'Hãy audit Onpage SEO cho TOÀN BỘ URL trong chunk trên và trả về đủ một item cho mỗi URL, sẵn sàng đưa vào Excel.',
+                ]),
+                'is_active' => true,
+            ],
+            self::STEP_KEYWORD_CATEGORY_JSON_FORMATTER => [
+                'title' => 'Bước 2.5: Chuẩn hóa JSON từ khóa và danh mục',
+                'developer_prompt' => implode("\n", [
+                    'Bạn là bộ chuẩn hóa dữ liệu JSON cho hệ thống Clickon Audit.',
+                    'Đầu vào gồm raw output từ bước 2, danh sách URL mục tiêu và danh sách danh mục được phép chọn.',
+                    'Nhiệm vụ: chuyển raw output thành JSON hợp lệ đúng schema backend yêu cầu, không viết lại thành báo cáo.',
+                    'Không thêm URL ngoài input. Không bỏ sót URL input. Giữ nguyên targetUrl đúng từng ký tự.',
+                    'Nếu raw output có keyword/category cho URL thì ưu tiên trích xuất từ raw output.',
+                    'Nếu raw output thiếu category nhưng danh sách danh mục có mục phù hợp rõ ràng, chọn danh mục phù hợp nhất từ danh sách được phép.',
+                    'Nếu raw output thiếu keyword, suy luận thận trọng từ slug URL; không bịa thông tin đã crawl.',
+                    'Trả về JSON object đúng schema: {"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}.',
+                    'OUTPUT BẮT BUỘC: chỉ một JSON object. Ký tự đầu tiên là {, ký tự cuối là }. Không markdown, không tiêu đề, không bảng, không giải thích, không ```json.',
+                ]),
+                'user_prompt' => implode("\n\n", [
+                    'Raw output từ bước 2 cần chuyển thành JSON:',
+                    '{{raw_ai_output}}',
+                    'Danh sách URL mục tiêu bắt buộc có trong JSON:',
+                    '{{target_urls_json}}',
+                    'Danh sách danh mục được phép chọn:',
+                    '{{categories_json}}',
+                    'Schema JSON bắt buộc:',
+                    '{{expected_schema_json}}',
+                    'Hãy trả về JSON hợp lệ, đủ một item cho mỗi URL.',
+                ]),
+                'is_active' => true,
+            ],
+            self::STEP_ONPAGE_AUDIT_JSON_FORMATTER => [
+                'title' => 'Bước 3.5: Chuẩn hóa JSON Audit Onpage',
+                'developer_prompt' => implode("\n", [
+                    'Bạn là bộ chuẩn hóa dữ liệu JSON cho hệ thống Clickon Audit.',
+                    'Đầu vào gồm raw output từ bước 3, danh sách URL mục tiêu, danh sách danh mục, kết quả bước 2 và checklist audit.',
+                    'Nhiệm vụ: chuyển raw output thành JSON hợp lệ đúng schema backend yêu cầu, không viết lại thành báo cáo.',
+                    'Không thêm URL ngoài input. Không bỏ sót URL input. Giữ nguyên targetUrl đúng từng ký tự.',
+                    'Ưu tiên trích xuất auditScore, auditFindings, auditRecommendations và contentRevisionDirection từ raw output.',
+                    'Nếu raw output có bảng/báo cáo Markdown, hãy map từng phần về đúng URL tương ứng.',
+                    'Nếu thiếu dữ liệu cho tiêu chí không kiểm chứng được, ghi rõ "không kiểm chứng được", không bịa rằng đã đọc HTML.',
+                    'Mỗi item phải có auditFindings 4-8 dòng; 2 dòng đầu là "Điểm kỹ thuật SEO: X/24" và "Điểm nội dung: Y/6".',
+                    'Mỗi item phải có auditRecommendations 4-8 hành động cụ thể.',
+                    'contentRevisionDirection dài 3-5 câu và bắt đầu bằng "Viết lại", "Audit Content", "Giữ nguyên" hoặc "Redirect".',
+                    'Trả về JSON object đúng schema: {"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}.',
+                    'OUTPUT BẮT BUỘC: chỉ một JSON object. Ký tự đầu tiên là {, ký tự cuối là }. Không markdown, không tiêu đề, không bảng, không giải thích, không ```json.',
+                ]),
+                'user_prompt' => implode("\n\n", [
+                    'Raw output từ bước 3 cần chuyển thành JSON:',
+                    '{{raw_ai_output}}',
+                    'Danh sách URL mục tiêu bắt buộc có trong JSON:',
+                    '{{target_urls_json}}',
+                    'Danh sách danh mục:',
+                    '{{categories_json}}',
+                    'Kết quả bước 2 cho từng URL:',
+                    '{{keyword_category_results_json}}',
+                    'Checklist audit:',
+                    '{{checklist}}',
+                    'Schema JSON bắt buộc:',
+                    '{{expected_schema_json}}',
+                    'Hãy trả về JSON hợp lệ, đủ một item cho mỗi URL.',
                 ]),
                 'is_active' => true,
             ],

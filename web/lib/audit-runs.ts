@@ -55,6 +55,10 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     systemAi: response.data.systemAi ?? {
       aiProvider: "openai",
       aiModel: null,
+      step2FormatterProvider: "gemini",
+      step2FormatterModel: "gemini-2.5-flash",
+      step3FormatterProvider: "gemini",
+      step3FormatterModel: "gemini-2.5-flash",
       maxParallelItems: 3,
       step2BatchSize: 60,
       step3BatchSize: 30,
@@ -121,6 +125,10 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],
     aiProvider: run.aiProvider ?? "openai",
     aiModel: run.aiModel ?? null,
+    step2FormatterProvider: run.step2FormatterProvider ?? "gemini",
+    step2FormatterModel: run.step2FormatterModel ?? "gemini-2.5-flash",
+    step3FormatterProvider: run.step3FormatterProvider ?? "gemini",
+    step3FormatterModel: run.step3FormatterModel ?? "gemini-2.5-flash",
     aiStepResponses: run.aiStepResponses ?? {},
     items: Array.isArray(run.items) ? run.items.map((item) => ({
       ...item,

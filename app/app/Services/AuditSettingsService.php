@@ -10,7 +10,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @return array{aiProvider: string, aiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function getAuditSettings(): array
     {
@@ -32,10 +32,25 @@ class AuditSettingsService
             $step3BatchSize = max(1, min(300, $step3BatchSize));
 
             $aiModel = trim((string) ($value['aiModel'] ?? ''));
+            $defaultFormatterProvider = $provider === 'openai' ? 'openai' : 'gemini';
+            $step2FormatterProvider = $this->normalizeFormatterProvider($value['step2FormatterProvider'] ?? env('AUDIT_STEP2_FORMATTER_PROVIDER', $defaultFormatterProvider));
+            $step2FormatterModel = $this->normalizeModel(
+                $value['step2FormatterModel'] ?? env('AUDIT_STEP2_FORMATTER_MODEL', null),
+                $this->defaultFormatterModel($step2FormatterProvider),
+            );
+            $step3FormatterProvider = $this->normalizeFormatterProvider($value['step3FormatterProvider'] ?? env('AUDIT_STEP3_FORMATTER_PROVIDER', $defaultFormatterProvider));
+            $step3FormatterModel = $this->normalizeModel(
+                $value['step3FormatterModel'] ?? env('AUDIT_STEP3_FORMATTER_MODEL', null),
+                $this->defaultFormatterModel($step3FormatterProvider),
+            );
 
             return [
                 'aiProvider' => $provider,
                 'aiModel' => $aiModel !== '' ? $aiModel : null,
+                'step2FormatterProvider' => $step2FormatterProvider,
+                'step2FormatterModel' => $step2FormatterModel,
+                'step3FormatterProvider' => $step3FormatterProvider,
+                'step3FormatterModel' => $step3FormatterModel,
                 'maxParallelItems' => $maxParallel,
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
@@ -44,8 +59,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -70,10 +85,26 @@ class AuditSettingsService
         $aiModel = array_key_exists('aiModel', $payload)
             ? (trim((string) ($payload['aiModel'] ?? '')) ?: null)
             : $current['aiModel'];
+        $step2FormatterProvider = array_key_exists('step2FormatterProvider', $payload)
+            ? $this->normalizeFormatterProvider($payload['step2FormatterProvider'])
+            : $current['step2FormatterProvider'];
+        $step2FormatterModel = array_key_exists('step2FormatterModel', $payload)
+            ? $this->normalizeModel($payload['step2FormatterModel'], $this->defaultFormatterModel($step2FormatterProvider))
+            : $current['step2FormatterModel'];
+        $step3FormatterProvider = array_key_exists('step3FormatterProvider', $payload)
+            ? $this->normalizeFormatterProvider($payload['step3FormatterProvider'])
+            : $current['step3FormatterProvider'];
+        $step3FormatterModel = array_key_exists('step3FormatterModel', $payload)
+            ? $this->normalizeModel($payload['step3FormatterModel'], $this->defaultFormatterModel($step3FormatterProvider))
+            : $current['step3FormatterModel'];
 
         $value = [
             'aiProvider' => $provider,
             'aiModel' => $aiModel,
+            'step2FormatterProvider' => $step2FormatterProvider,
+            'step2FormatterModel' => $step2FormatterModel,
+            'step3FormatterProvider' => $step3FormatterProvider,
+            'step3FormatterModel' => $step3FormatterModel,
             'maxParallelItems' => $maxParallel,
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
@@ -112,5 +143,24 @@ class AuditSettingsService
     public function aiModel(): ?string
     {
         return $this->getAuditSettings()['aiModel'];
+    }
+
+    private function normalizeFormatterProvider(mixed $value): string
+    {
+        return in_array($value, ['openai', 'gemini'], true) ? (string) $value : 'gemini';
+    }
+
+    private function normalizeModel(mixed $value, string $default): ?string
+    {
+        $model = trim((string) ($value ?? ''));
+
+        return $model !== '' ? $model : $default;
+    }
+
+    private function defaultFormatterModel(string $provider): string
+    {
+        return $provider === 'openai'
+            ? (string) config('services.openai.model', 'gpt-5.5')
+            : 'gemini-2.5-flash';
     }
 }

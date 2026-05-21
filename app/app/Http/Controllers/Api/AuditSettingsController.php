@@ -26,6 +26,10 @@ class AuditSettingsController extends Controller
             'data' => [
                 'aiProvider' => $settings['aiProvider'],
                 'aiModel' => $settings['aiModel'],
+                'step2FormatterProvider' => $settings['step2FormatterProvider'],
+                'step2FormatterModel' => $settings['step2FormatterModel'],
+                'step3FormatterProvider' => $settings['step3FormatterProvider'],
+                'step3FormatterModel' => $settings['step3FormatterModel'],
                 'maxParallelItems' => $settings['maxParallelItems'],
                 'step2BatchSize' => $settings['step2BatchSize'],
                 'step3BatchSize' => $settings['step3BatchSize'],

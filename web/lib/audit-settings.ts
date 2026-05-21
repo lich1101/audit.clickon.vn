@@ -1,7 +1,7 @@
 "use client";
 
 import { laravelRequest } from "@/lib/laravel";
-import type { AiProvider } from "@/types";
+import type { AiProvider, JsonFormatterProvider } from "@/types";
 
 export type ModelPricingRow = {
   provider: AiProvider;
@@ -15,6 +15,10 @@ export type ModelPricingRow = {
 export type AuditSystemSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
+  step2FormatterProvider: JsonFormatterProvider;
+  step2FormatterModel: string | null;
+  step3FormatterProvider: JsonFormatterProvider;
+  step3FormatterModel: string | null;
   maxParallelItems: number;
   step2BatchSize: number;
   step3BatchSize: number;
@@ -24,6 +28,10 @@ export type AuditSystemSettings = {
 export type PublicAuditSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
+  step2FormatterProvider?: JsonFormatterProvider;
+  step2FormatterModel?: string | null;
+  step3FormatterProvider?: JsonFormatterProvider;
+  step3FormatterModel?: string | null;
   maxParallelItems?: number;
   step2BatchSize?: number;
   step3BatchSize?: number;

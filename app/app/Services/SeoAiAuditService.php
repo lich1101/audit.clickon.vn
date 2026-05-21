@@ -63,12 +63,14 @@ TEXT;
             'contentRevisionDirection' => $audit['contentRevisionDirection'],
             'promptSnapshots' => [
                 'keywordCategory' => $keywordAndCategory['promptSnapshot'],
+                'keywordCategoryFormatter' => $keywordAndCategory['formatterPromptSnapshot'] ?? null,
                 'onpageAudit' => $audit['promptSnapshot'],
+                'onpageAuditFormatter' => $audit['formatterPromptSnapshot'] ?? null,
             ],
-            'usageEvents' => [
-                $keywordAndCategory['usage'],
-                $audit['usage'],
-            ],
+            'usageEvents' => array_values(array_filter([
+                ...($keywordAndCategory['usageEvents'] ?? [$keywordAndCategory['usage']]),
+                ...($audit['usageEvents'] ?? [$audit['usage']]),
+            ], 'is_array')),
         ];
     }
 
@@ -135,18 +137,28 @@ TEXT;
         array $categories,
         string $provider = 'openai',
         ?string $model = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
         ?int $auditRunId = null,
         ?string $persistStep = null,
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
-        $result = $this->analyzeBatchKeywordAndCategory($provider, $resolvedModel, $targetUrls, $categories, $auditRunId, $persistStep);
+        $result = $this->analyzeBatchKeywordAndCategory(
+            $provider,
+            $resolvedModel,
+            $targetUrls,
+            $categories,
+            $auditRunId,
+            $persistStep,
+            $formatterProvider,
+            $formatterModel,
+        );
 
         return [
             'items' => $result['items'],
             'promptSnapshot' => $result['promptSnapshot'],
-            'usageEvents' => [
-                $result['usage'],
-            ],
+            'formatterPromptSnapshot' => $result['formatterPromptSnapshot'] ?? null,
+            'usageEvents' => $result['usageEvents'] ?? [$result['usage']],
         ];
     }
 
@@ -163,18 +175,30 @@ TEXT;
         array $keywordCategoryItems,
         string $provider = 'openai',
         ?string $model = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
         ?int $auditRunId = null,
         ?string $persistStep = null,
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
-        $result = $this->analyzeBatchOnpage($provider, $resolvedModel, $targetUrls, $categories, $checklistText, $keywordCategoryItems, $auditRunId, $persistStep);
+        $result = $this->analyzeBatchOnpage(
+            $provider,
+            $resolvedModel,
+            $targetUrls,
+            $categories,
+            $checklistText,
+            $keywordCategoryItems,
+            $auditRunId,
+            $persistStep,
+            $formatterProvider,
+            $formatterModel,
+        );
 
         return [
             'items' => $result['items'],
             'promptSnapshot' => $result['promptSnapshot'],
-            'usageEvents' => [
-                $result['usage'],
-            ],
+            'formatterPromptSnapshot' => $result['formatterPromptSnapshot'] ?? null,
+            'usageEvents' => $result['usageEvents'] ?? [$result['usage']],
         ];
     }
 
@@ -232,6 +256,8 @@ TEXT;
         array $categories,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
     ): array
     {
         $categoryPayload = array_map(
@@ -271,7 +297,7 @@ TEXT;
             json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
         ]);
 
-        $response = $this->requestJson(
+        $rawResponse = $this->requestAiRaw(
             provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
@@ -281,7 +307,31 @@ TEXT;
             persistStep: $persistStep ?? 'batch_keyword_category_mapping',
         );
 
-        $data = $response['data'];
+        $formatterResult = null;
+        $usageEvents = [
+            array_merge($rawResponse['usage'], ['step' => 'batch_keyword_category_mapping']),
+        ];
+
+        try {
+            $data = $this->decodeJsonText($rawResponse['rawText'], $this->providerLabel($provider));
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 2');
+            $this->persistParsedAiStepResponse($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $data);
+        } catch (RuntimeException $exception) {
+            $this->persistAiParseError($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $exception);
+            $formatterResult = $this->formatBatchKeywordCategoryJson(
+                rawOutput: $rawResponse['rawText'],
+                targetUrls: $targetUrls,
+                categories: $categoryPayload,
+                formatterProvider: $formatterProvider,
+                formatterModel: $formatterModel,
+                auditRunId: $auditRunId,
+                persistStep: $this->formatterStepKey($persistStep ?? 'batch_keyword_category_mapping', 'keyword_category_json_formatter'),
+            );
+            $data = $formatterResult['data'];
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 2.5');
+            $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_keyword_category_json_formatter']);
+        }
+
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
 
         return [
@@ -296,7 +346,9 @@ TEXT;
                 $items
             ))),
             'promptSnapshot' => $this->promptSnapshot('keyword_category_mapping', $provider, $model, $prompts),
-            'usage' => array_merge($response['usage'], ['step' => 'batch_keyword_category_mapping']),
+            'formatterPromptSnapshot' => $formatterResult['promptSnapshot'] ?? null,
+            'usage' => $usageEvents[0],
+            'usageEvents' => $usageEvents,
         ];
     }
 
@@ -365,6 +417,8 @@ TEXT;
         array $keywordCategoryItems,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
     ): array {
         $categoryPayload = array_map(
             fn (array $category): array => [
@@ -409,7 +463,7 @@ TEXT;
             json_encode($keywordCategoryItems, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
         ]);
 
-        $response = $this->requestJson(
+        $rawResponse = $this->requestAiRaw(
             provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
@@ -419,7 +473,33 @@ TEXT;
             persistStep: $persistStep ?? 'batch_onpage_audit',
         );
 
-        $data = $response['data'];
+        $formatterResult = null;
+        $usageEvents = [
+            array_merge($rawResponse['usage'], ['step' => 'batch_onpage_audit']),
+        ];
+
+        try {
+            $data = $this->decodeJsonText($rawResponse['rawText'], $this->providerLabel($provider));
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 3');
+            $this->persistParsedAiStepResponse($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $data);
+        } catch (RuntimeException $exception) {
+            $this->persistAiParseError($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $exception);
+            $formatterResult = $this->formatBatchOnpageJson(
+                rawOutput: $rawResponse['rawText'],
+                targetUrls: $targetUrls,
+                categories: $categoryPayload,
+                checklistText: trim($checklistText ?: self::defaultChecklist()),
+                keywordCategoryItems: $keywordCategoryItems,
+                formatterProvider: $formatterProvider,
+                formatterModel: $formatterModel,
+                auditRunId: $auditRunId,
+                persistStep: $this->formatterStepKey($persistStep ?? 'batch_onpage_audit', 'onpage_audit_json_formatter'),
+            );
+            $data = $formatterResult['data'];
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 3.5');
+            $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_onpage_audit_json_formatter']);
+        }
+
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
 
         return [
@@ -438,7 +518,9 @@ TEXT;
                 $items
             ))),
             'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
-            'usage' => array_merge($response['usage'], ['step' => 'batch_onpage_audit']),
+            'formatterPromptSnapshot' => $formatterResult['promptSnapshot'] ?? null,
+            'usage' => $usageEvents[0],
+            'usageEvents' => $usageEvents,
         ];
     }
 
@@ -496,6 +578,58 @@ TEXT;
             'userPrompt' => $prompts['user'],
             'createdAt' => now()->toIso8601String(),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $schema
+     * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}, interactionId?: string}
+     */
+    private function requestAiRaw(
+        string $provider,
+        ?string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        array $schema,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+
+        if ($auditRunId && $persistStep) {
+            $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'provider' => $provider,
+                'model' => $resolvedModel,
+                'systemPrompt' => $systemPrompt,
+                'userPrompt' => $userPrompt,
+                'schema' => $schema,
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
+        $raw = match ($provider) {
+            'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
+            default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
+        };
+
+        if ($auditRunId && $persistStep) {
+            $this->persistAiStepResponse($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'status' => 'raw',
+                'provider' => $provider,
+                'model' => $resolvedModel,
+                'rawText' => $raw['rawText'],
+                'interactionId' => $raw['interactionId'] ?? null,
+                'usage' => $raw['usage'],
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
+        return $raw;
     }
 
     /**
@@ -661,8 +795,212 @@ TEXT;
         $run->forceFill(['ai_step_responses' => $responses])->save();
     }
 
+    /**
+     * @param  array{rawText: string, usage: array<string, mixed>, interactionId?: string}  $rawResponse
+     * @param  array<string, mixed>  $data
+     */
+    private function persistParsedAiStepResponse(
+        ?int $auditRunId,
+        ?string $step,
+        string $provider,
+        string $model,
+        array $rawResponse,
+        array $data,
+    ): void {
+        if (! $auditRunId || ! $step) {
+            return;
+        }
+
+        $this->persistAiStepResponse($auditRunId, $step, [
+            'step' => $step,
+            'stepLabel' => $this->stepLabel($step),
+            'status' => 'parsed',
+            'provider' => $provider,
+            'model' => $model,
+            'interactionId' => $rawResponse['interactionId'] ?? null,
+            'parsed' => $data,
+            'usage' => $rawResponse['usage'],
+            'createdAt' => now()->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * @param  array{rawText: string, usage: array<string, mixed>, interactionId?: string}  $rawResponse
+     */
+    private function persistAiParseError(
+        ?int $auditRunId,
+        ?string $step,
+        string $provider,
+        string $model,
+        array $rawResponse,
+        RuntimeException $exception,
+    ): void {
+        if (! $auditRunId || ! $step) {
+            return;
+        }
+
+        $this->persistAiStepResponse($auditRunId, $step, [
+            'step' => $step,
+            'stepLabel' => $this->stepLabel($step),
+            'status' => 'needs_json_formatter',
+            'provider' => $provider,
+            'model' => $model,
+            'interactionId' => $rawResponse['interactionId'] ?? null,
+            'parseError' => $exception->getMessage(),
+            'usage' => $rawResponse['usage'],
+            'createdAt' => now()->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @return array{data: array<string, mixed>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
+     */
+    private function formatBatchKeywordCategoryJson(
+        string $rawOutput,
+        array $targetUrls,
+        array $categories,
+        ?string $formatterProvider,
+        ?string $formatterModel,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $provider = $this->jsonFormatterProvider($formatterProvider);
+        $model = $formatterModel ?: $this->defaultJsonFormatterModel($provider);
+        $schema = $this->batchKeywordCategorySchema();
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_KEYWORD_CATEGORY_JSON_FORMATTER, [
+            'raw_ai_output' => $rawOutput,
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'categories_json' => $categories,
+            'expected_schema_json' => $schema,
+        ]);
+
+        $response = $this->requestJson(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $schema,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+        );
+
+        return [
+            'data' => $response['data'],
+            'promptSnapshot' => $this->promptSnapshot('keyword_category_json_formatter', $provider, $model, $prompts),
+            'usage' => $response['usage'],
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $keywordCategoryItems
+     * @return array{data: array<string, mixed>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
+     */
+    private function formatBatchOnpageJson(
+        string $rawOutput,
+        array $targetUrls,
+        array $categories,
+        string $checklistText,
+        array $keywordCategoryItems,
+        ?string $formatterProvider,
+        ?string $formatterModel,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $provider = $this->jsonFormatterProvider($formatterProvider);
+        $model = $formatterModel ?: $this->defaultJsonFormatterModel($provider);
+        $schema = $this->batchOnpageSchema();
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_ONPAGE_AUDIT_JSON_FORMATTER, [
+            'raw_ai_output' => $rawOutput,
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'categories_json' => $categories,
+            'keyword_category_results_json' => $keywordCategoryItems,
+            'checklist' => $checklistText,
+            'expected_schema_json' => $schema,
+        ]);
+
+        $response = $this->requestJson(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $schema,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+        );
+
+        return [
+            'data' => $response['data'],
+            'promptSnapshot' => $this->promptSnapshot('onpage_audit_json_formatter', $provider, $model, $prompts),
+            'usage' => $response['usage'],
+        ];
+    }
+
+    private function formatterStepKey(string $sourceStep, string $formatterStep): string
+    {
+        return preg_replace(
+            '/^(batch_keyword_category_mapping|batch_onpage_audit)/',
+            $formatterStep,
+            $sourceStep,
+        ) ?: $formatterStep;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<int, string>  $targetUrls
+     */
+    private function assertBatchItemsData(array $data, array $targetUrls, string $stepLabel): void
+    {
+        $items = $data['items'] ?? null;
+
+        if (! is_array($items)) {
+            throw new RuntimeException("{$stepLabel} JSON không có trường items hợp lệ.");
+        }
+
+        if (count($items) < count($targetUrls)) {
+            throw new RuntimeException("{$stepLabel} JSON thiếu dòng kết quả: cần ".count($targetUrls).', nhận '.count($items).'.');
+        }
+    }
+
+    private function jsonFormatterProvider(?string $provider): string
+    {
+        return in_array($provider, ['openai', 'gemini'], true) ? $provider : 'gemini';
+    }
+
+    private function defaultJsonFormatterModel(string $provider): string
+    {
+        return $provider === 'openai'
+            ? (string) config('services.openai.model', 'gpt-5.5')
+            : 'gemini-2.5-flash';
+    }
+
+    private function providerLabel(string $provider): string
+    {
+        return match ($provider) {
+            'openai' => 'OpenAI',
+            'gemini' => 'Gemini',
+            'gemini_deep_research' => 'Gemini Deep Research',
+            default => $provider,
+        };
+    }
+
     private function stepLabel(string $step): string
     {
+        if (str_starts_with($step, 'keyword_category_json_formatter_')) {
+            return 'Bước 2.5: Chuẩn hóa JSON từ khóa + danh mục';
+        }
+
+        if (str_starts_with($step, 'onpage_audit_json_formatter_')) {
+            return 'Bước 3.5: Chuẩn hóa JSON audit onpage';
+        }
+
         if (str_starts_with($step, 'batch_keyword_category_mapping_')) {
             return 'Bước 2: Từ khóa + danh mục (chunk)';
         }
@@ -674,6 +1012,8 @@ TEXT;
         return match ($step) {
             'batch_keyword_category_mapping' => 'Bước 2: Từ khóa + danh mục (batch)',
             'batch_onpage_audit' => 'Bước 3: Audit onpage (batch)',
+            'keyword_category_json_formatter' => 'Bước 2.5: Chuẩn hóa JSON từ khóa + danh mục',
+            'onpage_audit_json_formatter' => 'Bước 3.5: Chuẩn hóa JSON audit onpage',
             'keyword_category_mapping' => 'Từ khóa + danh mục',
             'onpage_audit' => 'Audit onpage',
             default => $step,

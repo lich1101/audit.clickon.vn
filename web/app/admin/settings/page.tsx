@@ -33,7 +33,9 @@ export default function AdminAuditSettingsPage() {
   const [settings, setSettings] = useState<AuditSystemSettings>({
     aiProvider: "openai",
     aiModel: null,
+    step2AiProvider: "openai",
     step2AiModel: null,
+    step3AiProvider: "openai",
     step3AiModel: null,
     step2FormatterProvider: "gemini",
     step2FormatterModel: "gemini-2.5-flash",
@@ -47,7 +49,11 @@ export default function AdminAuditSettingsPage() {
   useEffect(() => {
     void fetchAdminAuditSettings()
       .then((data) => {
-        setSettings(data);
+        setSettings({
+          ...data,
+          step2AiProvider: data.step2AiProvider ?? data.aiProvider,
+          step3AiProvider: data.step3AiProvider ?? data.aiProvider
+        });
         setModelPricing(data.modelPricing ?? []);
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải cấu hình audit."))
@@ -96,9 +102,7 @@ export default function AdminAuditSettingsPage() {
                 setSettings((current) => ({
                   ...current,
                   aiProvider: value as AiProvider,
-                  aiModel: null,
-                  step2AiModel: null,
-                  step3AiModel: null
+                  aiModel: null
                 }))
               }
             >
@@ -128,7 +132,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Model chính riêng cho bước 2 và bước 3</CardTitle>
           <CardDescription>
-            Provider vẫn dùng theo cấu hình bên trên, nhưng mỗi bước có thể dùng model khác nhau. Nếu chưa có giá trị, hệ thống tự chọn model mặc định của provider.
+            Mỗi bước có provider và model riêng. Cấu hình mặc định phía trên chỉ là fallback cho run cũ hoặc trường hợp chưa cấu hình riêng.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-2">
@@ -137,11 +141,34 @@ export default function AdminAuditSettingsPage() {
               <p className="font-medium">Bước 2: keyword + danh mục</p>
               <p className="mt-1 text-xs text-muted-foreground">Dùng để phân tích danh sách URL, chọn keyword chính và danh mục phù hợp.</p>
             </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="step2-ai-provider">Provider bước 2</Label>
+              <Select
+                value={settings.step2AiProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step2AiProvider: value as AiProvider,
+                    step2AiModel: null
+                  }))
+                }
+              >
+                <SelectTrigger id="step2-ai-provider">
+                  <SelectValue placeholder="Chọn provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{providerDescriptions[settings.step2AiProvider]}</p>
+            </div>
             <AiModelSelect
-              key={`step2-main-${settings.aiProvider}`}
+              key={`step2-main-${settings.step2AiProvider}`}
               id="step2-ai-model"
               label="Model bước 2"
-              provider={settings.aiProvider}
+              provider={settings.step2AiProvider}
               value={settings.step2AiModel ?? ""}
               onChange={(model) => setSettings((current) => ({ ...current, step2AiModel: model || null }))}
               description="Model riêng cho bước 2."
@@ -153,11 +180,34 @@ export default function AdminAuditSettingsPage() {
               <p className="font-medium">Bước 3: audit onpage</p>
               <p className="mt-1 text-xs text-muted-foreground">Dùng để chấm điểm, đề xuất audit và định hướng chỉnh sửa nội dung.</p>
             </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="step3-ai-provider">Provider bước 3</Label>
+              <Select
+                value={settings.step3AiProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step3AiProvider: value as AiProvider,
+                    step3AiModel: null
+                  }))
+                }
+              >
+                <SelectTrigger id="step3-ai-provider">
+                  <SelectValue placeholder="Chọn provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{providerDescriptions[settings.step3AiProvider]}</p>
+            </div>
             <AiModelSelect
-              key={`step3-main-${settings.aiProvider}`}
+              key={`step3-main-${settings.step3AiProvider}`}
               id="step3-ai-model"
               label="Model bước 3"
-              provider={settings.aiProvider}
+              provider={settings.step3AiProvider}
               value={settings.step3AiModel ?? ""}
               onChange={(model) => setSettings((current) => ({ ...current, step3AiModel: model || null }))}
               description="Model riêng cho bước 3."

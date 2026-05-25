@@ -61,7 +61,7 @@ export function AuditRunsTable({
               </p>
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
               <p className="text-xs text-muted-foreground">
-                AI: {run.aiProvider ?? "openai"} · B2 {run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiModel ?? run.aiModel ?? "default"}
+                B2 {run.step2AiProvider ?? run.aiProvider ?? "openai"}/{run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiProvider ?? run.aiProvider ?? "openai"}/{run.step3AiModel ?? run.aiModel ?? "default"}
               </p>
             </div>
           )

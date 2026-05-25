@@ -152,12 +152,15 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT=medium
 OPENAI_TIMEOUT_SECONDS=180
+AUDIT_STEP2_AI_PROVIDER=openai
 AUDIT_STEP2_AI_MODEL=
+AUDIT_STEP3_AI_PROVIDER=openai
 AUDIT_STEP3_AI_MODEL=
 
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-pro
-GEMINI_DEEP_RESEARCH_AGENT=deep-research-preview-04-2026
+GEMINI_DEEP_RESEARCH_AGENT=deep-research-pro-preview-12-2025
+GEMINI_DEEP_RESEARCH_AGENTS=deep-research-pro-preview-12-2025,deep-research-preview-04-2026
 GEMINI_TIMEOUT_SECONDS=180
 GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS=0
 AUDIT_BATCH_JOB_TIMEOUT_SECONDS=0
@@ -181,7 +184,9 @@ AUDIT_FIRESTORE_FALLBACK=false
 Ghi chú vận hành:
 
 - `openai` và `gemini` phù hợp chạy nhiều URL vì trả JSON có cấu trúc nhanh hơn.
+- Bước 2 và bước 3 có thể chọn provider/model riêng tại `/admin/settings`; `aiProvider/aiModel` mặc định chỉ là fallback cho run cũ hoặc khi chưa cấu hình riêng.
 - Audit URL-only hiện chạy theo chunk: bước 2 mặc định 60 URL/lần gọi AI, bước 3 mặc định 30 URL/lần gọi AI. Admin có thể đổi hai số này tại `/admin/settings`.
+- `GEMINI_DEEP_RESEARCH_AGENTS` là danh sách agent Deep Research cho dropdown, phân tách bằng dấu phẩy. Provider này chạy Interactions API, không phải `generateContent`.
 - `AUDIT_FIRESTORE_SYNC=true` chỉ dùng để bắn tín hiệu realtime nhỏ vào `auditRunSignals`; dữ liệu thật vẫn đọc/ghi từ MySQL qua Laravel API. `AUDIT_FIRESTORE_FALLBACK=false` để tránh fallback sang Firestore làm trang bị delay.
 - `AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS` xử lý riêng timeout kết nối/DNS đến OpenAI/Gemini; nên để 30–60 giây trên VPS mạng yếu.
 - `AUDIT_AI_HTTP_RETRY_ATTEMPTS` và `AUDIT_AI_HTTP_RETRY_SLEEP_MS` giúp retry lỗi mạng tạm thời như DNS resolving timeout, không dùng để bypass quota/rate limit.

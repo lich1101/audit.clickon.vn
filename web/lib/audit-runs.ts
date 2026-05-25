@@ -40,6 +40,25 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     method: "GET",
     cache: "no-store"
   });
+  const defaultSystemAi: PublicAuditSettings = {
+    aiProvider: "openai",
+    aiModel: null,
+    step2AiProvider: "openai",
+    step2AiModel: null,
+    step3AiProvider: "openai",
+    step3AiModel: null,
+    step2FormatterProvider: "gemini",
+    step2FormatterModel: "gemini-2.5-flash",
+    step3FormatterProvider: "gemini",
+    step3FormatterModel: "gemini-2.5-flash",
+    maxParallelItems: 3,
+    step2BatchSize: 60,
+    step3BatchSize: 30,
+    minCreditsPerAiCall: 0,
+    minCreditsPerRun: 0,
+    minCreditsPerUrl: 0
+  };
+  const systemAi = response.data.systemAi ?? defaultSystemAi;
 
   return {
     website: response.data.website,
@@ -52,21 +71,11 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
       : null,
     run: response.data.run ? normalizeAuditRun(response.data.run) : null,
     urlResults: Array.isArray(response.data.urlResults) ? response.data.urlResults : [],
-    systemAi: response.data.systemAi ?? {
-      aiProvider: "openai",
-      aiModel: null,
-      step2AiModel: null,
-      step3AiModel: null,
-      step2FormatterProvider: "gemini",
-      step2FormatterModel: "gemini-2.5-flash",
-      step3FormatterProvider: "gemini",
-      step3FormatterModel: "gemini-2.5-flash",
-      maxParallelItems: 3,
-      step2BatchSize: 60,
-      step3BatchSize: 30,
-      minCreditsPerAiCall: 0,
-      minCreditsPerRun: 0,
-      minCreditsPerUrl: 0
+    systemAi: {
+      ...defaultSystemAi,
+      ...systemAi,
+      step2AiProvider: systemAi.step2AiProvider ?? systemAi.aiProvider,
+      step3AiProvider: systemAi.step3AiProvider ?? systemAi.aiProvider
     }
   };
 }
@@ -127,7 +136,9 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],
     aiProvider: run.aiProvider ?? "openai",
     aiModel: run.aiModel ?? null,
+    step2AiProvider: run.step2AiProvider ?? run.aiProvider ?? "openai",
     step2AiModel: run.step2AiModel ?? run.aiModel ?? null,
+    step3AiProvider: run.step3AiProvider ?? run.aiProvider ?? "openai",
     step3AiModel: run.step3AiModel ?? run.aiModel ?? null,
     step2FormatterProvider: run.step2FormatterProvider ?? "gemini",
     step2FormatterModel: run.step2FormatterModel ?? "gemini-2.5-flash",

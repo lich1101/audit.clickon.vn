@@ -26,7 +26,9 @@ class AuditSettingsController extends Controller
             'data' => [
                 'aiProvider' => $settings['aiProvider'],
                 'aiModel' => $settings['aiModel'],
+                'step2AiProvider' => $settings['step2AiProvider'],
                 'step2AiModel' => $settings['step2AiModel'],
+                'step3AiProvider' => $settings['step3AiProvider'],
                 'step3AiModel' => $settings['step3AiModel'],
                 'step2FormatterProvider' => $settings['step2FormatterProvider'],
                 'step2FormatterModel' => $settings['step2FormatterModel'],

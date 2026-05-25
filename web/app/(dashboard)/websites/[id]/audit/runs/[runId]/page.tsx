@@ -177,7 +177,7 @@ export default function AuditRunDetailPage({
         <CardContent className="space-y-3">
           <ProgressBar className="h-3" value={progressPercent} />
           <p className="text-sm text-muted-foreground">
-            Tạo {formatDate(run.createdAt)} · AI {run.aiProvider ?? "openai"} · B2 {run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiModel ?? run.aiModel ?? "default"}
+            Tạo {formatDate(run.createdAt)} · B2 {run.step2AiProvider ?? run.aiProvider ?? "openai"}/{run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiProvider ?? run.aiProvider ?? "openai"}/{run.step3AiModel ?? run.aiModel ?? "default"}
           </p>
         </CardContent>
       </Card>

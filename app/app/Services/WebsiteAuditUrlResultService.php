@@ -36,8 +36,8 @@ class WebsiteAuditUrlResultService
                 'audit_recommendations' => $item->audit_recommendations,
                 'content_revision_direction' => $item->content_revision_direction,
                 'error_message' => $item->error_message,
-                'ai_provider' => $run->ai_provider ?? 'openai',
-                'ai_model' => $run->ai_model,
+                'ai_provider' => $run->step3_ai_provider ?: ($run->ai_provider ?? 'openai'),
+                'ai_model' => $run->step3_ai_model ?: $run->ai_model,
                 'audited_at' => $item->completed_at ?? now(),
             ],
         );

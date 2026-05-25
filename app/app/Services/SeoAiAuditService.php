@@ -1340,7 +1340,7 @@ TEXT;
             $code = $payload['error']['code'] ?? null;
 
             if ($code === 'permission_denied') {
-                throw new RuntimeException('Gemini Deep Research access denied: '.$payload['error']['message'].' Please contact Google support or enable access for deep-research-preview-04-2026.');
+                throw new RuntimeException('Gemini Deep Research access denied: '.$payload['error']['message'].' Please contact Google support or enable access for '.(string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025').'.');
             }
 
             throw new RuntimeException($fallback.': '.$payload['error']['message']);
@@ -1513,7 +1513,7 @@ TEXT;
     {
         return match ($provider) {
             'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
-            'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-preview-04-2026'),
+            'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
             default => (string) config('services.openai.model', 'gpt-5.5'),
         };
     }

@@ -43,6 +43,7 @@ class AuditChunkedBillingTest extends TestCase
 
         $this->assertSame(20, $service->calculateCredits('openai', 'gpt-5.5', 1000, 1000));
         $this->assertSame(1, $service->calculateCredits('openai', 'gpt-5.5', 1, 1));
+        $this->assertSame(0, $service->calculateCredits('gemini_deep_research', 'deep-research-pro-preview-12-2025', 1000, 1000));
         $this->assertSame(0, $service->calculateCredits('gemini_deep_research', 'deep-research-preview-04-2026', 1000, 1000));
     }
 }

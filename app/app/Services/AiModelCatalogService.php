@@ -145,9 +145,12 @@ class AiModelCatalogService
      */
     private function listDeepResearchAgents(): array
     {
-        $defaultModel = (string) config('services.gemini.deep_research_agent', 'deep-research-preview-04-2026');
+        $defaultModel = (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025');
+        $configuredAgents = $this->csvModels((string) config('services.gemini.deep_research_agents', ''));
         $models = $this->uniqueModels([
             $defaultModel,
+            ...$configuredAgents,
+            'deep-research-pro-preview-12-2025',
             'deep-research-preview-04-2026',
         ]);
 
@@ -205,5 +208,16 @@ class AiModelCatalogService
 
             return true;
         }));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function csvModels(string $value): array
+    {
+        return array_values(array_filter(array_map(
+            fn (string $model): string => trim($model),
+            explode(',', $value)
+        )));
     }
 }

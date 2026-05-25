@@ -101,7 +101,9 @@ class AuditRunService
                 'checklist_text' => $payload['checklistText'] ?? null,
                 'ai_provider' => $settings['aiProvider'],
                 'ai_model' => $settings['aiModel'],
+                'step2_ai_provider' => $settings['step2AiProvider'] ?? $settings['aiProvider'],
                 'step2_ai_model' => $settings['step2AiModel'] ?? $settings['aiModel'],
+                'step3_ai_provider' => $settings['step3AiProvider'] ?? $settings['aiProvider'],
                 'step3_ai_model' => $settings['step3AiModel'] ?? $settings['aiModel'],
                 'step2_formatter_provider' => $settings['step2FormatterProvider'],
                 'step2_formatter_model' => $settings['step2FormatterModel'],
@@ -393,8 +395,8 @@ class AuditRunService
         $analysis = $this->seoAiAuditService->analyzeBatchKeywordCategoryUrlOnly(
             targetUrls: $items->pluck('target_url')->values()->all(),
             categories: $run->categories ?? [],
-            provider: $run->ai_provider ?? 'openai',
-            model: $run->step2_ai_model ?: $run->ai_model,
+            provider: $this->stepAiProvider($run, 2),
+            model: $this->stepAiModel($run, 2),
             formatterProvider: $run->step2_formatter_provider,
             formatterModel: $run->step2_formatter_model,
             auditRunId: $run->id,
@@ -494,8 +496,8 @@ class AuditRunService
             categories: $run->categories ?? [],
             checklistText: $run->checklist_text,
             keywordCategoryItems: $keywordCategoryItems,
-            provider: $run->ai_provider ?? 'openai',
-            model: $run->step3_ai_model ?: $run->ai_model,
+            provider: $this->stepAiProvider($run, 3),
+            model: $this->stepAiModel($run, 3),
             formatterProvider: $run->step3_formatter_provider,
             formatterModel: $run->step3_formatter_model,
             auditRunId: $run->id,
@@ -919,6 +921,28 @@ class AuditRunService
         return sprintf('%s_%03d_%03d', $base, $positions->min(), $positions->max());
     }
 
+    private function stepAiProvider(AuditRun $run, int $step): string
+    {
+        $provider = $step === 2 ? $run->step2_ai_provider : $run->step3_ai_provider;
+
+        return in_array($provider, ['openai', 'gemini', 'gemini_deep_research'], true)
+            ? (string) $provider
+            : (string) ($run->ai_provider ?: 'openai');
+    }
+
+    private function stepAiModel(AuditRun $run, int $step): ?string
+    {
+        $model = $step === 2 ? $run->step2_ai_model : $run->step3_ai_model;
+
+        if (is_string($model) && trim($model) !== '') {
+            return $model;
+        }
+
+        $stepProvider = $step === 2 ? $run->step2_ai_provider : $run->step3_ai_provider;
+
+        return $stepProvider ? null : $run->ai_model;
+    }
+
     public function isRunCancelled(AuditRun $run): bool
     {
         $fresh = $run->fresh();
@@ -1162,8 +1186,10 @@ class AuditRunService
             'checklistText' => null,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
-            'step2AiModel' => $run->step2_ai_model ?: $run->ai_model,
-            'step3AiModel' => $run->step3_ai_model ?: $run->ai_model,
+            'step2AiProvider' => $this->stepAiProvider($run, 2),
+            'step2AiModel' => $this->stepAiModel($run, 2),
+            'step3AiProvider' => $this->stepAiProvider($run, 3),
+            'step3AiModel' => $this->stepAiModel($run, 3),
             'step2FormatterProvider' => $run->step2_formatter_provider,
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
@@ -1231,8 +1257,10 @@ class AuditRunService
             'checklistText' => $run->checklist_text,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
-            'step2AiModel' => $run->step2_ai_model ?: $run->ai_model,
-            'step3AiModel' => $run->step3_ai_model ?: $run->ai_model,
+            'step2AiProvider' => $this->stepAiProvider($run, 2),
+            'step2AiModel' => $this->stepAiModel($run, 2),
+            'step3AiProvider' => $this->stepAiProvider($run, 3),
+            'step3AiModel' => $this->stepAiModel($run, 3),
             'step2FormatterProvider' => $run->step2_formatter_provider,
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,

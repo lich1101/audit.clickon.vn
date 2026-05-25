@@ -10,7 +10,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, step2AiModel: string|null, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function getAuditSettings(): array
     {
@@ -18,9 +18,7 @@ class AuditSettingsService
             $record = SystemSetting::query()->where('key', 'audit')->first();
             $value = is_array($record?->value) ? $record->value : [];
 
-            $provider = in_array($value['aiProvider'] ?? null, ['openai', 'gemini', 'gemini_deep_research'], true)
-                ? $value['aiProvider']
-                : 'openai';
+            $provider = $this->normalizeAiProvider($value['aiProvider'] ?? env('AUDIT_DEFAULT_AI_PROVIDER', 'openai'));
 
             $maxParallel = (int) ($value['maxParallelItems'] ?? 3);
             $maxParallel = max(1, min(10, $maxParallel));
@@ -31,9 +29,11 @@ class AuditSettingsService
             $step3BatchSize = (int) ($value['step3BatchSize'] ?? 30);
             $step3BatchSize = max(1, min(300, $step3BatchSize));
 
-            $aiModel = $this->normalizeOptionalModel($value['aiModel'] ?? '');
-            $step2AiModel = $this->normalizeOptionalModel($value['step2AiModel'] ?? env('AUDIT_STEP2_AI_MODEL', $aiModel));
-            $step3AiModel = $this->normalizeOptionalModel($value['step3AiModel'] ?? env('AUDIT_STEP3_AI_MODEL', $aiModel));
+            $aiModel = $this->normalizeOptionalModel($value['aiModel'] ?? env('AUDIT_DEFAULT_AI_MODEL', $this->defaultModelForProvider($provider)));
+            $step2AiProvider = $this->normalizeAiProvider($value['step2AiProvider'] ?? env('AUDIT_STEP2_AI_PROVIDER', $provider));
+            $step3AiProvider = $this->normalizeAiProvider($value['step3AiProvider'] ?? env('AUDIT_STEP3_AI_PROVIDER', $provider));
+            $step2AiModel = $this->normalizeOptionalModel($value['step2AiModel'] ?? env('AUDIT_STEP2_AI_MODEL', $this->defaultModelForProvider($step2AiProvider)));
+            $step3AiModel = $this->normalizeOptionalModel($value['step3AiModel'] ?? env('AUDIT_STEP3_AI_MODEL', $this->defaultModelForProvider($step3AiProvider)));
             $defaultFormatterProvider = $provider === 'openai' ? 'openai' : 'gemini';
             $step2FormatterProvider = $this->normalizeFormatterProvider($value['step2FormatterProvider'] ?? env('AUDIT_STEP2_FORMATTER_PROVIDER', $defaultFormatterProvider));
             $step2FormatterModel = $this->normalizeModel(
@@ -49,7 +49,9 @@ class AuditSettingsService
             return [
                 'aiProvider' => $provider,
                 'aiModel' => $aiModel,
+                'step2AiProvider' => $step2AiProvider,
                 'step2AiModel' => $step2AiModel,
+                'step3AiProvider' => $step3AiProvider,
                 'step3AiModel' => $step3AiModel,
                 'step2FormatterProvider' => $step2FormatterProvider,
                 'step2FormatterModel' => $step2FormatterModel,
@@ -63,15 +65,15 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiModel?: string|null, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiModel: string|null, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
      */
     public function updateAuditSettings(array $payload): array
     {
         $current = $this->getAuditSettings();
 
-        $provider = in_array($payload['aiProvider'] ?? null, ['openai', 'gemini', 'gemini_deep_research'], true)
-            ? $payload['aiProvider']
+        $provider = array_key_exists('aiProvider', $payload)
+            ? $this->normalizeAiProvider($payload['aiProvider'])
             : $current['aiProvider'];
 
         $maxParallel = isset($payload['maxParallelItems'])
@@ -87,11 +89,17 @@ class AuditSettingsService
             : $current['step3BatchSize'];
 
         $aiModel = array_key_exists('aiModel', $payload)
-            ? $this->normalizeOptionalModel($payload['aiModel'])
+            ? $this->normalizeOptionalModel($payload['aiModel'] ?? null)
             : $current['aiModel'];
+        $step2AiProvider = array_key_exists('step2AiProvider', $payload)
+            ? $this->normalizeAiProvider($payload['step2AiProvider'])
+            : $current['step2AiProvider'];
         $step2AiModel = array_key_exists('step2AiModel', $payload)
             ? $this->normalizeOptionalModel($payload['step2AiModel'])
             : $current['step2AiModel'];
+        $step3AiProvider = array_key_exists('step3AiProvider', $payload)
+            ? $this->normalizeAiProvider($payload['step3AiProvider'])
+            : $current['step3AiProvider'];
         $step3AiModel = array_key_exists('step3AiModel', $payload)
             ? $this->normalizeOptionalModel($payload['step3AiModel'])
             : $current['step3AiModel'];
@@ -110,9 +118,11 @@ class AuditSettingsService
 
         $value = [
             'aiProvider' => $provider,
-            'aiModel' => $aiModel,
-            'step2AiModel' => $step2AiModel ?: $aiModel,
-            'step3AiModel' => $step3AiModel ?: $aiModel,
+            'aiModel' => $aiModel ?: $this->defaultModelForProvider($provider),
+            'step2AiProvider' => $step2AiProvider,
+            'step2AiModel' => $step2AiModel ?: $this->defaultModelForProvider($step2AiProvider),
+            'step3AiProvider' => $step3AiProvider,
+            'step3AiModel' => $step3AiModel ?: $this->defaultModelForProvider($step3AiProvider),
             'step2FormatterProvider' => $step2FormatterProvider,
             'step2FormatterModel' => $step2FormatterModel,
             'step3FormatterProvider' => $step3FormatterProvider,
@@ -162,9 +172,24 @@ class AuditSettingsService
         return $this->getAuditSettings()['step2AiModel'];
     }
 
+    public function step2AiProvider(): string
+    {
+        return $this->getAuditSettings()['step2AiProvider'];
+    }
+
     public function step3AiModel(): ?string
     {
         return $this->getAuditSettings()['step3AiModel'];
+    }
+
+    public function step3AiProvider(): string
+    {
+        return $this->getAuditSettings()['step3AiProvider'];
+    }
+
+    private function normalizeAiProvider(mixed $value): string
+    {
+        return in_array($value, ['openai', 'gemini', 'gemini_deep_research'], true) ? (string) $value : 'openai';
     }
 
     private function normalizeFormatterProvider(mixed $value): string
@@ -191,5 +216,14 @@ class AuditSettingsService
         return $provider === 'openai'
             ? (string) config('services.openai.model', 'gpt-5.5')
             : 'gemini-2.5-flash';
+    }
+
+    private function defaultModelForProvider(string $provider): string
+    {
+        return match ($provider) {
+            'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
+            'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
+            default => (string) config('services.openai.model', 'gpt-5.5'),
+        };
     }
 }

@@ -48,7 +48,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [systemAi, setSystemAi] = useState<PublicAuditSettings>({
     aiProvider: "openai",
     aiModel: null,
+    step2AiProvider: "openai",
     step2AiModel: null,
+    step3AiProvider: "openai",
     step3AiModel: null,
     step2FormatterProvider: "gemini",
     step2FormatterModel: "gemini-2.5-flash",
@@ -114,7 +116,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       setSystemAi(board.systemAi ?? {
         aiProvider: "openai",
         aiModel: null,
+        step2AiProvider: "openai",
         step2AiModel: null,
+        step3AiProvider: "openai",
         step3AiModel: null,
         step2FormatterProvider: "gemini",
         step2FormatterModel: "gemini-2.5-flash",
@@ -223,7 +227,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
   const step2Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) : 0;
   const step3Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step3BatchSize) : 0;
-  const formatterChunks = systemAi.aiProvider === "gemini_deep_research" ? step2Chunks + step3Chunks : 0;
+  const step2Provider = systemAi.step2AiProvider ?? systemAi.aiProvider;
+  const step3Provider = systemAi.step3AiProvider ?? systemAi.aiProvider;
+  const formatterChunks = (step2Provider === "gemini_deep_research" ? step2Chunks : 0) + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
   const estimatedAiCalls = step2Chunks + step3Chunks + formatterChunks;
   const currentCredits = profile?.credits ?? 0;
   const hasEnoughCredits = currentCredits > 0;
@@ -397,7 +403,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </div>
           <p className="text-sm text-muted-foreground">
             {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
-            {` · AI ${systemAi.aiProvider} · B2 ${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
+            {` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
           {selectedUrls.length ? (

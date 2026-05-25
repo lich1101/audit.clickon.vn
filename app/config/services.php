@@ -45,7 +45,8 @@ return [
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-2.5-pro'),
-        'deep_research_agent' => env('GEMINI_DEEP_RESEARCH_AGENT', 'deep-research-preview-04-2026'),
+        'deep_research_agent' => env('GEMINI_DEEP_RESEARCH_AGENT', 'deep-research-pro-preview-12-2025'),
+        'deep_research_agents' => env('GEMINI_DEEP_RESEARCH_AGENTS', ''),
         'timeout_seconds' => (int) env('GEMINI_TIMEOUT_SECONDS', 180),
         'deep_research_timeout_seconds' => (int) env('GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS', 0),
     ],

@@ -403,6 +403,8 @@ bash deploy/scripts/prod-update.sh
 sudo systemctl reload nginx
 ```
 
+Script này sẽ `git pull`, build image mới, chạy migrate trước khi bật `api/queue/web` mới, rồi mới thay container production.
+
 Nếu bạn deploy theo branch khác `main`, có thể truyền tên branch:
 
 ```bash

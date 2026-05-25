@@ -360,29 +360,31 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 
 ## 5. Rebuild backend sau khi sửa Laravel
 
-Trường hợp bạn sửa `app/`:
+Trường hợp bạn sửa `app/`, thứ tự an toàn là migrate schema trước khi đưa `api/queue` mới lên:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d --build api queue nginx
-```
-
-Sau đó chạy migrate nếu có thay đổi database:
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan migrate --force
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env build api
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d mysql
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env run --rm --no-deps api php artisan migrate --force
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d api queue nginx
 ```
 
 ## 6. Rebuild toàn bộ stack
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d --build mysql api queue web nginx
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env build api web
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d mysql
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env run --rm --no-deps api php artisan migrate --force
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d api queue web nginx
 ```
 
 Nếu muốn build sạch, bỏ cache:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env build --no-cache api queue web
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d mysql api queue web nginx
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env build --no-cache api web
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d mysql
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env run --rm --no-deps api php artisan migrate --force
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d api queue web nginx
 ```
 
 ## 7. Update sau khi `git pull`
@@ -397,9 +399,10 @@ Script này làm:
 
 1. `git fetch`
 2. `git pull --ff-only`
-3. rebuild stack production
-4. chạy migrate
-5. in trạng thái container
+3. build image mới
+4. chạy migrate trên image mới khi chỉ có MySQL đang bật
+5. đưa `api`, `queue`, `web`, `nginx` mới lên
+6. in trạng thái container
 
 Nếu deploy branch khác:
 
@@ -456,7 +459,8 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 Ví dụ migrate:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env --profile tools run --rm artisan migrate --force
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env up -d mysql
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env run --rm --no-deps api php artisan migrate --force
 ```
 
 Ví dụ list routes:

@@ -19,14 +19,22 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
-echo "==> Building and starting production containers"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build mysql api queue web nginx
+echo "==> Building production images"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build api web
 
-echo "==> Rebuilding artisan image (profile tools)"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build artisan
+echo "==> Starting MySQL only"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d mysql
 
 echo "==> Running database migrations"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile tools run --rm artisan migrate --force
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm --no-deps api php artisan migrate --force
+
+AUDIT_RESPONSES_DIR="$ROOT_DIR/app/storage/app/private/audit-ai-responses"
+mkdir -p "$AUDIT_RESPONSES_DIR"
+chown -R 33:33 "$AUDIT_RESPONSES_DIR" 2>/dev/null || chown -R www-data:www-data "$AUDIT_RESPONSES_DIR" 2>/dev/null || true
+chmod -R ug+rwX "$AUDIT_RESPONSES_DIR" 2>/dev/null || chmod -R 775 "$AUDIT_RESPONSES_DIR" 2>/dev/null || true
+
+echo "==> Starting production containers"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d api queue web nginx
 
 AUTO_SEED_ADMIN="$(read_env_value "$ENV_FILE" "AUTO_SEED_ADMIN" || true)"
 ADMIN_SEED_EMAIL="$(read_env_value "$ENV_FILE" "ADMIN_SEED_EMAIL" || true)"

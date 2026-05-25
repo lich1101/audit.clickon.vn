@@ -13,7 +13,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import { getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
+import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
 import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
@@ -34,6 +34,7 @@ export default function AuditRunDetailPage({
   const runFinishedRef = useRef(false);
   const runLoadedRef = useRef(false);
   const lastProfileRefreshRef = useRef(0);
+  const runPollInFlightRef = useRef(false);
   const profileUid = profile?.uid;
 
   async function loadRun(options?: { silent?: boolean }) {
@@ -118,6 +119,30 @@ export default function AuditRunDetailPage({
     };
   }, [run?.publicId, run?.status, refreshProfile]);
 
+  useEffect(() => {
+    const publicId = run?.publicId;
+
+    if (!publicId || !isActiveAuditRun(run?.status)) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (runPollInFlightRef.current) {
+        return;
+      }
+
+      runPollInFlightRef.current = true;
+
+      void loadRun({ silent: true }).finally(() => {
+        runPollInFlightRef.current = false;
+      });
+    }, ACTIVE_AUDIT_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [run?.publicId, run?.status]);
+
   async function handleExport() {
     if (!run) {
       return;
@@ -179,6 +204,7 @@ export default function AuditRunDetailPage({
           <p className="text-sm text-muted-foreground">
             Tạo {formatDate(run.createdAt)} · B2 {run.step2AiProvider ?? run.aiProvider ?? "openai"}/{run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiProvider ?? run.aiProvider ?? "openai"}/{run.step3AiModel ?? run.aiModel ?? "default"}
           </p>
+          {isActiveAuditRun(run.status) ? <p className="text-xs text-muted-foreground">Bảng chi tiết đang tự cập nhật mỗi 3 giây trong lúc run còn chạy.</p> : null}
         </CardContent>
       </Card>
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AuditRun;
 use App\Models\Website;
 use App\Models\WebsiteAudit;
 use Illuminate\Support\Str;
@@ -13,7 +14,7 @@ class WebsiteDataService
      */
     public function listForUser(string $firebaseUid, bool $isAdmin): array
     {
-        $query = Website::query()->with('audit')->orderByDesc('updated_at');
+        $query = Website::query()->with(['audit', 'activeRun'])->orderByDesc('updated_at');
 
         if (! $isAdmin) {
             $query->where('user_uid', $firebaseUid);
@@ -27,7 +28,7 @@ class WebsiteDataService
      */
     public function getWebsite(string $websiteId): ?array
     {
-        $website = Website::query()->with('audit')->find($websiteId);
+        $website = Website::query()->with(['audit', 'activeRun'])->find($websiteId);
 
         if ($website) {
             return $this->serializeWebsite($website);
@@ -153,6 +154,26 @@ class WebsiteDataService
             'url' => $website->url,
             'createdAt' => optional($website->created_at)?->toIso8601String(),
             'updatedAt' => optional($website->updated_at)?->toIso8601String(),
+            'activeRun' => $website->relationLoaded('activeRun') && $website->activeRun
+                ? $this->serializeActiveRun($website->activeRun)
+                : null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeActiveRun(AuditRun $run): array
+    {
+        return [
+            'publicId' => $run->public_id,
+            'status' => $run->status,
+            'totalUrls' => $run->total_urls,
+            'processedUrls' => $run->processed_urls,
+            'completedUrls' => $run->completed_urls,
+            'failedUrls' => $run->failed_urls,
+            'createdAt' => optional($run->created_at)?->toIso8601String(),
+            'updatedAt' => optional($run->updated_at)?->toIso8601String(),
         ];
     }
 

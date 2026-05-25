@@ -17,6 +17,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useAuth } from "@/hooks/use-auth";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
 import {
+  ACTIVE_AUDIT_POLL_INTERVAL_MS,
   createAuditRun,
   fetchAuditBoard,
   formatCategoriesInput,
@@ -75,6 +76,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const runFinishedRef = useRef(false);
   const boardLoadedRef = useRef(false);
   const lastProfileRefreshRef = useRef(0);
+  const boardPollInFlightRef = useRef(false);
   const profileUid = profile?.uid;
 
   useEffect(() => {
@@ -199,6 +201,30 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     };
   }, [run?.publicId, isRunActive, refreshProfile]);
 
+  useEffect(() => {
+    const publicId = run?.publicId;
+
+    if (!publicId || !isRunActive) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (boardPollInFlightRef.current) {
+        return;
+      }
+
+      boardPollInFlightRef.current = true;
+
+      void loadBoard({ silent: true }).finally(() => {
+        boardPollInFlightRef.current = false;
+      });
+    }, ACTIVE_AUDIT_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [run?.publicId, isRunActive]);
+
   const itemsByUrl = useMemo(() => {
     const map: Record<string, AuditRunItem | WebsiteAuditUrlResult> = {};
 
@@ -273,14 +299,33 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     }, 700);
   }
 
-  function handleUrlListChange(nextUrls: string[]) {
+  function handleUrlListChange(nextUrls: string[], options?: { selectedUrls?: string[] }) {
     setUrlList(nextUrls);
-    setSelectedUrls((current) => current.filter((url) => nextUrls.includes(url)));
+    if (options?.selectedUrls) {
+      setSelectedUrls(options.selectedUrls);
+    } else {
+      setSelectedUrls((current) => current.filter((url) => nextUrls.includes(url)));
+    }
     schedulePersist(nextUrls);
   }
 
   function handleAddUrl(url: string) {
     handleUrlListChange([...urlList, url]);
+  }
+
+  function handleUpdateUrl(currentUrl: string, nextUrl: string) {
+    const normalizedNextUrl = nextUrl.trim();
+
+    if (normalizedNextUrl === currentUrl) {
+      return;
+    }
+
+    const nextUrls = urlList.map((url) => (url === currentUrl ? normalizedNextUrl : url));
+    const nextSelectedUrls = Array.from(
+      new Set(selectedUrls.map((url) => (url === currentUrl ? normalizedNextUrl : url)).filter((url) => nextUrls.includes(url)))
+    );
+
+    handleUrlListChange(nextUrls, { selectedUrls: nextSelectedUrls });
   }
 
   function handleDeleteUrl(url: string) {
@@ -406,6 +451,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             {` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
+          {isRunActive ? <p className="text-xs text-muted-foreground">Trạng thái URL đang tự cập nhật mỗi 3 giây trong lúc run chạy.</p> : null}
+          {isRunActive ? <p className="text-xs text-muted-foreground">Danh sách URL tạm khóa khi run đang chạy để giữ đúng snapshot dữ liệu audit.</p> : null}
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
               Dự kiến tối đa {estimatedAiCalls} AI call ({selectedUrls.length} URL; bước 2 tạo {step2Chunks} batch x {step2BatchSize} URL, bước 3 tạo {step3Chunks} batch x {step3BatchSize} URL
@@ -459,8 +506,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         onSelectedChange={setSelectedUrls}
         onDeleteUrl={handleDeleteUrl}
         onAddUrl={handleAddUrl}
+        onUpdateUrl={handleUpdateUrl}
         itemsByUrl={itemsByUrl}
         run={run}
+        canManageUrls={!isRunActive}
       />
 
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>

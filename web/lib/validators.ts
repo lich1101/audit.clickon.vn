@@ -61,7 +61,7 @@ export const sessionSchema = z.object({
   idToken: trimmedString
 });
 
-function isHttpUrl(value: string) {
+export function isHttpUrl(value: string) {
   const url = value.trim();
 
   if (!url || /\s/u.test(url)) {

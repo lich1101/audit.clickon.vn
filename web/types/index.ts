@@ -20,6 +20,21 @@ export type Plan = {
   updatedAt: string;
 };
 
+export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
+export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
+export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
+
+export type WebsiteActiveRunSummary = {
+  publicId: string;
+  status: AuditRunStatus;
+  totalUrls: number;
+  processedUrls: number;
+  completedUrls: number;
+  failedUrls: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Website = {
   id: string;
   userId: string;
@@ -27,16 +42,13 @@ export type Website = {
   url: string;
   createdAt: string;
   updatedAt: string;
+  activeRun?: WebsiteActiveRunSummary | null;
 };
 
 export type AuditCategory = {
   name: string;
   url: string;
 };
-
-export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
-export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
-export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
 
 export type WebsiteAuditUrlResult = {
   targetUrl: string;

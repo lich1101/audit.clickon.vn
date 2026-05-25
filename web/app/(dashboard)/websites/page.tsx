@@ -8,8 +8,11 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { WebsiteCard } from "@/components/dashboard/website-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
+import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchWebsites } from "@/lib/firestore";
+import { ACTIVE_AUDIT_POLL_INTERVAL_MS, isActiveAuditRun } from "@/lib/audit-runs";
 import { formatDate } from "@/lib/utils";
 import type { Website } from "@/types";
 
@@ -18,15 +21,34 @@ export default function WebsitesPage() {
   const [websites, setWebsites] = useState<Website[]>([]);
   const [search, setSearch] = useState("");
 
+  async function loadWebsites() {
+    const nextWebsites = await fetchWebsites();
+    setWebsites(nextWebsites);
+  }
+
   useEffect(() => {
     if (!profile) {
       return;
     }
 
-    void fetchWebsites()
-      .then(setWebsites)
-      .catch(() => undefined);
+    void loadWebsites().catch(() => undefined);
   }, [profile]);
+
+  const hasActiveRuns = useMemo(() => websites.some((website) => isActiveAuditRun(website.activeRun?.status)), [websites]);
+
+  useEffect(() => {
+    if (!profile || !hasActiveRuns) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadWebsites().catch(() => undefined);
+    }, ACTIVE_AUDIT_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasActiveRuns, profile]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -37,6 +59,28 @@ export default function WebsitesPage() {
 
     return websites.filter((website) => [website.name, website.url].some((field) => field.toLowerCase().includes(keyword)));
   }, [search, websites]);
+
+  function renderAuditActivity(website: Website) {
+    const activeRun = website.activeRun;
+
+    if (!activeRun || !isActiveAuditRun(activeRun.status)) {
+      return <span className="text-sm text-muted-foreground">Không có run active</span>;
+    }
+
+    const progressPercent = activeRun.totalUrls > 0 ? Math.min(100, Math.round((activeRun.processedUrls / activeRun.totalUrls) * 100)) : 0;
+
+    return (
+      <div className="min-w-[180px] space-y-1.5">
+        <div className="flex items-center gap-2">
+          <AuditStatusBadge status={activeRun.status} />
+          <span className="text-xs text-muted-foreground">
+            {activeRun.processedUrls}/{activeRun.totalUrls} URL
+          </span>
+        </div>
+        <ProgressBar className="h-2" value={progressPercent} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -55,6 +99,7 @@ export default function WebsitesPage() {
         columns={[
           { key: "name", header: "Website", render: (row: Website) => row.name },
           { key: "url", header: "URL", render: (row: Website) => <span className="truncate">{row.url}</span> },
+          { key: "activeRun", header: "Audit đang chạy", render: (row: Website) => renderAuditActivity(row) },
           { key: "createdAt", header: "Ngày tạo", render: (row: Website) => formatDate(row.createdAt) },
           {
             key: "actions",

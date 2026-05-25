@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchCreditLogs, fetchWebsites } from "@/lib/firestore";
+import { ACTIVE_AUDIT_POLL_INTERVAL_MS, isActiveAuditRun } from "@/lib/audit-runs";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CreditLog, Website } from "@/types";
 
@@ -22,20 +23,38 @@ export default function DashboardPage() {
   const [websites, setWebsites] = useState<Website[]>([]);
   const [logs, setLogs] = useState<CreditLog[]>([]);
 
+  async function loadDashboardData(uid: string) {
+    const [nextWebsites, nextLogs] = await Promise.all([fetchWebsites(), fetchCreditLogs(uid, 20)]);
+    setWebsites(nextWebsites);
+    setLogs(nextLogs);
+  }
+
   useEffect(() => {
     if (!profile) {
       return;
     }
 
-    void Promise.all([fetchWebsites(), fetchCreditLogs(profile.uid, 20)])
-      .then(([nextWebsites, nextLogs]) => {
-        setWebsites(nextWebsites);
-        setLogs(nextLogs);
-      })
-      .catch(() => undefined);
+    void loadDashboardData(profile.uid).catch(() => undefined);
   }, [profile]);
 
   const recentWebsites = useMemo(() => websites.slice(0, 3), [websites]);
+  const hasActiveRuns = useMemo(() => websites.some((website) => isActiveAuditRun(website.activeRun?.status)), [websites]);
+
+  useEffect(() => {
+    if (!profile || !hasActiveRuns) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void fetchWebsites()
+        .then(setWebsites)
+        .catch(() => undefined);
+    }, ACTIVE_AUDIT_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasActiveRuns, profile]);
 
   return (
     <div className="flex flex-col gap-6">

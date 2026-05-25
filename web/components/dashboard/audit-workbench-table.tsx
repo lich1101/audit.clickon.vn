@@ -1,7 +1,7 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { isHttpUrl } from "@/lib/validators";
 import type { AuditRunItemStatus } from "@/types";
 
 export type AuditWorkbenchRow = {
@@ -41,20 +42,37 @@ export function AuditWorkbenchTable({
   onSelectedChange,
   onDeleteUrl,
   onAddUrl,
+  onUpdateUrl,
   itemsByUrl,
-  run
+  run,
+  canManageUrls
 }: {
   urls: string[];
   selectedUrls: string[];
   onSelectedChange: (urls: string[]) => void;
   onDeleteUrl: (url: string) => void;
   onAddUrl: (url: string) => void;
+  onUpdateUrl: (currentUrl: string, nextUrl: string) => void;
   itemsByUrl: Record<string, AuditWorkbenchRow>;
   run: { status?: string } | null;
+  canManageUrls: boolean;
 }) {
   const [newUrl, setNewUrl] = useState("");
+  const [editingUrl, setEditingUrl] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
   const selectedSet = useMemo(() => new Set(selectedUrls), [selectedUrls]);
   const allSelected = urls.length > 0 && selectedUrls.length === urls.length;
+
+  useEffect(() => {
+    if (!editingUrl) {
+      return;
+    }
+
+    if (!canManageUrls || !urls.includes(editingUrl)) {
+      setEditingUrl(null);
+      setEditingValue("");
+    }
+  }, [canManageUrls, editingUrl, urls]);
 
   function toggleAll(checked: boolean) {
     onSelectedChange(checked ? [...urls] : []);
@@ -70,18 +88,17 @@ export function AuditWorkbenchTable({
   }
 
   function submitNewUrl() {
+    if (!canManageUrls) {
+      return;
+    }
+
     const value = newUrl.trim();
 
     if (!value) {
       return;
     }
 
-    try {
-      const parsed = new URL(value);
-      if (!["http:", "https:"].includes(parsed.protocol)) {
-        throw new Error("invalid");
-      }
-    } catch {
+    if (!isHttpUrl(value)) {
       toast.error("URL không hợp lệ.");
       return;
     }
@@ -93,6 +110,46 @@ export function AuditWorkbenchTable({
 
     onAddUrl(value);
     setNewUrl("");
+  }
+
+  function startEditing(url: string) {
+    if (!canManageUrls) {
+      return;
+    }
+
+    setEditingUrl(url);
+    setEditingValue(url);
+  }
+
+  function cancelEditing() {
+    setEditingUrl(null);
+    setEditingValue("");
+  }
+
+  function submitEditedUrl(currentUrl: string) {
+    if (!canManageUrls) {
+      return;
+    }
+
+    const value = editingValue.trim();
+
+    if (!value) {
+      toast.error("URL không được để trống.");
+      return;
+    }
+
+    if (!isHttpUrl(value)) {
+      toast.error("URL không hợp lệ.");
+      return;
+    }
+
+    if (value !== currentUrl && urls.includes(value)) {
+      toast.error("URL đã có trong bảng.");
+      return;
+    }
+
+    onUpdateUrl(currentUrl, value);
+    cancelEditing();
   }
 
   return (
@@ -112,7 +169,7 @@ export function AuditWorkbenchTable({
               <TableHead className="min-w-[80px]">Điểm</TableHead>
               <TableHead className="min-w-[280px]">Đề xuất</TableHead>
               <TableHead className="min-w-[220px]">Lỗi</TableHead>
-              <TableHead className="w-12" />
+              <TableHead className="w-[120px] text-right">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -138,11 +195,30 @@ export function AuditWorkbenchTable({
                 return (
                   <TableRow key={url}>
                     <TableCell className="sticky left-0 z-10 bg-card">
-                      <Checkbox checked={selectedSet.has(url)} onChange={(event) => toggleOne(url, event.target.checked)} />
+                      <Checkbox checked={selectedSet.has(url)} onChange={(event) => toggleOne(url, event.target.checked)} disabled={!canManageUrls} />
                     </TableCell>
                     <TableCell className="font-medium">{index + 1}</TableCell>
                     <TableCell>
-                      <p className="break-all text-sm font-medium">{url}</p>
+                      {editingUrl === url ? (
+                        <Input
+                          value={editingValue}
+                          onChange={(event) => setEditingValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              submitEditedUrl(url);
+                            }
+
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelEditing();
+                            }
+                          }}
+                          autoFocus
+                        />
+                      ) : (
+                        <p className="break-all text-sm font-medium">{url}</p>
+                      )}
                       {item?.pageTitle ? <p className="mt-1 text-xs text-muted-foreground">{item.pageTitle}</p> : null}
                     </TableCell>
                     <TableCell>
@@ -188,10 +264,28 @@ export function AuditWorkbenchTable({
                         <p className="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
                       ) : null}
                     </TableCell>
-                    <TableCell>
-                      <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => onDeleteUrl(url)}>
-                        <Trash2 className="size-4" />
-                      </Button>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {editingUrl === url ? (
+                          <>
+                            <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => submitEditedUrl(url)}>
+                              <Check className="size-4" />
+                            </Button>
+                            <Button type="button" size="icon" variant="ghost" className="size-8" onClick={cancelEditing}>
+                              <X className="size-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => startEditing(url)} disabled={!canManageUrls}>
+                              <Pencil className="size-4" />
+                            </Button>
+                            <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => onDeleteUrl(url)} disabled={!canManageUrls}>
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -204,6 +298,7 @@ export function AuditWorkbenchTable({
                     placeholder="https://example.com/bai-viet-moi"
                     value={newUrl}
                     onChange={(event) => setNewUrl(event.target.value)}
+                    disabled={!canManageUrls}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
@@ -211,7 +306,7 @@ export function AuditWorkbenchTable({
                       }
                     }}
                   />
-                  <Button type="button" variant="secondary" onClick={submitNewUrl}>
+                  <Button type="button" variant="secondary" onClick={submitNewUrl} disabled={!canManageUrls}>
                     <Plus className="size-4" />
                     Thêm URL
                   </Button>

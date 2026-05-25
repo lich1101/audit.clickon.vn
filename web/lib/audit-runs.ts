@@ -5,6 +5,8 @@ import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/
 import type { AuditRun, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 
+export const ACTIVE_AUDIT_POLL_INTERVAL_MS = 3000;
+
 export type AuditBoard = {
   website: {
     id: string;

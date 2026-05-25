@@ -22,4 +22,10 @@ class Website extends Model
     {
         return $this->hasOne(WebsiteAudit::class, 'website_id', 'id');
     }
+
+    public function activeRun(): HasOne
+    {
+        return $this->hasOne(AuditRun::class, 'website_id', 'id')
+            ->ofMany(['created_at' => 'max'], fn ($query) => $query->whereIn('status', ['queued', 'processing']));
+    }
 }

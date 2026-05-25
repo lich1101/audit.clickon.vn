@@ -60,7 +60,9 @@ export function AuditRunsTable({
                 {run.publicId === activeRunId ? <span className="ml-2 text-xs text-primary">Đang xem</span> : null}
               </p>
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
-              <p className="text-xs text-muted-foreground">AI: {run.aiProvider ?? "openai"}</p>
+              <p className="text-xs text-muted-foreground">
+                AI: {run.aiProvider ?? "openai"} · B2 {run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiModel ?? run.aiModel ?? "default"}
+              </p>
             </div>
           )
         },

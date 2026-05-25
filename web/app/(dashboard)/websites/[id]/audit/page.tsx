@@ -48,6 +48,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [systemAi, setSystemAi] = useState<PublicAuditSettings>({
     aiProvider: "openai",
     aiModel: null,
+    step2AiModel: null,
+    step3AiModel: null,
     step2FormatterProvider: "gemini",
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
@@ -112,6 +114,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       setSystemAi(board.systemAi ?? {
         aiProvider: "openai",
         aiModel: null,
+        step2AiModel: null,
+        step3AiModel: null,
         step2FormatterProvider: "gemini",
         step2FormatterModel: "gemini-2.5-flash",
         step3FormatterProvider: "gemini",
@@ -211,7 +215,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const activeUrls = (run?.items ?? []).filter(
     (item) => item.status === "fetching" || (item.status === "analyzing" && item.extractionSource !== "url_only_batch_step2_done")
   ).length;
-  const queuedUrls = (run?.items ?? []).filter((item) => item.status === "queued" || item.extractionSource === "url_only_batch_step2_done").length;
+  const queuedUrls = (run?.items ?? []).filter(
+    (item) => item.status === "queued" || (item.status === "analyzing" && item.extractionSource === "url_only_batch_step2_done")
+  ).length;
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
   const step2BatchSize = Math.max(1, Number(systemAi.step2BatchSize ?? 60));
   const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
@@ -391,7 +397,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </div>
           <p className="text-sm text-muted-foreground">
             {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
-            {` · AI ${systemAi.aiProvider}${systemAi.aiModel ? ` / ${systemAi.aiModel}` : ""} (hệ thống)`}
+            {` · AI ${systemAi.aiProvider} · B2 ${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
           {selectedUrls.length ? (

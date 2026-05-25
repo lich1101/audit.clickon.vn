@@ -33,6 +33,8 @@ export default function AdminAuditSettingsPage() {
   const [settings, setSettings] = useState<AuditSystemSettings>({
     aiProvider: "openai",
     aiModel: null,
+    step2AiModel: null,
+    step3AiModel: null,
     step2FormatterProvider: "gemini",
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
@@ -82,8 +84,8 @@ export default function AdminAuditSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Model AI mặc định</CardTitle>
-          <CardDescription>Mọi audit run của người dùng sẽ dùng provider và model được cấu hình tại đây.</CardDescription>
+          <CardTitle>Provider và model mặc định</CardTitle>
+          <CardDescription>Provider dùng chung cho bước 2 và 3. Model ở đây là fallback nếu model riêng từng bước để trống.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -94,7 +96,9 @@ export default function AdminAuditSettingsPage() {
                 setSettings((current) => ({
                   ...current,
                   aiProvider: value as AiProvider,
-                  aiModel: null
+                  aiModel: null,
+                  step2AiModel: null,
+                  step3AiModel: null
                 }))
               }
             >
@@ -117,6 +121,48 @@ export default function AdminAuditSettingsPage() {
             onChange={(model) => setSettings((current) => ({ ...current, aiModel: model || null }))}
             description="Danh sách model lấy từ API provider (admin)."
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Model chính riêng cho bước 2 và bước 3</CardTitle>
+          <CardDescription>
+            Provider vẫn dùng theo cấu hình bên trên, nhưng mỗi bước có thể dùng model khác nhau. Nếu chưa có giá trị, hệ thống tự chọn model mặc định của provider.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 2: keyword + danh mục</p>
+              <p className="mt-1 text-xs text-muted-foreground">Dùng để phân tích danh sách URL, chọn keyword chính và danh mục phù hợp.</p>
+            </div>
+            <AiModelSelect
+              key={`step2-main-${settings.aiProvider}`}
+              id="step2-ai-model"
+              label="Model bước 2"
+              provider={settings.aiProvider}
+              value={settings.step2AiModel ?? ""}
+              onChange={(model) => setSettings((current) => ({ ...current, step2AiModel: model || null }))}
+              description="Model riêng cho bước 2."
+            />
+          </div>
+
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 3: audit onpage</p>
+              <p className="mt-1 text-xs text-muted-foreground">Dùng để chấm điểm, đề xuất audit và định hướng chỉnh sửa nội dung.</p>
+            </div>
+            <AiModelSelect
+              key={`step3-main-${settings.aiProvider}`}
+              id="step3-ai-model"
+              label="Model bước 3"
+              provider={settings.aiProvider}
+              value={settings.step3AiModel ?? ""}
+              onChange={(model) => setSettings((current) => ({ ...current, step3AiModel: model || null }))}
+              description="Model riêng cho bước 3."
+            />
+          </div>
         </CardContent>
       </Card>
 

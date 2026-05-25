@@ -15,6 +15,8 @@ export type ModelPricingRow = {
 export type AuditSystemSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
+  step2AiModel: string | null;
+  step3AiModel: string | null;
   step2FormatterProvider: JsonFormatterProvider;
   step2FormatterModel: string | null;
   step3FormatterProvider: JsonFormatterProvider;
@@ -28,6 +30,8 @@ export type AuditSystemSettings = {
 export type PublicAuditSettings = {
   aiProvider: AiProvider;
   aiModel: string | null;
+  step2AiModel?: string | null;
+  step3AiModel?: string | null;
   step2FormatterProvider?: JsonFormatterProvider;
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider;

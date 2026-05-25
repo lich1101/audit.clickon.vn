@@ -101,6 +101,8 @@ class AuditRunService
                 'checklist_text' => $payload['checklistText'] ?? null,
                 'ai_provider' => $settings['aiProvider'],
                 'ai_model' => $settings['aiModel'],
+                'step2_ai_model' => $settings['step2AiModel'] ?? $settings['aiModel'],
+                'step3_ai_model' => $settings['step3AiModel'] ?? $settings['aiModel'],
                 'step2_formatter_provider' => $settings['step2FormatterProvider'],
                 'step2_formatter_model' => $settings['step2FormatterModel'],
                 'step3_formatter_provider' => $settings['step3FormatterProvider'],
@@ -392,7 +394,7 @@ class AuditRunService
             targetUrls: $items->pluck('target_url')->values()->all(),
             categories: $run->categories ?? [],
             provider: $run->ai_provider ?? 'openai',
-            model: $run->ai_model,
+            model: $run->step2_ai_model ?: $run->ai_model,
             formatterProvider: $run->step2_formatter_provider,
             formatterModel: $run->step2_formatter_model,
             auditRunId: $run->id,
@@ -493,7 +495,7 @@ class AuditRunService
             checklistText: $run->checklist_text,
             keywordCategoryItems: $keywordCategoryItems,
             provider: $run->ai_provider ?? 'openai',
-            model: $run->ai_model,
+            model: $run->step3_ai_model ?: $run->ai_model,
             formatterProvider: $run->step3_formatter_provider,
             formatterModel: $run->step3_formatter_model,
             auditRunId: $run->id,
@@ -701,9 +703,16 @@ class AuditRunService
 
     public function markRunFailed(AuditRun $run, string $message): void
     {
+        $items = $run->items()->get(['status']);
+        $completed = $items->where('status', 'completed')->count();
+        $failed = $items->where('status', 'failed')->count();
+
         $run->forceFill([
             'status' => 'failed',
             'last_error' => $message,
+            'processed_urls' => $completed + $failed,
+            'completed_urls' => $completed,
+            'failed_urls' => $failed,
             'completed_at' => now(),
         ])->save();
 
@@ -1098,6 +1107,11 @@ class AuditRunService
     {
         DB::transaction(function () use ($run): void {
             $run = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($run->cancelled_at !== null || in_array($run->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
             $items = $run->items()->get(['status']);
             $completed = $items->where('status', 'completed')->count();
             $failed = $items->where('status', 'failed')->count();
@@ -1148,6 +1162,8 @@ class AuditRunService
             'checklistText' => null,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
+            'step2AiModel' => $run->step2_ai_model ?: $run->ai_model,
+            'step3AiModel' => $run->step3_ai_model ?: $run->ai_model,
             'step2FormatterProvider' => $run->step2_formatter_provider,
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
@@ -1215,6 +1231,8 @@ class AuditRunService
             'checklistText' => $run->checklist_text,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
+            'step2AiModel' => $run->step2_ai_model ?: $run->ai_model,
+            'step3AiModel' => $run->step3_ai_model ?: $run->ai_model,
             'step2FormatterProvider' => $run->step2_formatter_provider,
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,

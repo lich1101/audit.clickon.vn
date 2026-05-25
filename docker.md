@@ -152,6 +152,8 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT=medium
 OPENAI_TIMEOUT_SECONDS=180
+AUDIT_STEP2_AI_MODEL=
+AUDIT_STEP3_AI_MODEL=
 
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-pro
@@ -551,6 +553,7 @@ Ví dụ lỗi:
 
 ```text
 cURL error 28: Resolving timed out after 10010 milliseconds for https://generativelanguage.googleapis.com/...
+cURL error 6: Could not resolve host: generativelanguage.googleapis.com
 ```
 
 Ý nghĩa:
@@ -564,6 +567,7 @@ Kiểm tra DNS từ container:
 ```bash
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env exec queue getent hosts generativelanguage.googleapis.com
 docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env exec queue cat /etc/resolv.conf
+docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env run --rm --no-deps artisan tinker --execute='echo gethostbyname("generativelanguage.googleapis.com").PHP_EOL;'
 ```
 
 Kiểm tra gọi API:
@@ -584,6 +588,7 @@ Nếu VPS vẫn timeout:
 - giảm `QUEUE_WORKERS=1` hoặc giảm `maxParallelItems` trong `/admin/settings`
 - đổi provider sang `gemini` hoặc `openai` thường nếu Deep Research không ổn định trên mạng hiện tại
 - kiểm tra firewall/DNS provider của VPS có chặn hoặc làm chậm `generativelanguage.googleapis.com`
+- nếu `getent hosts` không ra IP hoặc `gethostbyname` trả lại nguyên hostname, DNS trong container chưa hoạt động; cần kiểm tra Docker daemon/VPS network trước khi chạy audit lại
 
 ## 16. Không nên commit các file này vào Git
 

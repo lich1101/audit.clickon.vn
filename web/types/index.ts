@@ -52,6 +52,8 @@ export type WebsiteAuditUrlResult = {
   errorMessage?: string | null;
   aiProvider?: AiProvider;
   aiModel?: string | null;
+  step2AiModel?: string | null;
+  step3AiModel?: string | null;
   auditedAt?: string | null;
   updatedAt?: string | null;
 };
@@ -216,6 +218,8 @@ export type AuditRun = {
   checklistText?: string | null;
   aiProvider?: AiProvider;
   aiModel?: string | null;
+  step2AiModel?: string | null;
+  step3AiModel?: string | null;
   step2FormatterProvider?: JsonFormatterProvider | null;
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider | null;

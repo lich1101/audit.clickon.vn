@@ -27,6 +27,8 @@ return new class extends Migration
                 'value' => json_encode([
                     'aiProvider' => $defaultAiProvider,
                     'aiModel' => env('OPENAI_MODEL', ''),
+                    'step2AiModel' => env('AUDIT_STEP2_AI_MODEL', env('OPENAI_MODEL', '')),
+                    'step3AiModel' => env('AUDIT_STEP3_AI_MODEL', env('OPENAI_MODEL', '')),
                     'step2FormatterProvider' => env('AUDIT_STEP2_FORMATTER_PROVIDER', $defaultFormatterProvider),
                     'step2FormatterModel' => env('AUDIT_STEP2_FORMATTER_MODEL', $defaultFormatterProvider === 'openai' ? env('OPENAI_MODEL', 'gpt-5.5') : 'gemini-2.5-flash'),
                     'step3FormatterProvider' => env('AUDIT_STEP3_FORMATTER_PROVIDER', $defaultFormatterProvider),

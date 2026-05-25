@@ -55,6 +55,8 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     systemAi: response.data.systemAi ?? {
       aiProvider: "openai",
       aiModel: null,
+      step2AiModel: null,
+      step3AiModel: null,
       step2FormatterProvider: "gemini",
       step2FormatterModel: "gemini-2.5-flash",
       step3FormatterProvider: "gemini",
@@ -125,6 +127,8 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],
     aiProvider: run.aiProvider ?? "openai",
     aiModel: run.aiModel ?? null,
+    step2AiModel: run.step2AiModel ?? run.aiModel ?? null,
+    step3AiModel: run.step3AiModel ?? run.aiModel ?? null,
     step2FormatterProvider: run.step2FormatterProvider ?? "gemini",
     step2FormatterModel: run.step2FormatterModel ?? "gemini-2.5-flash",
     step3FormatterProvider: run.step3FormatterProvider ?? "gemini",

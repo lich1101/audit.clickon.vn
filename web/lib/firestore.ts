@@ -105,6 +105,8 @@ export function mapAuditRun(docId: string, data: DocumentData): AuditRun {
     checklistText: data.checklistText ?? null,
     aiProvider: ["openai", "gemini", "gemini_deep_research"].includes(data.aiProvider) ? data.aiProvider : "openai",
     aiModel: data.aiModel ?? null,
+    step2AiModel: data.step2AiModel ?? data.aiModel ?? null,
+    step3AiModel: data.step3AiModel ?? data.aiModel ?? null,
     status: ["queued", "processing", "completed", "partial", "failed"].includes(data.status) ? data.status : "queued",
     totalUrls: Number(data.totalUrls ?? 0),
     processedUrls: Number(data.processedUrls ?? 0),

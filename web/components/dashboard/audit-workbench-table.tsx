@@ -185,7 +185,7 @@ export function AuditWorkbenchTable({
                     </TableCell>
                     <TableCell>
                       {item?.errorMessage ? (
-                        <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                        <p className="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
                       ) : null}
                     </TableCell>
                     <TableCell>

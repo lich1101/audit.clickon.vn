@@ -21,6 +21,8 @@ class AuditRun extends Model
         'checklist_text',
         'ai_provider',
         'ai_model',
+        'step2_ai_model',
+        'step3_ai_model',
         'step2_formatter_provider',
         'step2_formatter_model',
         'step3_formatter_provider',

@@ -27,6 +27,26 @@ class StoreAuditRunRequest extends FormRequest
                 'callbackUrl' => $this->input('callback_url'),
             ]);
         }
+
+        if (! $this->filled('startFromStep') && $this->filled('start_from_step')) {
+            $this->merge([
+                'startFromStep' => $this->input('start_from_step'),
+            ]);
+        }
+
+        $startFromStep = $this->input('startFromStep');
+
+        if (is_string($startFromStep)) {
+            $normalized = strtolower(trim($startFromStep));
+
+            if (in_array($normalized, ['step2', '2'], true)) {
+                $this->merge(['startFromStep' => 2]);
+            }
+
+            if (in_array($normalized, ['step3', '3'], true)) {
+                $this->merge(['startFromStep' => 3]);
+            }
+        }
     }
 
     public function rules(): array
@@ -39,6 +59,8 @@ class StoreAuditRunRequest extends FormRequest
             'action' => ['nullable', 'string', 'in:'.implode(',', AuditRun::WORKFLOWS)],
             'callbackUrl' => ['nullable', 'string', 'max:2048'],
             'callback_url' => ['nullable', 'string', 'max:2048'],
+            'startFromStep' => ['nullable', 'integer', 'in:2,3'],
+            'start_from_step' => ['nullable', 'integer', 'in:2,3'],
             'targetUrls' => ['required', 'array', 'min:1', 'max:'.self::MAX_TARGET_URLS],
             'targetUrls.*' => ['required', 'string', 'max:2048'],
             'categories' => ['nullable', 'array', 'max:200'],

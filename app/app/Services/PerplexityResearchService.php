@@ -282,56 +282,108 @@ class PerplexityResearchService
         ?int $auditRunId,
         string $persistStep,
     ): array {
-        $submissionPayload = [
-            'request' => $payload,
-            'idempotency_key' => $this->asyncIdempotencyKey($auditRunId, $persistStep, $model),
-        ];
+        $maxAttempts = $this->asyncRetryAttempts();
+        $sleepMs = $this->asyncRetrySleepMs();
+        $lastException = null;
 
-        $response = $this->sendRequest(
-            fn (): Response => Http::withToken($apiKey)
-                ->acceptJson()
-                ->connectTimeout($this->connectTimeoutSeconds())
-                ->timeout($this->timeoutSeconds())
-                ->post($this->asyncSonarEndpoint(), $submissionPayload)
-        );
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $submissionPayload = [
+                    'request' => $payload,
+                    'idempotency_key' => $this->asyncIdempotencyKey($auditRunId, $persistStep, $model, $attempt),
+                ];
 
-        $this->throwIfRequestFailed($response);
-        $this->persistAiStepResponse($auditRunId, $persistStep, [
-            'step' => $persistStep,
-            'stepLabel' => 'Deep Research A: Perplexity research',
-            'status' => 'async_submitted',
-            'provider' => 'perplexity',
-            'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
-            'interactionId' => (string) Arr::get($response->json(), 'id', ''),
-            'asyncStatus' => (string) Arr::get($response->json(), 'status', 'CREATED'),
-            'createdAt' => now()->toIso8601String(),
-        ]);
+                $response = $this->sendRequest(
+                    fn (): Response => Http::withToken($apiKey)
+                        ->acceptJson()
+                        ->connectTimeout($this->connectTimeoutSeconds())
+                        ->timeout($this->timeoutSeconds())
+                        ->post($this->asyncSonarEndpoint(), $submissionPayload)
+                );
 
-        $requestId = trim((string) Arr::get($response->json(), 'id', ''));
+                $this->throwIfRequestFailed($response);
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => 'Deep Research A: Perplexity research',
+                    'status' => 'async_submitted',
+                    'provider' => 'perplexity',
+                    'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
+                    'interactionId' => (string) Arr::get($response->json(), 'id', ''),
+                    'asyncStatus' => (string) Arr::get($response->json(), 'status', 'CREATED'),
+                    'attempt' => $attempt,
+                    'createdAt' => now()->toIso8601String(),
+                ]);
 
-        if ($requestId === '') {
-            throw new RuntimeException('Perplexity async request did not return request id.');
+                $requestId = trim((string) Arr::get($response->json(), 'id', ''));
+
+                if ($requestId === '') {
+                    throw new RuntimeException('Perplexity async request did not return request id.');
+                }
+
+                $completedBody = $this->pollAsyncCompletion($apiKey, $requestId);
+
+                if (strtoupper((string) ($completedBody['status'] ?? '')) === 'FAILED') {
+                    $errorMessage = trim((string) ($completedBody['error_message'] ?? 'Unknown error.'));
+
+                    $this->persistAiStepResponse($auditRunId, $persistStep, [
+                        'step' => $persistStep,
+                        'stepLabel' => 'Deep Research A: Perplexity research',
+                        'status' => 'async_failed',
+                        'provider' => 'perplexity',
+                        'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
+                        'interactionId' => $requestId,
+                        'asyncStatus' => 'FAILED',
+                        'attempt' => $attempt,
+                        'errorMessage' => $errorMessage,
+                        'createdAt' => now()->toIso8601String(),
+                    ]);
+
+                    throw new RuntimeException(sprintf(
+                        'Perplexity async request failed [%s]: %s',
+                        $requestId,
+                        $errorMessage,
+                    ));
+                }
+
+                $completionBody = is_array($completedBody['response'] ?? null) ? $completedBody['response'] : null;
+
+                if (! is_array($completionBody)) {
+                    throw new RuntimeException(sprintf(
+                        'Perplexity async request completed without response payload [%s].',
+                        $requestId,
+                    ));
+                }
+
+                return $this->extractCompletionPayload(
+                    body: $completionBody,
+                    model: $model,
+                    auditRunId: $auditRunId,
+                    persistStep: $persistStep,
+                    interactionId: $requestId,
+                );
+            } catch (RuntimeException $exception) {
+                $lastException = $exception;
+
+                if ($attempt >= $maxAttempts || ! $this->shouldRetryAsyncException($exception)) {
+                    throw $exception;
+                }
+
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => 'Deep Research A: Perplexity research',
+                    'status' => 'async_retrying',
+                    'provider' => 'perplexity',
+                    'model' => $model,
+                    'attempt' => $attempt,
+                    'errorMessage' => $exception->getMessage(),
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+
+                usleep($sleepMs * 1000);
+            }
         }
 
-        $completedBody = $this->pollAsyncCompletion($apiKey, $requestId);
-
-        if (strtoupper((string) ($completedBody['status'] ?? '')) === 'FAILED') {
-            throw new RuntimeException('Perplexity async request failed: '.trim((string) ($completedBody['error_message'] ?? 'Unknown error.')));
-        }
-
-        $completionBody = is_array($completedBody['response'] ?? null) ? $completedBody['response'] : null;
-
-        if (! is_array($completionBody)) {
-            throw new RuntimeException('Perplexity async request completed without response payload.');
-        }
-
-        return $this->extractCompletionPayload(
-            body: $completionBody,
-            model: $model,
-            auditRunId: $auditRunId,
-            persistStep: $persistStep,
-            interactionId: $requestId,
-        );
+        throw $lastException ?? new RuntimeException('Perplexity async request failed after retries.');
     }
 
     /**
@@ -748,16 +800,52 @@ class PerplexityResearchService
         return $this->asyncSonarEndpoint().'/'.rawurlencode($requestId);
     }
 
-    private function asyncIdempotencyKey(?int $auditRunId, string $persistStep, string $model): string
+    private function asyncIdempotencyKey(?int $auditRunId, string $persistStep, string $model, int $attempt = 1): string
     {
         $seed = implode(':', [
             'audit-deep-research',
             (string) ($auditRunId ?? 'standalone'),
             $persistStep,
             $model,
+            'attempt-'.$attempt,
         ]);
 
         return substr(hash('sha256', $seed), 0, 64);
+    }
+
+    private function asyncRetryAttempts(): int
+    {
+        return max(1, (int) config('services.audit.deep_research_async_retry_attempts', 2));
+    }
+
+    private function asyncRetrySleepMs(): int
+    {
+        return max(0, (int) config('services.audit.deep_research_async_retry_sleep_ms', 1500));
+    }
+
+    private function shouldRetryAsyncException(RuntimeException $exception): bool
+    {
+        $message = Str::lower(trim($exception->getMessage()));
+
+        foreach ([
+            'internal server error',
+            'server error',
+            'temporarily unavailable',
+            'upstream',
+            'timed out',
+            'timeout',
+            'network error',
+            'http 500',
+            'http 502',
+            'http 503',
+            'http 504',
+        ] as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

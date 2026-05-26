@@ -142,4 +142,139 @@ class PerplexityResearchServiceTest extends TestCase
 
         Http::assertSent(fn ($request): bool => $request->url() === 'https://api.perplexity.test/v1/async/sonar/async-request-123');
     }
+
+    public function test_async_internal_server_error_retries_with_new_request_and_completes(): void
+    {
+        config([
+            'services.perplexity.api_key' => 'test-perplexity-key',
+            'services.perplexity.base_url' => 'https://api.perplexity.test',
+            'services.audit.deep_research_research_model' => 'sonar-deep-research',
+            'services.audit.deep_research_research_reasoning_effort' => 'high',
+            'services.audit.deep_research_research_use_async' => true,
+            'services.audit.deep_research_async_timeout_seconds' => 60,
+            'services.audit.deep_research_async_poll_interval_ms' => 1,
+            'services.audit.deep_research_async_retry_attempts' => 2,
+            'services.audit.deep_research_async_retry_sleep_ms' => 0,
+        ]);
+
+        $idempotencyKeys = [];
+
+        Http::fake(function ($request) use (&$idempotencyKeys) {
+            if ($request->url() === 'https://api.perplexity.test/v1/async/sonar') {
+                $payload = $request->data();
+                $idempotencyKeys[] = $payload['idempotency_key'] ?? null;
+
+                if (count($idempotencyKeys) === 1) {
+                    return Http::response([
+                        'id' => 'async-request-failed',
+                        'model' => 'sonar-deep-research',
+                        'status' => 'CREATED',
+                    ], 200);
+                }
+
+                return Http::response([
+                    'id' => 'async-request-success',
+                    'model' => 'sonar-deep-research',
+                    'status' => 'CREATED',
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.perplexity.test/v1/async/sonar/async-request-failed') {
+                return Http::response([
+                    'id' => 'async-request-failed',
+                    'model' => 'sonar-deep-research',
+                    'status' => 'FAILED',
+                    'error_message' => 'Internal server error',
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.perplexity.test/v1/async/sonar/async-request-success') {
+                return Http::response([
+                    'id' => 'async-request-success',
+                    'model' => 'sonar-deep-research',
+                    'status' => 'COMPLETED',
+                    'response' => [
+                        'model' => 'sonar-deep-research',
+                        'choices' => [
+                            [
+                                'message' => [
+                                    'content' => json_encode([
+                                        'items' => [
+                                            [
+                                                'targetUrl' => 'https://example.com/post-1',
+                                                'primaryKeyword' => 'keyword retry',
+                                                'categoryName' => 'Danh mục retry',
+                                                'categoryUrl' => 'https://example.com/danh-muc',
+                                                'categoryMatchReason' => 'Khớp retry',
+                                                'searchIntent' => 'Commercial',
+                                                'competitorInsights' => ['Đối thủ có bảng giá'],
+                                                'freshnessInsights' => ['SERP ưu tiên cập nhật 2026'],
+                                                'keywordDemandEvidence' => 'Có SERP transactional rõ ràng',
+                                                'contentGapInsights' => ['Thiếu bảng chi phí'],
+                                                'recommendedAngles' => ['Bổ sung FAQ'],
+                                                'sources' => [
+                                                    [
+                                                        'title' => 'Nguồn retry',
+                                                        'url' => 'https://source.example/retry',
+                                                        'date' => '2026-05-01',
+                                                        'snippet' => 'Đoạn retry',
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                                ],
+                            ],
+                        ],
+                        'usage' => [
+                            'prompt_tokens' => 140,
+                            'completion_tokens' => 60,
+                            'total_tokens' => 200,
+                            'citation_tokens' => 8,
+                            'num_search_queries' => 3,
+                            'reasoning_tokens' => 420,
+                        ],
+                        'citations' => ['https://source.example/retry'],
+                        'search_results' => [
+                            [
+                                'title' => 'Nguồn retry',
+                                'url' => 'https://source.example/retry',
+                                'date' => '2026-05-01',
+                                'snippet' => 'Đoạn retry',
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $result = app(PerplexityResearchService::class)->researchBatch(
+            batchPages: [[
+                'targetUrl' => 'https://example.com/post-1',
+                'page' => [
+                    'url' => 'https://example.com/post-1',
+                    'title' => 'Bài retry',
+                    'metaDescription' => 'Mô tả retry',
+                    'canonicalUrl' => 'https://example.com/post-1',
+                    'headings' => ['h1' => ['Bài retry']],
+                    'metrics' => ['wordCount' => 1200],
+                    'content' => 'Nội dung retry',
+                    'websiteUrl' => 'https://example.com',
+                ],
+                'primaryKeywordSeed' => 'keyword retry',
+                'categoryNameSeed' => 'Danh mục retry',
+                'categoryUrlSeed' => 'https://example.com/danh-muc',
+            ]],
+            categories: [['name' => 'Danh mục retry', 'url' => 'https://example.com/danh-muc']],
+            categoryContexts: [],
+            siteUrls: ['https://example.com/post-1'],
+            checklistText: 'Checklist retry',
+        );
+
+        $this->assertSame('keyword retry', $result['items'][0]['primaryKeyword']);
+        $this->assertCount(2, $idempotencyKeys);
+        $this->assertNotSame($idempotencyKeys[0], $idempotencyKeys[1]);
+    }
 }

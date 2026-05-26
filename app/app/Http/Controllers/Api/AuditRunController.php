@@ -160,11 +160,15 @@ class AuditRunController extends Controller
 
     public function store(StoreAuditRunRequest $request)
     {
+        $payload = $request->validated();
+        $requestedTargetUrls = $this->auditRunService->requestedTargetUrlsForRun($payload);
+        $startFromStep = $this->auditRunService->normalizeStartFromStep($payload['startFromStep'] ?? null);
+
         try {
             $run = $this->auditRunService->createRun(
                 userUid: (string) $request->attributes->get('firebase_uid'),
                 userEmail: (string) $request->attributes->get('firebase_email'),
-                payload: $request->validated(),
+                payload: $payload,
             );
         } catch (RuntimeException $exception) {
             $message = $exception->getMessage();
@@ -175,13 +179,34 @@ class AuditRunController extends Controller
             ], $status);
         }
 
+        $queuedTargetUrls = array_values($run->target_urls ?? []);
+        $skippedTargetUrls = array_values(array_filter(
+            $requestedTargetUrls,
+            fn (string $url): bool => ! in_array($url, $queuedTargetUrls, true),
+        ));
+        $message = 'Audit run queued successfully.';
+
+        if ($startFromStep === AuditRunService::START_FROM_STEP_3) {
+            $message = count($skippedTargetUrls) > 0
+                ? sprintf(
+                    'Đã đưa %d URL đủ dữ liệu bước 2 vào hàng đợi bước 3. Bỏ qua %d URL chưa có đủ keyword + danh mục từ bước 2.',
+                    count($queuedTargetUrls),
+                    count($skippedTargetUrls),
+                )
+                : sprintf('Đã đưa %d URL vào hàng đợi bước 3.', count($queuedTargetUrls));
+        }
+
         return response()->json([
-            'message' => 'Audit run queued successfully.',
+            'message' => $message,
             'data' => [
                 'publicId' => $run->public_id,
                 'status' => $run->status,
                 'workflow' => $run->workflow,
+                'startFromStep' => $startFromStep,
+                'requestedTotalUrls' => count($requestedTargetUrls),
                 'totalUrls' => $run->total_urls,
+                'queuedTargetUrls' => $queuedTargetUrls,
+                'skippedTargetUrls' => $skippedTargetUrls,
             ],
         ], 201);
     }

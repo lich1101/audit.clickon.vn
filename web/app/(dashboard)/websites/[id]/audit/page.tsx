@@ -30,7 +30,7 @@ import {
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
-import type { AuditRun, AuditRunItem, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunItem, AuditRunStartStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 
 const workflowLabels: Record<AuditWorkflow, string> = {
   standard: "Audit chuẩn",
@@ -48,6 +48,14 @@ function progressFor(run?: AuditRun | null) {
   }
 
   return Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100));
+}
+
+function hasStep2SeedData(row?: {
+  primaryKeyword?: string | null;
+  categoryName?: string | null;
+  categoryUrl?: string | null;
+} | null) {
+  return Boolean(row?.primaryKeyword?.trim() && row.categoryName?.trim() && row.categoryUrl?.trim());
 }
 
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -253,6 +261,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     return map;
   }, [run?.items, urlResults]);
+  const step3ReadySelectedUrls = useMemo(
+    () => selectedUrls.filter((url) => hasStep2SeedData(itemsByUrl[url])),
+    [itemsByUrl, selectedUrls]
+  );
 
   const progressPercent = progressFor(run);
   const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
@@ -270,14 +282,20 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const step2Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) : 0;
   const step3Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step3BatchSize) : 0;
   const deepResearchChunks = selectedUrls.length ? Math.ceil(selectedUrls.length / deepResearchBatchSize) : 0;
+  const step3ReadyChunks = step3ReadySelectedUrls.length ? Math.ceil(step3ReadySelectedUrls.length / step3BatchSize) : 0;
+  const deepResearchReadyChunks = step3ReadySelectedUrls.length ? Math.ceil(step3ReadySelectedUrls.length / deepResearchBatchSize) : 0;
   const step2Provider = systemAi.step2AiProvider ?? systemAi.aiProvider;
   const step3Provider = systemAi.step3AiProvider ?? systemAi.aiProvider;
   const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
   const step2FormatterChunks = step2Provider === "gemini_deep_research" ? step2Chunks : 0;
   const formatterChunks = step2FormatterChunks + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
+  const step3OnlyFormatterChunks = step3Provider === "gemini_deep_research" ? step3ReadyChunks : 0;
   const estimatedAiCalls = configuredWorkflow === "audit_deep_research"
     ? step2Chunks + step2FormatterChunks + deepResearchChunks * 3
     : step2Chunks + step3Chunks + formatterChunks;
+  const estimatedStep3OnlyAiCalls = configuredWorkflow === "audit_deep_research"
+    ? deepResearchReadyChunks * 3
+    : step3ReadyChunks + step3OnlyFormatterChunks;
   const currentCredits = profile?.credits ?? 0;
   const hasEnoughCredits = currentCredits > 0;
 
@@ -361,7 +379,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     };
   }, []);
 
-  async function handleRun() {
+  async function handleRun(startFromStep: AuditRunStartStep = 2) {
     if (!selectedUrls.length) {
       toast.error("Chọn ít nhất một URL để chạy audit.");
       return;
@@ -375,6 +393,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     if (isRunActive) {
       toast.error("Đang có audit run đang chạy. Hãy dừng run hiện tại trước.");
+      return;
+    }
+
+    if (startFromStep === 3 && step3ReadySelectedUrls.length === 0) {
+      toast.error("Không có URL nào trong lựa chọn hiện tại có đủ keyword + danh mục từ bước 2 để chạy thẳng bước 3.");
       return;
     }
 
@@ -392,11 +415,21 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         websiteId: website!.id,
         websiteName: website!.name,
         websiteUrl: website!.url,
+        startFromStep,
         targetUrlsInput: selectedUrls.join("\n"),
         categoriesInput: formatCategoriesInput(audit.categories),
         checklistText: audit.checklistText ?? ""
+      }).then((response) => {
+        const skippedCount = response.data.skippedTargetUrls.length;
+        const baseMessage = response.message || "Audit run đã được đưa vào hàng đợi.";
+
+        if (startFromStep === 3 && skippedCount > 0) {
+          toast.warning(baseMessage);
+          return;
+        }
+
+        toast.success(baseMessage);
       });
-      toast.success("Audit run đã được đưa vào hàng đợi.");
       await loadBoard({ silent: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể bắt đầu audit run.");
@@ -490,6 +523,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
                 : `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 tạo ${step2Chunks} batch x ${step2BatchSize} URL, bước 3 tạo ${step3Chunks} batch x ${step3BatchSize} URL${formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`}
             </p>
           ) : null}
+          {selectedUrls.length ? (
+            <p className={step3ReadySelectedUrls.length > 0 ? "text-xs text-muted-foreground" : "text-xs text-amber-600 dark:text-amber-300"}>
+              {configuredWorkflow === "audit_deep_research"
+                ? `Có ${step3ReadySelectedUrls.length}/${selectedUrls.length} URL đã có đủ dữ liệu bước 2 để chạy thẳng bước 3. Nếu bỏ qua bước 2, hệ thống sẽ tạo ${deepResearchReadyChunks} batch deep research x ${deepResearchBatchSize} URL, tương đương khoảng ${estimatedStep3OnlyAiCalls} AI call.`
+                : `Có ${step3ReadySelectedUrls.length}/${selectedUrls.length} URL đã có đủ dữ liệu bước 2 để chạy thẳng bước 3. Nếu bỏ qua bước 2, hệ thống sẽ tạo ${step3ReadyChunks} batch bước 3 x ${step3BatchSize} URL${step3OnlyFormatterChunks ? `, thêm ${step3OnlyFormatterChunks} batch 3.5 để ép JSON` : ""}, tương đương khoảng ${estimatedStep3OnlyAiCalls} AI call.`}
+            </p>
+          ) : null}
           {run ? (
             <div className="space-y-1.5">
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
@@ -501,9 +541,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleRun} disabled={running || isRunActive || selectedUrls.length === 0}>
+          <Button type="button" onClick={() => void handleRun(2)} disabled={running || isRunActive || selectedUrls.length === 0}>
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void handleRun(3)}
+            disabled={running || isRunActive || selectedUrls.length === 0 || step3ReadySelectedUrls.length === 0}
+          >
+            <Play className="size-4" />
+            {running ? "Đang khởi chạy..." : `Run từ bước 3 (${step3ReadySelectedUrls.length})`}
           </Button>
           {isRunActive ? (
             <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>

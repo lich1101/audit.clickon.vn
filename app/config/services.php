@@ -77,6 +77,8 @@ return [
         'deep_research_research_use_async' => env('AUDIT_DEEP_RESEARCH_RESEARCH_USE_ASYNC', true),
         'deep_research_async_timeout_seconds' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_TIMEOUT_SECONDS', 900),
         'deep_research_async_poll_interval_ms' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_POLL_INTERVAL_MS', 3000),
+        'deep_research_async_retry_attempts' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_RETRY_ATTEMPTS', 2),
+        'deep_research_async_retry_sleep_ms' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_RETRY_SLEEP_MS', 1500),
         'deep_research_reasoning_model' => env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),
         'deep_research_formatter_provider' => env('AUDIT_DEEP_RESEARCH_FORMATTER_PROVIDER', 'openai'),
         'deep_research_formatter_model' => env('AUDIT_DEEP_RESEARCH_FORMATTER_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),

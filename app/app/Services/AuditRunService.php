@@ -9,6 +9,7 @@ use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
+use App\Models\WebsiteAuditUrlResult;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,9 @@ use RuntimeException;
 
 class AuditRunService
 {
+    public const START_FROM_STEP_2 = 2;
+    public const START_FROM_STEP_3 = 3;
+
     private const SOURCE_STEP2_RUNNING = 'url_only_batch_step2_running';
     private const SOURCE_STEP2_DONE = 'url_only_batch_step2_done';
     private const SOURCE_STEP3_RUNNING = 'url_only_batch_step3_running';
@@ -76,7 +80,19 @@ class AuditRunService
         $workflow = in_array(($settings['step3FlowMode'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
             ? (string) $settings['step3FlowMode']
             : AuditRun::WORKFLOW_STANDARD;
-        $targetUrls = array_values(array_unique($payload['targetUrls']));
+        $requestedTargetUrls = array_values(array_unique($payload['targetUrls']));
+        $startFromStep = $this->normalizeStartFromStep($payload['startFromStep'] ?? null);
+        $queuedTargetUrls = $requestedTargetUrls;
+        $step3SeedResults = collect();
+
+        if ($startFromStep === self::START_FROM_STEP_3) {
+            $step3SeedResults = $this->loadStep3SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
+            $queuedTargetUrls = $step3SeedResults->pluck('target_url')->values()->all();
+
+            if ($queuedTargetUrls === []) {
+                throw new RuntimeException('Không có URL nào đủ dữ liệu bước 2 để chạy từ bước 3. Hãy chạy lại từ bước 2 hoặc chọn các URL đã có keyword + danh mục.');
+            }
+        }
 
         if ($this->creditService->getBalance($userUid) <= 0) {
             throw new RuntimeException('Không đủ credit. Cần có credit trong tài khoản để khởi chạy audit; hệ thống sẽ trừ theo token AI thực tế sau mỗi lần gọi model.');
@@ -91,8 +107,8 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings): AuditRun {
-            $targetUrls = array_values(array_unique($payload['targetUrls']));
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step3SeedResults, $startFromStep): AuditRun {
+            $targetUrls = $queuedTargetUrls;
             $categories = $payload['categories'] ?? [];
 
             $run = AuditRun::query()->create([
@@ -129,11 +145,19 @@ class AuditRunService
             ]);
 
             foreach ($targetUrls as $index => $url) {
+                $seedResult = $step3SeedResults->firstWhere('target_url', $url);
+
                 $run->items()->create([
                     'public_id' => (string) Str::ulid(),
                     'position' => $index + 1,
                     'target_url' => $url,
-                    'status' => 'queued',
+                    'status' => $startFromStep === self::START_FROM_STEP_3 ? 'analyzing' : 'queued',
+                    'extraction_source' => $startFromStep === self::START_FROM_STEP_3 ? self::SOURCE_STEP2_DONE : null,
+                    'page_title' => $seedResult?->page_title,
+                    'primary_keyword' => $seedResult?->primary_keyword,
+                    'category_name' => $seedResult?->category_name,
+                    'category_url' => $seedResult?->category_url,
+                    'category_match_reason' => $seedResult?->category_match_reason,
                 ]);
             }
 
@@ -143,6 +167,58 @@ class AuditRunService
         ProcessAuditRunJob::dispatch($run->id);
 
         return $run;
+    }
+
+    public function requestedTargetUrlsForRun(array $payload): array
+    {
+        return array_values(array_unique(array_filter(
+            (array) ($payload['targetUrls'] ?? []),
+            fn (mixed $url): bool => is_string($url) && trim($url) !== '',
+        )));
+    }
+
+    public function normalizeStartFromStep(mixed $value): int
+    {
+        $step = (int) $value;
+
+        return in_array($step, [self::START_FROM_STEP_2, self::START_FROM_STEP_3], true)
+            ? $step
+            : self::START_FROM_STEP_2;
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @return \Illuminate\Support\Collection<int, WebsiteAuditUrlResult>
+     */
+    public function loadStep3SeedResults(string $websiteId, array $targetUrls): \Illuminate\Support\Collection
+    {
+        if ($targetUrls === []) {
+            return collect();
+        }
+
+        $resultsByUrl = WebsiteAuditUrlResult::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('target_url', $targetUrls)
+            ->get()
+            ->filter(fn (WebsiteAuditUrlResult $result): bool => $this->hasStep2SeedData($result))
+            ->keyBy('target_url');
+
+        return collect($targetUrls)
+            ->map(fn (string $url): ?WebsiteAuditUrlResult => $resultsByUrl->get($url))
+            ->filter(fn (?WebsiteAuditUrlResult $result): bool => $result instanceof WebsiteAuditUrlResult)
+            ->values();
+    }
+
+    public function hasStep2SeedData(WebsiteAuditUrlResult $result): bool
+    {
+        return $this->filledText($result->primary_keyword)
+            && $this->filledText($result->category_name)
+            && $this->filledText($result->category_url);
+    }
+
+    private function filledText(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
     }
 
     public function minimumCreditsPerUrl(string $provider, ?string $model): int

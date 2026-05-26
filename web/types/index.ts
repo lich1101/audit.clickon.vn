@@ -24,6 +24,7 @@ export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" |
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
 export type AuditWorkflow = "standard" | "audit_deep_research";
+export type AuditRunStartStep = 2 | 3;
 
 export type WebsiteActiveRunSummary = {
   publicId: string;

@@ -187,9 +187,13 @@ export function AuditWorkbenchTable({
                   item?.extractionSource === "url_only_batch_step2_running"
                     ? "Bước 2: keyword + danh mục"
                     : item?.extractionSource === "url_only_batch_step2_done"
-                      ? "Chờ bước 3: audit onpage"
+                      ? "Chờ bước 3"
                       : item?.extractionSource === "url_only_batch_step3_running"
                         ? "Bước 3: audit onpage"
+                        : item?.extractionSource === "audit_deep_research_running"
+                          ? "Bước 3: deep research"
+                          : item?.extractionSource === "audit_deep_research"
+                            ? "Bước 3: deep research"
                         : null;
 
                 return (

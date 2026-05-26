@@ -8,6 +8,7 @@ use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
+use App\Models\WebsiteAuditUrlResult;
 use App\Services\AuditSettingsService;
 use App\Services\AuditRunService;
 use App\Services\CreditService;
@@ -318,6 +319,124 @@ class AuditDeepResearchWorkflowTest extends TestCase
         Queue::assertPushed(ProcessAuditRunJob::class, function (ProcessAuditRunJob $job) use ($run): bool {
             return $job->runId === $run->id;
         });
+    }
+
+    public function test_create_run_from_step_3_prefills_items_from_saved_step_2_data_and_skips_urls_without_seed_data(): void
+    {
+        Queue::fake();
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'openai',
+            'step2FormatterModel' => 'gpt-5.5',
+            'step3FormatterProvider' => 'openai',
+            'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => AuditRun::WORKFLOW_STANDARD,
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 5,
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        WebsiteAuditUrlResult::query()->create([
+            'website_id' => 'website-live',
+            'target_url_hash' => hash('sha256', 'https://example.com/post-1'),
+            'target_url' => 'https://example.com/post-1',
+            'status' => 'completed',
+            'page_title' => 'Post 1',
+            'primary_keyword' => 'keyword post 1',
+            'category_name' => 'Danh mục A',
+            'category_url' => 'https://example.com/danh-muc-a',
+            'category_match_reason' => 'Khớp từ bước 2',
+        ]);
+
+        WebsiteAuditUrlResult::query()->create([
+            'website_id' => 'website-live',
+            'target_url_hash' => hash('sha256', 'https://example.com/post-2'),
+            'target_url' => 'https://example.com/post-2',
+            'status' => 'completed',
+            'page_title' => 'Post 2',
+            'primary_keyword' => 'keyword post 2',
+            'category_name' => null,
+            'category_url' => null,
+        ]);
+
+        $websiteData = Mockery::mock(WebsiteDataService::class);
+        $websiteData->shouldReceive('getWebsite')->once()->with('website-live')->andReturn([
+            'id' => 'website-live',
+            'userId' => 'user-test',
+            'name' => 'Website live',
+            'url' => 'https://example.com',
+        ]);
+        $this->app->instance(WebsiteDataService::class, $websiteData);
+
+        $creditService = Mockery::mock(CreditService::class);
+        $creditService->shouldReceive('getBalance')->once()->with('user-test')->andReturn(500);
+        $this->app->instance(CreditService::class, $creditService);
+
+        $run = app(AuditRunService::class)->createRun('user-test', 'test@example.com', [
+            'websiteId' => 'website-live',
+            'startFromStep' => 3,
+            'targetUrls' => [
+                'https://example.com/post-1',
+                'https://example.com/post-2',
+            ],
+            'categories' => [],
+            'checklistText' => 'Checklist test',
+        ]);
+
+        $run->refresh();
+        $item = $run->items()->firstOrFail();
+
+        $this->assertSame(AuditRun::WORKFLOW_STANDARD, $run->workflow);
+        $this->assertSame(['https://example.com/post-1'], $run->target_urls);
+        $this->assertSame(1, $run->total_urls);
+        $this->assertSame('analyzing', $item->status);
+        $this->assertSame('url_only_batch_step2_done', $item->extraction_source);
+        $this->assertSame('keyword post 1', $item->primary_keyword);
+        $this->assertSame('Danh mục A', $item->category_name);
+        $this->assertSame('https://example.com/danh-muc-a', $item->category_url);
+
+        Queue::assertPushed(ProcessAuditRunJob::class, function (ProcessAuditRunJob $job) use ($run): bool {
+            return $job->runId === $run->id;
+        });
+    }
+
+    public function test_create_run_from_step_3_rejects_when_no_urls_have_saved_step_2_data(): void
+    {
+        Queue::fake();
+
+        $websiteData = Mockery::mock(WebsiteDataService::class);
+        $websiteData->shouldReceive('getWebsite')->once()->with('website-live')->andReturn([
+            'id' => 'website-live',
+            'userId' => 'user-test',
+            'name' => 'Website live',
+            'url' => 'https://example.com',
+        ]);
+        $this->app->instance(WebsiteDataService::class, $websiteData);
+
+        $creditService = Mockery::mock(CreditService::class);
+        $this->app->instance(CreditService::class, $creditService);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Không có URL nào đủ dữ liệu bước 2 để chạy từ bước 3.');
+
+        app(AuditRunService::class)->createRun('user-test', 'test@example.com', [
+            'websiteId' => 'website-live',
+            'startFromStep' => 3,
+            'targetUrls' => ['https://example.com/post-1'],
+            'categories' => [],
+            'checklistText' => 'Checklist test',
+        ]);
     }
 
     private function makeRun(int $totalUrls = 1): AuditRun

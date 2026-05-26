@@ -2,7 +2,7 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
-import type { AuditRun, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunStartStep, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 
 export const ACTIVE_AUDIT_POLL_INTERVAL_MS = 3000;
@@ -24,11 +24,16 @@ type AuditRunResponse = {
 };
 
 type CreateAuditRunResponse = {
+  message: string;
   data: {
     publicId: string;
     status: AuditRun["status"];
     workflow?: AuditWorkflow;
+    startFromStep: AuditRunStartStep;
+    requestedTotalUrls: number;
     totalUrls: number;
+    queuedTargetUrls: string[];
+    skippedTargetUrls: string[];
   };
 };
 
@@ -108,6 +113,7 @@ export async function createAuditRun(input: {
   websiteName?: string;
   websiteUrl?: string;
   callbackUrl?: string;
+  startFromStep?: AuditRunStartStep;
   targetUrlsInput: string;
   categoriesInput: string;
   checklistText?: string;
@@ -122,6 +128,7 @@ export async function createAuditRun(input: {
       websiteName: input.websiteName,
       websiteUrl: input.websiteUrl,
       callbackUrl: input.callbackUrl?.trim() || undefined,
+      startFromStep: input.startFromStep ?? 2,
       targetUrls,
       categories,
       checklistText: input.checklistText?.trim() || undefined

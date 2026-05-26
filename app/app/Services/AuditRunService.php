@@ -772,6 +772,71 @@ class AuditRunService
     }
 
     /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function retryBatchItemIdsInSmallerChunks(AuditRun $run, array $itemIds, int $step, string $message): bool
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if (! in_array($step, [2, 3], true) || count($itemIds) <= 1 || ! $this->isRecoverableBatchShapeFailure($message)) {
+            return false;
+        }
+
+        $status = $step === 2 ? 'fetching' : 'analyzing';
+        $source = $step === 2 ? self::SOURCE_STEP2_RUNNING : self::SOURCE_STEP3_RUNNING;
+        $chunkSize = $this->smallerRetryChunkSize(count($itemIds));
+
+        $shouldRetry = DB::transaction(function () use ($run, $itemIds, $status, $source): bool {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return false;
+            }
+
+            $freshRun->items()
+                ->whereIn('id', $itemIds)
+                ->update([
+                    'status' => $status,
+                    'extraction_source' => $source,
+                    'error_message' => null,
+                    'completed_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+            return true;
+        });
+
+        if (! $shouldRetry) {
+            return false;
+        }
+
+        foreach (array_chunk($itemIds, $chunkSize) as $chunk) {
+            if ($step === 2) {
+                ProcessAuditRunStep2BatchJob::dispatch($run->id, array_values($chunk));
+
+                continue;
+            }
+
+            ProcessAuditRunStep3BatchJob::dispatch($run->id, array_values($chunk));
+        }
+
+        $this->syncRunIfEnabled($run->fresh());
+
+        return true;
+    }
+
+    private function isRecoverableBatchShapeFailure(string $message): bool
+    {
+        return str_contains($message, 'JSON thiếu dòng kết quả')
+            || str_contains($message, 'JSON không có trường items hợp lệ');
+    }
+
+    private function smallerRetryChunkSize(int $itemCount): int
+    {
+        return max(1, min(20, (int) ceil($itemCount / 2)));
+    }
+
+    /**
      * @param  array<string, mixed>  $result
      * @param  array<int, array<string, mixed>>  $categories
      * @return array{name: string|null, url: string|null}

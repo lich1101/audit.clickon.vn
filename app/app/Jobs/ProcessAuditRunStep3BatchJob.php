@@ -57,7 +57,11 @@ class ProcessAuditRunStep3BatchJob implements ShouldQueue
             return;
         }
 
-        $auditRunService->markBatchItemsFailed($run, $exception->getMessage());
-        $auditRunService->markRunFailed($run, $exception->getMessage());
+        if ($auditRunService->retryBatchItemIdsInSmallerChunks($run, $this->itemIds, 3, $exception->getMessage())) {
+            return;
+        }
+
+        $auditRunService->markBatchItemIdsFailed($run, $this->itemIds, $exception->getMessage());
+        $auditRunService->dispatchStep3Batches($run);
     }
 }

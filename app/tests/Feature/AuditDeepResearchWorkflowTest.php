@@ -92,7 +92,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
                 && $siteUrls === $run->target_urls
                 && $checklistText === $run->checklist_text
                 && $auditRunId === $run->id
-                && $researchModel === 'sonar-pro'
+                && $researchModel === 'sonar-deep-research'
                 && $reasoningModel === 'gpt-5.5'
                 && $formatterProvider === 'openai'
                 && $formatterModel === 'gpt-5.5';
@@ -138,7 +138,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
                 ],
             ],
             'modelUsed' => [
-                'research' => ['provider' => 'perplexity', 'model' => 'sonar-pro'],
+                'research' => ['provider' => 'perplexity', 'model' => 'sonar-deep-research'],
                 'reasoning' => ['provider' => 'openai', 'model' => 'gpt-5.5'],
                 'formatter' => ['provider' => 'openai', 'model' => 'gpt-5.5'],
             ],
@@ -179,7 +179,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
             'deepResearchBatchSize' => 2,
-            'deepResearchResearchModel' => 'sonar-pro',
+            'deepResearchResearchModel' => 'sonar-deep-research',
             'deepResearchReasoningModel' => 'gpt-5.5',
             'deepResearchFormatterProvider' => 'openai',
             'deepResearchFormatterModel' => 'gpt-5.5',
@@ -289,7 +289,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'step2_formatter_model' => 'gpt-5.5',
             'step3_formatter_provider' => 'openai',
             'step3_formatter_model' => 'gpt-5.5',
-            'deep_research_research_model' => 'sonar-pro',
+            'deep_research_research_model' => 'sonar-deep-research',
             'deep_research_reasoning_model' => 'gpt-5.5',
             'deep_research_formatter_provider' => 'openai',
             'deep_research_formatter_model' => 'gpt-5.5',

@@ -45,7 +45,7 @@ export default function AdminAuditSettingsPage() {
     step2BatchSize: 60,
     step3BatchSize: 30,
     deepResearchBatchSize: 5,
-    deepResearchResearchModel: "sonar-pro",
+    deepResearchResearchModel: "sonar-deep-research",
     deepResearchReasoningModel: "gpt-5.5",
     deepResearchFormatterProvider: "openai",
     deepResearchFormatterModel: "gpt-5.5"
@@ -58,7 +58,7 @@ export default function AdminAuditSettingsPage() {
           ...data,
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
-          deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-pro",
+          deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-deep-research",
           deepResearchReasoningModel: data.deepResearchReasoningModel ?? "gpt-5.5",
           deepResearchFormatterProvider: data.deepResearchFormatterProvider ?? "openai",
           deepResearchFormatterModel: data.deepResearchFormatterModel ?? "gpt-5.5"
@@ -338,7 +338,7 @@ export default function AdminAuditSettingsPage() {
                     deepResearchResearchModel: event.target.value
                   }))
                 }
-                placeholder="Ví dụ: sonar-pro"
+                placeholder="Ví dụ: sonar-deep-research"
               />
               <p className="text-xs text-muted-foreground">Nhập model Perplexity dùng để research cho chunk step 3A.</p>
             </div>

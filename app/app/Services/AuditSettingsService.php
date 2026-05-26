@@ -32,8 +32,8 @@ class AuditSettingsService
             $deepResearchBatchSize = (int) ($value['deepResearchBatchSize'] ?? env('AUDIT_DEEP_RESEARCH_BATCH_SIZE', 5));
             $deepResearchBatchSize = max(1, min(100, $deepResearchBatchSize));
             $deepResearchResearchModel = $this->normalizeModel(
-                $value['deepResearchResearchModel'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', config('services.perplexity.model', 'sonar-pro')),
-                (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro')),
+                $value['deepResearchResearchModel'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', config('services.perplexity.model', 'sonar-deep-research')),
+                (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research')),
             );
             $deepResearchReasoningModel = $this->normalizeModel(
                 $value['deepResearchReasoningModel'] ?? env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', config('services.openai.model', 'gpt-5.5')),
@@ -115,7 +115,7 @@ class AuditSettingsService
             ? max(1, min(100, (int) $payload['deepResearchBatchSize']))
             : $current['deepResearchBatchSize'];
         $deepResearchResearchModel = array_key_exists('deepResearchResearchModel', $payload)
-            ? $this->normalizeModel($payload['deepResearchResearchModel'], (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro')))
+            ? $this->normalizeModel($payload['deepResearchResearchModel'], (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research')))
             : $current['deepResearchResearchModel'];
         $deepResearchReasoningModel = array_key_exists('deepResearchReasoningModel', $payload)
             ? $this->normalizeModel($payload['deepResearchReasoningModel'], (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))

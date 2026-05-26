@@ -603,7 +603,7 @@ class DeepResearchSeoAuditService
             return $configured;
         }
 
-        return (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro'));
+        return (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
     }
 
     private function reasoningModel(?string $override = null): string

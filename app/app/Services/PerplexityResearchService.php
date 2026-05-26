@@ -9,6 +9,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class PerplexityResearchService
@@ -85,7 +86,7 @@ class PerplexityResearchService
         $provider = 'perplexity';
         $model = trim((string) ($model ?? '')) !== ''
             ? trim((string) $model)
-            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro'));
+            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
         $schema = $this->researchBatchSchema();
         $step = $persistStep ?: 'deep_research_research';
         $targetUrls = array_values(array_map(
@@ -206,6 +207,10 @@ class PerplexityResearchService
             ],
         ];
 
+        if ($this->supportsReasoningEffort($model)) {
+            $payload['reasoning_effort'] = $this->reasoningEffort();
+        }
+
         $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
             'step' => $persistStep,
             'stepLabel' => 'Deep Research A: Perplexity research',
@@ -217,16 +222,129 @@ class PerplexityResearchService
             'createdAt' => now()->toIso8601String(),
         ]);
 
+        if ($this->shouldUseAsync($model)) {
+            return $this->requestResearchRawAsync(
+                apiKey: (string) $apiKey,
+                model: $model,
+                payload: $payload,
+                auditRunId: $auditRunId,
+                persistStep: $persistStep,
+            );
+        }
+
+        return $this->requestResearchRawSync(
+            apiKey: (string) $apiKey,
+            model: $model,
+            payload: $payload,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{rawText: string, usage: array<string, mixed>, citations: array<int, string>, searchResults: array<int, array<string, mixed>>}
+     */
+    private function requestResearchRawSync(
+        string $apiKey,
+        string $model,
+        array $payload,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
         $response = $this->sendRequest(
             fn (): Response => Http::withToken($apiKey)
                 ->acceptJson()
                 ->connectTimeout($this->connectTimeoutSeconds())
                 ->timeout($this->timeoutSeconds())
-                ->post(rtrim((string) config('services.perplexity.base_url', 'https://api.perplexity.ai'), '/').'/v1/sonar', $payload)
+                ->post($this->sonarEndpoint(), $payload)
         );
 
         $this->throwIfRequestFailed($response);
-        $body = $response->json();
+
+        return $this->extractCompletionPayload(
+            body: $response->json(),
+            model: $model,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+            interactionId: null,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{rawText: string, usage: array<string, mixed>, citations: array<int, string>, searchResults: array<int, array<string, mixed>>}
+     */
+    private function requestResearchRawAsync(
+        string $apiKey,
+        string $model,
+        array $payload,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $submissionPayload = [
+            'request' => $payload,
+            'idempotency_key' => $this->asyncIdempotencyKey($auditRunId, $persistStep, $model),
+        ];
+
+        $response = $this->sendRequest(
+            fn (): Response => Http::withToken($apiKey)
+                ->acceptJson()
+                ->connectTimeout($this->connectTimeoutSeconds())
+                ->timeout($this->timeoutSeconds())
+                ->post($this->asyncSonarEndpoint(), $submissionPayload)
+        );
+
+        $this->throwIfRequestFailed($response);
+        $this->persistAiStepResponse($auditRunId, $persistStep, [
+            'step' => $persistStep,
+            'stepLabel' => 'Deep Research A: Perplexity research',
+            'status' => 'async_submitted',
+            'provider' => 'perplexity',
+            'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
+            'interactionId' => (string) Arr::get($response->json(), 'id', ''),
+            'asyncStatus' => (string) Arr::get($response->json(), 'status', 'CREATED'),
+            'createdAt' => now()->toIso8601String(),
+        ]);
+
+        $requestId = trim((string) Arr::get($response->json(), 'id', ''));
+
+        if ($requestId === '') {
+            throw new RuntimeException('Perplexity async request did not return request id.');
+        }
+
+        $completedBody = $this->pollAsyncCompletion($apiKey, $requestId);
+
+        if (strtoupper((string) ($completedBody['status'] ?? '')) === 'FAILED') {
+            throw new RuntimeException('Perplexity async request failed: '.trim((string) ($completedBody['error_message'] ?? 'Unknown error.')));
+        }
+
+        $completionBody = is_array($completedBody['response'] ?? null) ? $completedBody['response'] : null;
+
+        if (! is_array($completionBody)) {
+            throw new RuntimeException('Perplexity async request completed without response payload.');
+        }
+
+        return $this->extractCompletionPayload(
+            body: $completionBody,
+            model: $model,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+            interactionId: $requestId,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array{rawText: string, usage: array<string, mixed>, citations: array<int, string>, searchResults: array<int, array<string, mixed>>}
+     */
+    private function extractCompletionPayload(
+        array $body,
+        string $model,
+        ?int $auditRunId,
+        string $persistStep,
+        ?string $interactionId,
+    ): array {
         $rawText = (string) Arr::get($body, 'choices.0.message.content', '');
 
         if (trim($rawText) === '') {
@@ -240,6 +358,9 @@ class PerplexityResearchService
             'input_tokens' => (int) ($usageMeta['prompt_tokens'] ?? 0),
             'output_tokens' => (int) ($usageMeta['completion_tokens'] ?? 0),
             'total_tokens' => (int) ($usageMeta['total_tokens'] ?? 0),
+            'citation_tokens' => (int) ($usageMeta['citation_tokens'] ?? 0),
+            'reasoning_tokens' => (int) ($usageMeta['reasoning_tokens'] ?? 0),
+            'search_queries' => (int) ($usageMeta['num_search_queries'] ?? 0),
         ];
 
         $searchResults = array_values(array_filter(
@@ -257,6 +378,7 @@ class PerplexityResearchService
             'status' => 'raw',
             'provider' => 'perplexity',
             'model' => (string) ($body['model'] ?? $model),
+            'interactionId' => $interactionId,
             'rawText' => $rawText,
             'usage' => $usage,
             'citations' => $citations,
@@ -270,6 +392,42 @@ class PerplexityResearchService
             'citations' => $citations,
             'searchResults' => $searchResults,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function pollAsyncCompletion(string $apiKey, string $requestId): array
+    {
+        $timeoutSeconds = $this->asyncTimeoutSeconds();
+        $pollIntervalMs = $this->asyncPollIntervalMs();
+        $deadline = microtime(true) + $timeoutSeconds;
+
+        do {
+            $response = $this->sendRequest(
+                fn (): Response => Http::withToken($apiKey)
+                    ->acceptJson()
+                    ->connectTimeout($this->connectTimeoutSeconds())
+                    ->timeout($this->timeoutSeconds())
+                    ->get($this->asyncSonarRequestEndpoint($requestId))
+            );
+
+            $this->throwIfRequestFailed($response);
+            $body = $response->json();
+            $status = strtoupper(trim((string) ($body['status'] ?? '')));
+
+            if (in_array($status, ['COMPLETED', 'FAILED'], true)) {
+                return is_array($body) ? $body : [];
+            }
+
+            usleep($pollIntervalMs * 1000);
+        } while (microtime(true) < $deadline);
+
+        throw new RuntimeException(sprintf(
+            'Perplexity async request %s timed out after %d seconds.',
+            $requestId,
+            $timeoutSeconds,
+        ));
     }
 
     /**
@@ -545,6 +703,61 @@ class PerplexityResearchService
     private function connectTimeoutSeconds(): int
     {
         return max(5, (int) config('services.audit.ai_http_connect_timeout_seconds', 30));
+    }
+
+    private function supportsReasoningEffort(string $model): bool
+    {
+        return str_contains(Str::lower($model), 'deep-research');
+    }
+
+    private function shouldUseAsync(string $model): bool
+    {
+        return $this->supportsReasoningEffort($model)
+            && (filter_var(config('services.audit.deep_research_research_use_async', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true);
+    }
+
+    private function reasoningEffort(): string
+    {
+        $effort = Str::lower(trim((string) config('services.audit.deep_research_research_reasoning_effort', 'medium')));
+
+        return in_array($effort, ['low', 'medium', 'high'], true) ? $effort : 'medium';
+    }
+
+    private function asyncTimeoutSeconds(): int
+    {
+        return max(60, (int) config('services.audit.deep_research_async_timeout_seconds', 900));
+    }
+
+    private function asyncPollIntervalMs(): int
+    {
+        return max(1000, (int) config('services.audit.deep_research_async_poll_interval_ms', 3000));
+    }
+
+    private function sonarEndpoint(): string
+    {
+        return rtrim((string) config('services.perplexity.base_url', 'https://api.perplexity.ai'), '/').'/v1/sonar';
+    }
+
+    private function asyncSonarEndpoint(): string
+    {
+        return rtrim((string) config('services.perplexity.base_url', 'https://api.perplexity.ai'), '/').'/v1/async/sonar';
+    }
+
+    private function asyncSonarRequestEndpoint(string $requestId): string
+    {
+        return $this->asyncSonarEndpoint().'/'.rawurlencode($requestId);
+    }
+
+    private function asyncIdempotencyKey(?int $auditRunId, string $persistStep, string $model): string
+    {
+        $seed = implode(':', [
+            'audit-deep-research',
+            (string) ($auditRunId ?? 'standalone'),
+            $persistStep,
+            $model,
+        ]);
+
+        return substr(hash('sha256', $seed), 0, 64);
     }
 
     /**

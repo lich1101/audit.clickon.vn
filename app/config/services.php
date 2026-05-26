@@ -54,7 +54,7 @@ return [
     'perplexity' => [
         'api_key' => env('PERPLEXITY_API_KEY'),
         'base_url' => env('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai'),
-        'model' => env('PERPLEXITY_MODEL', 'sonar-pro'),
+        'model' => env('PERPLEXITY_MODEL', 'sonar-deep-research'),
     ],
 
     'audit' => [
@@ -72,7 +72,11 @@ return [
         'ai_http_connect_timeout_seconds' => (int) env('AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS', 30),
         'ai_http_retry_attempts' => (int) env('AUDIT_AI_HTTP_RETRY_ATTEMPTS', 3),
         'ai_http_retry_sleep_ms' => (int) env('AUDIT_AI_HTTP_RETRY_SLEEP_MS', 2000),
-        'deep_research_research_model' => env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', env('PERPLEXITY_MODEL', 'sonar-pro')),
+        'deep_research_research_model' => env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', env('PERPLEXITY_MODEL', 'sonar-deep-research')),
+        'deep_research_research_reasoning_effort' => env('AUDIT_DEEP_RESEARCH_RESEARCH_REASONING_EFFORT', 'medium'),
+        'deep_research_research_use_async' => env('AUDIT_DEEP_RESEARCH_RESEARCH_USE_ASYNC', true),
+        'deep_research_async_timeout_seconds' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_TIMEOUT_SECONDS', 900),
+        'deep_research_async_poll_interval_ms' => (int) env('AUDIT_DEEP_RESEARCH_ASYNC_POLL_INTERVAL_MS', 3000),
         'deep_research_reasoning_model' => env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),
         'deep_research_formatter_provider' => env('AUDIT_DEEP_RESEARCH_FORMATTER_PROVIDER', 'openai'),
         'deep_research_formatter_model' => env('AUDIT_DEEP_RESEARCH_FORMATTER_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),

@@ -111,7 +111,7 @@ export function mapAuditRun(docId: string, data: DocumentData): AuditRun {
     step2AiModel: data.step2AiModel ?? data.aiModel ?? null,
     step3AiProvider: ["openai", "gemini", "gemini_deep_research"].includes(data.step3AiProvider) ? data.step3AiProvider : data.aiProvider ?? "openai",
     step3AiModel: data.step3AiModel ?? data.aiModel ?? null,
-    deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-pro",
+    deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-deep-research",
     deepResearchReasoningModel: data.deepResearchReasoningModel ?? "gpt-5.5",
     deepResearchFormatterProvider: ["openai", "gemini"].includes(data.deepResearchFormatterProvider) ? data.deepResearchFormatterProvider : "openai",
     deepResearchFormatterModel: data.deepResearchFormatterModel ?? "gpt-5.5",

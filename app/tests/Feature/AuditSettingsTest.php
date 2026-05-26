@@ -28,7 +28,7 @@ class AuditSettingsTest extends TestCase
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
             'deepResearchBatchSize' => 5,
-            'deepResearchResearchModel' => 'sonar-pro',
+            'deepResearchResearchModel' => 'sonar-deep-research',
             'deepResearchReasoningModel' => 'gpt-5.5',
             'deepResearchFormatterProvider' => 'gemini',
             'deepResearchFormatterModel' => 'gemini-2.5-flash',
@@ -39,7 +39,7 @@ class AuditSettingsTest extends TestCase
         $this->assertSame('gemini_deep_research', $settings['step3AiProvider']);
         $this->assertSame('deep-research-pro-preview-12-2025', $settings['step3AiModel']);
         $this->assertSame(5, $settings['deepResearchBatchSize']);
-        $this->assertSame('sonar-pro', $settings['deepResearchResearchModel']);
+        $this->assertSame('sonar-deep-research', $settings['deepResearchResearchModel']);
         $this->assertSame('gpt-5.5', $settings['deepResearchReasoningModel']);
         $this->assertSame('gemini', $settings['deepResearchFormatterProvider']);
         $this->assertSame('gemini-2.5-flash', $settings['deepResearchFormatterModel']);

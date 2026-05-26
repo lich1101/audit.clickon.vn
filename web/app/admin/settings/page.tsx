@@ -43,7 +43,12 @@ export default function AdminAuditSettingsPage() {
     step3FormatterModel: "gemini-2.5-flash",
     maxParallelItems: 3,
     step2BatchSize: 60,
-    step3BatchSize: 30
+    step3BatchSize: 30,
+    deepResearchBatchSize: 5,
+    deepResearchResearchModel: "sonar-pro",
+    deepResearchReasoningModel: "gpt-5.5",
+    deepResearchFormatterProvider: "openai",
+    deepResearchFormatterModel: "gpt-5.5"
   });
 
   useEffect(() => {
@@ -52,7 +57,11 @@ export default function AdminAuditSettingsPage() {
         setSettings({
           ...data,
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
-          step3AiProvider: data.step3AiProvider ?? data.aiProvider
+          step3AiProvider: data.step3AiProvider ?? data.aiProvider,
+          deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-pro",
+          deepResearchReasoningModel: data.deepResearchReasoningModel ?? "gpt-5.5",
+          deepResearchFormatterProvider: data.deepResearchFormatterProvider ?? "openai",
+          deepResearchFormatterModel: data.deepResearchFormatterModel ?? "gpt-5.5"
         });
         setModelPricing(data.modelPricing ?? []);
       })
@@ -132,7 +141,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Model chính riêng cho bước 2 và bước 3</CardTitle>
           <CardDescription>
-            Mỗi bước có provider và model riêng. Cấu hình mặc định phía trên chỉ là fallback cho run cũ hoặc trường hợp chưa cấu hình riêng.
+            Mỗi bước có provider và model riêng. Bước 2 dùng cho cả flow chuẩn lẫn audit_deep_research. Bước 3 trong card này chỉ áp dụng cho flow chuẩn; flow audit_deep_research có cấu hình step 3 riêng ở card bên dưới.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-2">
@@ -178,7 +187,7 @@ export default function AdminAuditSettingsPage() {
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
             <div>
               <p className="font-medium">Bước 3: audit onpage</p>
-              <p className="mt-1 text-xs text-muted-foreground">Dùng để chấm điểm, đề xuất audit và định hướng chỉnh sửa nội dung.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Dùng để chấm điểm, đề xuất audit và định hướng chỉnh sửa nội dung cho flow chuẩn.</p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="step3-ai-provider">Provider bước 3</Label>
@@ -300,12 +309,124 @@ export default function AdminAuditSettingsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Flow audit_deep_research: giữ bước 2 cũ, thay bước 3</CardTitle>
+          <CardDescription>
+            Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A Perplexity research, 3B GPT reasoning audit, 3C JSON formatter.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 3A: Perplexity research</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Nghiên cứu intent, SERP, đối thủ, freshness, keyword demand và cannibalization cho cả chunk, sau khi đã có keyword/danh mục từ bước 2.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Provider</Label>
+              <Input value="Perplexity" readOnly />
+              <p className="text-xs text-muted-foreground">Provider cố định cho bước 3A của flow audit_deep_research.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="deep-research-research-model">Model bước 3A</Label>
+              <Input
+                id="deep-research-research-model"
+                value={settings.deepResearchResearchModel ?? ""}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deepResearchResearchModel: event.target.value
+                  }))
+                }
+                placeholder="Ví dụ: sonar-pro"
+              />
+              <p className="text-xs text-muted-foreground">Nhập model Perplexity dùng để research cho chunk step 3A.</p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 3B: GPT reasoning audit</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dùng dữ liệu crawl + keyword/danh mục bước 2 + research bước 3A để chấm điểm đúng checklist Clickon cho toàn bộ chunk.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Provider</Label>
+              <Input value="OpenAI" readOnly />
+              <p className="text-xs text-muted-foreground">Provider reasoning hiện cố định là OpenAI để giữ output audit ổn định.</p>
+            </div>
+            <AiModelSelect
+              key="deep-research-reasoning-openai"
+              id="deep-research-reasoning-model"
+              label="Model bước 3B"
+              provider="openai"
+              value={settings.deepResearchReasoningModel ?? ""}
+              onChange={(model) =>
+                setSettings((current) => ({
+                  ...current,
+                  deepResearchReasoningModel: model || null
+                }))
+              }
+              description="Model OpenAI reasoning dùng cho bước 3B của flow audit_deep_research."
+            />
+          </div>
+
+          <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
+            <div>
+              <p className="font-medium">Bước 3C: JSON formatter</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Chuẩn hóa raw output reasoning về JSON cuối hợp lệ, đủ item cho toàn bộ chunk của bước 3 mới.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="deep-research-formatter-provider">Provider</Label>
+              <Select
+                value={settings.deepResearchFormatterProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deepResearchFormatterProvider: value as JsonFormatterProvider,
+                    deepResearchFormatterModel: value === "gemini" ? "gemini-2.5-flash" : "gpt-5.5"
+                  }))
+                }
+              >
+                <SelectTrigger id="deep-research-formatter-provider">
+                  <SelectValue placeholder="Chọn formatter provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{formatterProviderDescriptions[settings.deepResearchFormatterProvider]}</p>
+            </div>
+            <AiModelSelect
+              key={`deep-research-formatter-${settings.deepResearchFormatterProvider}`}
+              id="deep-research-formatter-model"
+              label="Model bước 3C"
+              provider={settings.deepResearchFormatterProvider}
+              value={settings.deepResearchFormatterModel ?? ""}
+              onChange={(model) =>
+                setSettings((current) => ({
+                  ...current,
+                  deepResearchFormatterModel: model || null
+                }))
+              }
+              description="Model formatter cho bước 3C của flow audit_deep_research."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Kích thước batch và giới hạn đồng thời</CardTitle>
           <CardDescription>
             Hệ thống tự chia batch theo số URL đã chọn. Trường đồng thời chỉ là giới hạn tối đa số batch được phép chạy cùng lúc, không phải tổng số batch.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-5 lg:grid-cols-3">
+        <CardContent className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="step2-batch-size">Bước 2: URL / batch</Label>
             <Input
@@ -340,6 +461,24 @@ export default function AdminAuditSettingsPage() {
               }
             />
             <p className="text-xs text-muted-foreground">Mặc định 30 URL/lần gọi AI để giảm rủi ro JSON quá dài.</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="deep-research-batch-size">Deep Research: URL / batch</Label>
+            <Input
+              id="deep-research-batch-size"
+              type="number"
+              min={1}
+              max={100}
+              value={settings.deepResearchBatchSize}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  deepResearchBatchSize: Math.max(1, Math.min(100, Number(event.target.value) || 5))
+                }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">Chỉ áp dụng cho step 3 mới của flow audit_deep_research, nên thường nên để nhỏ hơn bước 3 chuẩn. Mặc định 5 URL/lần.</p>
           </div>
 
           <div className="flex flex-col gap-2">

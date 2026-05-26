@@ -7,7 +7,7 @@ use App\Services\AuditRunService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
-class ProcessAuditRunJob implements ShouldQueue
+class ProcessAuditDeepResearchBatchJob implements ShouldQueue
 {
     use Queueable;
 
@@ -18,8 +18,12 @@ class ProcessAuditRunJob implements ShouldQueue
      */
     public int $timeout = 0;
 
+    /**
+     * @param  array<int, int>  $itemIds
+     */
     public function __construct(
         public readonly int $runId,
+        public readonly array $itemIds,
     ) {
         $configured = (int) config('services.audit.batch_job_timeout_seconds', 0);
 
@@ -30,34 +34,34 @@ class ProcessAuditRunJob implements ShouldQueue
 
     public function handle(AuditRunService $auditRunService): void
     {
-        $run = AuditRun::query()->with('items')->findOrFail($this->runId);
+        $run = AuditRun::query()->findOrFail($this->runId);
 
         if ($auditRunService->isRunCancelled($run)) {
             return;
         }
 
-        $auditRunService->markRunProcessing($run);
-
-        if (($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
-            $auditRunService->startDeepResearchRun($run->fresh('items'));
-
-            return;
-        }
-
-        $auditRunService->startChunkedBatchUrlOnly($run->fresh('items'));
+        $auditRunService->processDeepResearchBatch($run, $this->itemIds);
     }
 
     public function failed(\Throwable $exception): void
     {
         $run = AuditRun::query()->find($this->runId);
 
-        if ($run) {
-            $auditRunService = app(AuditRunService::class);
-
-            if (! $auditRunService->isRunCancelled($run)) {
-                $auditRunService->markBatchItemsFailed($run, $exception->getMessage());
-                $auditRunService->markRunFailed($run, $exception->getMessage());
-            }
+        if (! $run) {
+            return;
         }
+
+        $auditRunService = app(AuditRunService::class);
+
+        if ($auditRunService->isRunCancelled($run)) {
+            return;
+        }
+
+        if ($auditRunService->retryDeepResearchBatchItemIdsInSmallerChunks($run, $this->itemIds, $exception->getMessage())) {
+            return;
+        }
+
+        $auditRunService->markDeepResearchBatchItemIdsFailed($run, $this->itemIds, $exception->getMessage());
+        $auditRunService->dispatchDeepResearchBatches($run);
     }
 }

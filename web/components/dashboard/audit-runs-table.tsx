@@ -61,7 +61,9 @@ export function AuditRunsTable({
               </p>
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
               <p className="text-xs text-muted-foreground">
-                B2 {run.step2AiProvider ?? run.aiProvider ?? "openai"}/{run.step2AiModel ?? run.aiModel ?? "default"} · B3 {run.step3AiProvider ?? run.aiProvider ?? "openai"}/{run.step3AiModel ?? run.aiModel ?? "default"}
+                {run.workflow === "audit_deep_research"
+                  ? "Flow audit_deep_research · Perplexity → OpenAI reasoning → JSON formatter"
+                  : `B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
               </p>
             </div>
           )

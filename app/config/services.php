@@ -51,6 +51,12 @@ return [
         'deep_research_timeout_seconds' => (int) env('GEMINI_DEEP_RESEARCH_TIMEOUT_SECONDS', 0),
     ],
 
+    'perplexity' => [
+        'api_key' => env('PERPLEXITY_API_KEY'),
+        'base_url' => env('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai'),
+        'model' => env('PERPLEXITY_MODEL', 'sonar-pro'),
+    ],
+
     'audit' => [
         'max_content_chars' => (int) env('AUDIT_MAX_CONTENT_CHARS', 18000),
         'max_category_content_chars' => (int) env('AUDIT_MAX_CATEGORY_CONTENT_CHARS', 7000),
@@ -66,6 +72,13 @@ return [
         'ai_http_connect_timeout_seconds' => (int) env('AUDIT_AI_HTTP_CONNECT_TIMEOUT_SECONDS', 30),
         'ai_http_retry_attempts' => (int) env('AUDIT_AI_HTTP_RETRY_ATTEMPTS', 3),
         'ai_http_retry_sleep_ms' => (int) env('AUDIT_AI_HTTP_RETRY_SLEEP_MS', 2000),
+        'deep_research_research_model' => env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', env('PERPLEXITY_MODEL', 'sonar-pro')),
+        'deep_research_reasoning_model' => env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),
+        'deep_research_formatter_provider' => env('AUDIT_DEEP_RESEARCH_FORMATTER_PROVIDER', 'openai'),
+        'deep_research_formatter_model' => env('AUDIT_DEEP_RESEARCH_FORMATTER_MODEL', env('OPENAI_MODEL', 'gpt-5.5')),
+        'callback_timeout_seconds' => (int) env('AUDIT_CALLBACK_TIMEOUT_SECONDS', 30),
+        'callback_retry_attempts' => (int) env('AUDIT_CALLBACK_RETRY_ATTEMPTS', 3),
+        'callback_retry_sleep_ms' => (int) env('AUDIT_CALLBACK_RETRY_SLEEP_MS', 2000),
     ],
 
 ];

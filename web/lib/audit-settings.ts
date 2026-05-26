@@ -26,6 +26,11 @@ export type AuditSystemSettings = {
   maxParallelItems: number;
   step2BatchSize: number;
   step3BatchSize: number;
+  deepResearchBatchSize: number;
+  deepResearchResearchModel: string | null;
+  deepResearchReasoningModel: string | null;
+  deepResearchFormatterProvider: JsonFormatterProvider;
+  deepResearchFormatterModel: string | null;
   modelPricing?: ModelPricingRow[];
 };
 
@@ -43,6 +48,11 @@ export type PublicAuditSettings = {
   maxParallelItems?: number;
   step2BatchSize?: number;
   step3BatchSize?: number;
+  deepResearchBatchSize?: number;
+  deepResearchResearchModel?: string | null;
+  deepResearchReasoningModel?: string | null;
+  deepResearchFormatterProvider?: JsonFormatterProvider;
+  deepResearchFormatterModel?: string | null;
   minCreditsPerAiCall?: number;
   minCreditsPerRun?: number;
   minCreditsPerUrl?: number;

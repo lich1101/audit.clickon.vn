@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditRunItem;
+use App\Models\AuditRun;
 use App\Models\WebsiteAuditUrlResult;
 
 class WebsiteAuditUrlResultService
@@ -36,8 +37,12 @@ class WebsiteAuditUrlResultService
                 'audit_recommendations' => $item->audit_recommendations,
                 'content_revision_direction' => $item->content_revision_direction,
                 'error_message' => $item->error_message,
-                'ai_provider' => $run->step3_ai_provider ?: ($run->ai_provider ?? 'openai'),
-                'ai_model' => $run->step3_ai_model ?: $run->ai_model,
+                'ai_provider' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
+                    ? 'openai'
+                    : ($run->step3_ai_provider ?: ($run->ai_provider ?? 'openai')),
+                'ai_model' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
+                    ? ($run->deep_research_reasoning_model ?: (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))
+                    : ($run->step3_ai_model ?: $run->ai_model),
                 'audited_at' => $item->completed_at ?? now(),
             ],
         );

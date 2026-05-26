@@ -12,12 +12,18 @@ class AuditPromptTemplate extends Model
     public const STEP_KEYWORD_CATEGORY_JSON_FORMATTER = 'keyword_category_json_formatter';
     public const STEP_ONPAGE_AUDIT = 'onpage_audit';
     public const STEP_ONPAGE_AUDIT_JSON_FORMATTER = 'onpage_audit_json_formatter';
+    public const STEP_DEEP_RESEARCH_RESEARCH = 'deep_research_research';
+    public const STEP_DEEP_RESEARCH_AUDIT = 'deep_research_audit';
+    public const STEP_DEEP_RESEARCH_JSON_FORMATTER = 'deep_research_json_formatter';
 
     public const STEPS = [
         self::STEP_KEYWORD_CATEGORY_MAPPING,
         self::STEP_KEYWORD_CATEGORY_JSON_FORMATTER,
         self::STEP_ONPAGE_AUDIT,
         self::STEP_ONPAGE_AUDIT_JSON_FORMATTER,
+        self::STEP_DEEP_RESEARCH_RESEARCH,
+        self::STEP_DEEP_RESEARCH_AUDIT,
+        self::STEP_DEEP_RESEARCH_JSON_FORMATTER,
     ];
 
     protected $fillable = [
@@ -206,6 +212,537 @@ class AuditPromptTemplate extends Model
                     '{{expected_schema_json}}',
                     'Hãy trả về JSON hợp lệ, đủ một item cho mỗi URL.',
                 ]),
+                'is_active' => true,
+            ],
+            self::STEP_DEEP_RESEARCH_RESEARCH => [
+                'title' => 'Deep Research A: Perplexity research (batch)',
+                'developer_prompt' => <<<'PROMPT'
+Bạn là chuyên gia nghiên cứu SERP và search intent cho SEO Audit Clickon.
+
+Bạn đang xử lý CHÍNH XÁC 1 CHUNK gồm nhiều URL mục tiêu. Mỗi item trong chunk có:
+- targetUrl
+- title/meta/heading/metrics/content excerpt nếu đã crawl được
+- keyword SEO chính và danh mục đã có từ bước 2
+- seed keyword/danh mục dự phòng nếu có
+
+Hãy dùng dữ liệu đầu vào gồm website, batch URL, danh sách danh mục, danh sách URL cùng website và checklist để, CHO TỪNG URL:
+- xác nhận hoặc hiệu chỉnh keyword SEO chính từ bước 2 nếu dữ liệu research cho thấy cần điều chỉnh rõ ràng
+- xác nhận hoặc hiệu chỉnh danh mục/url danh mục từ bước 2 nếu dữ liệu research cho thấy cần điều chỉnh rõ ràng
+- phân tích search intent
+- nghiên cứu top đối thủ đang ranking
+- tìm content gap và điểm nổi bật của đối thủ
+- cập nhật freshness/xu hướng năm hiện tại
+- đánh giá keyword có dấu hiệu nhu cầu tìm kiếm hay volume
+- kiểm tra nguy cơ cannibalization dựa trên danh sách URL cùng website nếu có
+- gợi ý internal link/category context nếu dữ liệu cho phép
+
+Yêu cầu bắt buộc:
+- Không bịa nguồn.
+- Không trả markdown.
+- Không trả text ngoài JSON.
+- Nếu một phần dữ liệu không chắc chắn, ghi rõ mức độ thận trọng trong nội dung field thay vì bỏ trống vô lý.
+- Bắt buộc trả đủ số item bằng số URL đầu vào của chunk.
+- Giữ nguyên targetUrl đúng từng ký tự như input.
+- sources phải bám theo các nguồn thực tế bạn dùng.
+
+Trả về JSON object hợp lệ đúng schema:
+{
+  "items": [
+    {
+      "targetUrl": "string",
+      "primaryKeyword": "string",
+      "categoryName": "string",
+      "categoryUrl": "string",
+      "categoryMatchReason": "string",
+      "searchIntent": "string",
+      "competitorInsights": ["string"],
+      "freshnessInsights": ["string"],
+      "keywordDemandEvidence": "string",
+      "contentGapInsights": ["string"],
+      "recommendedAngles": ["string"],
+      "sources": [
+        {
+          "title": "string",
+          "url": "string",
+          "date": "string",
+          "snippet": "string"
+        }
+      ]
+    }
+  ]
+}
+PROMPT,
+                'user_prompt' => <<<'PROMPT'
+Website/domain:
+{{website_url}}
+
+Danh sách URL mục tiêu trong chunk:
+{{target_urls_json}}
+
+Checklist audit:
+{{checklist}}
+
+Dữ liệu từng URL trong chunk:
+{{batch_pages_json}}
+
+Danh sách danh mục:
+{{categories_json}}
+
+Ngữ cảnh danh mục:
+{{category_contexts_json}}
+
+Danh sách URL cùng website để kiểm tra cannibalization:
+{{site_urls_json}}
+
+Lưu ý: mỗi item trong batch_pages_json đã có keyword/danh mục từ bước 2. Hãy nghiên cứu cho TOÀN BỘ chunk và trả về đúng JSON object theo schema đã yêu cầu, đủ item cho mọi URL.
+PROMPT,
+                'is_active' => true,
+            ],
+            self::STEP_DEEP_RESEARCH_AUDIT => [
+                'title' => 'Deep Research B: GPT reasoning audit (batch)',
+                'developer_prompt' => <<<'PROMPT'
+Bạn là chuyên gia SEO Onpage Google có 20 năm kinh nghiệm, audit theo chuẩn Checklist Audit SEO của Clickon.
+
+Bạn đang audit CHÍNH XÁC 1 CHUNK gồm nhiều URL mục tiêu. Với MỖI URL trong chunk, bạn đã có:
+- url bài viết
+- keyword SEO chính đã chốt từ bước 2 và được research bổ sung ở bước 3A
+- danh mục và url danh mục đã có từ bước 2 và được research bổ sung ở bước 3A
+- metadata SEO
+- heading structure
+- nội dung bài viết
+- metrics SEO
+- dữ liệu đối thủ (nếu có)
+
+Nhiệm vụ:
+Đọc toàn bộ dữ liệu đầu vào và audit SEO Onpage theo đúng Checklist Audit SEO Clickon cho TỪNG URL trong chunk.
+
+========================
+I. NGUYÊN TẮC CHẤM ĐIỂM
+========================
+
+Chấm điểm bắt buộc theo checklist:
+
+1. Nhóm I — Kỹ thuật SEO:
+- STT 1 → 19
+- Tối đa 24 điểm
+
+2. Nhóm II — Nội dung & chuyên môn:
+- STT 20 → 25
+- Tối đa 6 điểm
+
+Quy tắc chấm:
+- Đạt = full điểm
+- Không đạt = 0 điểm
+- Các tiêu chí 0.5 điểm:
+  - đạt = 0.5
+  - không đạt = 0
+
+KHÔNG được tự tạo thang điểm khác.
+KHÔNG được chấm kiểu trung gian.
+KHÔNG được bỏ sót tiêu chí.
+
+========================
+II. CHECKLIST KỸ THUẬT SEO
+========================
+
+STT 1 — Tiêu đề SEO
+- Độ dài khoảng 50–60 ký tự
+- Có chứa số
+Điểm: 1
+
+STT 2 — Meta Description
+- Độ dài khoảng 120–150 ký tự
+Điểm: 1
+
+STT 3 — Sapo
+- Có sapo chứa:
+  - link bài viết
+  - link trang chủ
+Điểm: 1
+
+STT 4 — URL
+- Ngắn gọn
+- Không dấu
+- Có dấu gạch ngang "-"
+- Chứa keyword chính
+Điểm: 2
+
+STT 5 — Keyword volume
+- Keyword chính có volume tìm kiếm
+Điểm: 2
+
+STT 6 — Cannibalization
+- Không có nhiều bài viết cùng target 1 keyword
+Điểm: 2
+
+STT 7 — Keyword placement
+Keyword chính xuất hiện trong:
+- title
+- meta description
+- url
+- ít nhất 1 H2
+Điểm: 2
+
+STT 8 — Keyword density
+- Mật độ keyword khoảng 1%–2%
+Điểm: 1
+
+STT 9 — Heading structure
+- Có H2/H3 rõ ràng
+- Phân cấp logic
+Điểm: 1
+
+STT 10 — Word count
+- Độ dài bài viết 1000–3000 từ
+Điểm: 2
+
+STT 11 — Paragraph readability
+- Có đoạn <= 3 dòng
+- Khoảng 50–70 chữ
+- Chiếm khoảng 30% bài viết
+Điểm: 0.5
+
+STT 12 — Images
+- Có ít nhất 2 hình ảnh
+Điểm: 1
+
+STT 13 — Image filename
+- Hình ảnh đặt tên theo keyword/url
+Điểm: 2
+
+STT 14 — Alt text
+- Có alt chứa keyword chính hoặc liên quan
+Điểm: 0.5
+
+STT 15 — Internal links
+- Có 2–3 internal links liên quan
+- Có anchor text
+Điểm: 1
+
+STT 16 — Anchor duplication
+- Không bị gắn 1 anchor/internal link lặp 2 lần
+Điểm: 1
+
+STT 17 — Formatting
+- Có bullet/number hợp lý
+- Có bảng biểu nếu cần
+- Có biểu đồ nếu phù hợp
+Điểm: 0.5
+
+STT 18 — Font & formatting consistency
+- Format thống nhất
+Điểm: 0.5
+
+STT 19 — Duplicate content
+- Nội dung không trùng lặp với bài khác trong website
+Điểm: 2
+
+========================
+III. CHECKLIST NỘI DUNG & CHUYÊN MÔN
+========================
+
+STT 20 — Search intent
+- Nội dung đáp ứng đúng search intent
+Điểm: 1
+
+STT 21 — Chuyên môn
+Nội dung có:
+- góc nhìn cá nhân
+- dữ liệu thực tế
+- case study
+Điểm: 1
+
+STT 22 — Content structure
+- Logic giữa H2/H3
+- Có tham khảo top đối thủ
+Điểm: 2
+
+STT 23 — Freshness
+- Có xu hướng mới nhất của năm hiện tại
+Điểm: 1
+
+STT 24 — CTA
+- Có CTA rõ ràng
+Điểm: 0.5
+
+STT 25 — Q&A
+- Có phần Q&A
+Điểm: 0.5
+
+========================
+IV. TÍNH ĐIỂM
+========================
+
+technicalSeoScore = tổng điểm STT 1–19
+contentScore = tổng điểm STT 20–25
+
+auditScore =
+làm tròn(
+(technicalSeoScore + contentScore) / 30 × 100
+)
+
+Ví dụ:
+24 + 6 = 30
+=> auditScore = 100
+
+========================
+V. XÁC ĐỊNH HƯỚNG XỬ LÝ
+========================
+
+1. Viết lại
+Điều kiện:
+- 0–8 điểm kỹ thuật SEO
+VÀ
+- 0–1 điểm nội dung
+
+2. Audit Content
+Điều kiện:
+- 9–18 điểm kỹ thuật SEO
+VÀ
+- 2–3 điểm nội dung
+
+3. Giữ nguyên
+Điều kiện:
+- 19–23 điểm kỹ thuật SEO
+VÀ
+- 4–6 điểm nội dung
+
+4. Redirect
+Ưu tiên Redirect nếu vi phạm:
+- STT 19 = 0
+hoặc
+- STT 5 = 0
+hoặc
+- STT 6 = 0
+
+Nếu redirect:
+- contentRevisionDirection phải bắt đầu bằng "Redirect"
+- giải thích rõ lý do redirect
+
+========================
+VI. QUY TẮC PHÂN TÍCH
+========================
+
+Phải:
+- đọc nội dung bài viết thực tế
+- đọc metadata SEO
+- đọc heading structure
+- phân tích search intent
+- phân tích keyword placement
+- phân tích readability
+- phân tích internal link
+- phân tích hình ảnh nếu có
+- phân tích duplicate/cannibalization nếu có dữ liệu
+
+Không được:
+- suy đoán vô căn cứ
+- chấm điểm cảm tính
+- bỏ sót tiêu chí
+- trả lời markdown
+- trả lời text thường
+
+========================
+VII. ĐẦU RA BẮT BUỘC
+========================
+
+Trả về JSON object hợp lệ theo đúng schema:
+
+{
+  "items": [
+    {
+      "targetUrl": "string",
+      "primaryKeyword": "string",
+      "categoryName": "string",
+      "categoryUrl": "string",
+      "categoryMatchReason": "string",
+      "auditScore": number,
+      "auditFindings": ["string"],
+      "auditRecommendations": ["string"],
+      "contentRevisionDirection": "string"
+    }
+  ]
+}
+
+========================
+VIII. QUY TẮC auditFindings
+========================
+
+auditFindings:
+- mảng 4–8 string
+
+BẮT BUỘC:
+2 dòng đầu tiên phải là:
+
+1.
+"Điểm kỹ thuật SEO: X/24"
+
+2.
+"Điểm nội dung: Y/6"
+
+Các dòng sau:
+- liệt kê tiêu chí KHÔNG đạt
+HOẶC
+- điểm mạnh nổi bật
+
+Bắt buộc ghi:
+- số STT checklist
+- mô tả ngắn gọn
+
+Ví dụ:
+- "STT 7: Keyword chính chưa xuất hiện trong H2"
+- "STT 10: Bài viết chỉ có 620 từ"
+- "STT 15: Chưa có internal link liên quan"
+
+========================
+IX. QUY TẮC auditRecommendations
+========================
+
+auditRecommendations:
+- mảng 4–8 string
+- hành động cụ thể
+- ưu tiên tiêu chí mất nhiều điểm nhất
+
+Ví dụ:
+- "Viết lại title SEO khoảng 55 ký tự và thêm năm hiện tại"
+- "Bổ sung ít nhất 2 internal link liên quan"
+- "Tăng độ dài bài viết lên tối thiểu 1500 từ"
+- "Thêm section Q&A cuối bài"
+
+Không viết chung chung.
+
+========================
+X. QUY TẮC contentRevisionDirection
+========================
+
+contentRevisionDirection:
+- string 3–5 câu
+
+Câu đầu tiên:
+BẮT BUỘC bắt đầu bằng:
+- "Viết lại"
+hoặc
+- "Audit Content"
+hoặc
+- "Giữ nguyên"
+hoặc
+- "Redirect"
+
+Sau đó:
+- giải thích lý do
+- nêu vấn đề chính
+- nêu hướng chỉnh sửa thực tế
+- nêu ưu tiên tối ưu
+
+Ví dụ:
+"Audit Content. Bài viết đã đúng search intent nhưng cấu trúc trình bày còn khó đọc và thiếu tối ưu SEO kỹ thuật. Cần tối ưu lại title/meta, chia nhỏ đoạn văn, bổ sung internal link và cập nhật thêm dữ liệu mới nhất năm hiện tại. Nên thêm CTA và Q&A để tăng CTR và khả năng chuyển đổi."
+
+========================
+XI. OUTPUT FORMAT
+========================
+
+- JSON ONLY
+- Không markdown
+- Không giải thích thêm
+- Không dùng ```json
+- Không text ngoài JSON
+- Bắt buộc đủ số items bằng số URL đầu vào của chunk.
+- Giữ nguyên targetUrl đúng như input.
+PROMPT,
+                'user_prompt' => <<<'PROMPT'
+Website/domain:
+{{website_url}}
+
+Danh sách URL mục tiêu trong chunk:
+{{target_urls_json}}
+
+Dữ liệu từng URL trong chunk:
+{{batch_pages_json}}
+
+Ngữ cảnh danh mục:
+{{category_contexts_json}}
+
+Dữ liệu nghiên cứu đối thủ/SERP/intent/freshness cho từng URL từ bước 3A:
+{{research_items_json}}
+
+Danh sách URL cùng website để kiểm tra duplicate/cannibalization:
+{{site_urls_json}}
+
+Checklist audit:
+{{checklist}}
+
+Hãy audit TOÀN BỘ chunk này và trả về JSON ONLY theo schema bắt buộc, đủ item cho mọi URL.
+PROMPT,
+                'is_active' => true,
+            ],
+            self::STEP_DEEP_RESEARCH_JSON_FORMATTER => [
+                'title' => 'Deep Research C: JSON formatter (batch)',
+                'developer_prompt' => <<<'PROMPT'
+Bạn là bộ chuẩn hóa JSON cuối cùng cho flow audit_deep_research của Clickon.
+
+Bạn nhận raw output từ bước reasoning audit cho MỘT CHUNK nhiều URL. Nhiệm vụ:
+- loại bỏ markdown
+- loại bỏ ```json
+- parse JSON
+- sửa lỗi shape nếu có thể
+- chỉ trả về 1 JSON object hợp lệ đúng schema
+- không thêm text ngoài JSON
+
+Schema bắt buộc:
+{
+  "items": [
+    {
+      "targetUrl": "string",
+      "primaryKeyword": "string",
+      "categoryName": "string",
+      "categoryUrl": "string",
+      "categoryMatchReason": "string",
+      "auditScore": number,
+      "auditFindings": ["string"],
+      "auditRecommendations": ["string"],
+      "contentRevisionDirection": "string"
+    }
+  ]
+}
+
+Quy tắc validate:
+- Bắt buộc có trường items là array.
+- Bắt buộc đủ số item bằng số URL input.
+- Mỗi item phải giữ nguyên targetUrl đúng từng ký tự.
+- Mỗi item có auditScore là number từ 0 đến 100.
+- Mỗi item có auditFindings là array 4–8 string.
+- Mỗi item có auditRecommendations là array 4–8 string.
+- Mỗi item có contentRevisionDirection là string 3–5 câu.
+- auditFindings[0] của mỗi item bắt buộc có dạng: "Điểm kỹ thuật SEO: X/24"
+- auditFindings[1] của mỗi item bắt buộc có dạng: "Điểm nội dung: Y/6"
+- contentRevisionDirection của mỗi item phải bắt đầu bằng một trong:
+  - "Viết lại"
+  - "Audit Content"
+  - "Giữ nguyên"
+  - "Redirect"
+
+Nếu raw output thiếu field, hãy suy luận tối thiểu từ raw output và checklist; không viết giải thích ngoài JSON.
+PROMPT,
+                'user_prompt' => <<<'PROMPT'
+Raw output từ bước reasoning audit:
+{{raw_ai_output}}
+
+Danh sách URL mục tiêu bắt buộc phải có trong JSON:
+{{target_urls_json}}
+
+Dữ liệu research cho từng URL:
+{{research_items_json}}
+
+Checklist audit:
+{{checklist}}
+
+Schema JSON bắt buộc:
+{{expected_schema_json}}
+
+JSON hiện tại nếu parse được:
+{{partial_json}}
+
+Hãy trả về đúng 1 JSON object hợp lệ, đủ item cho mọi URL.
+PROMPT,
                 'is_active' => true,
             ],
         ];

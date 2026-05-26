@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\AuditRun;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreAuditRunRequest extends FormRequest
@@ -13,12 +14,31 @@ class StoreAuditRunRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('workflow') && $this->filled('action')) {
+            $this->merge([
+                'workflow' => $this->input('action'),
+            ]);
+        }
+
+        if (! $this->filled('callbackUrl') && $this->filled('callback_url')) {
+            $this->merge([
+                'callbackUrl' => $this->input('callback_url'),
+            ]);
+        }
+    }
+
     public function rules(): array
     {
         return [
             'websiteId' => ['required', 'string'],
             'websiteName' => ['nullable', 'string', 'max:255'],
             'websiteUrl' => ['nullable', 'string', 'max:2048'],
+            'workflow' => ['nullable', 'string', 'in:'.implode(',', AuditRun::WORKFLOWS)],
+            'action' => ['nullable', 'string', 'in:'.implode(',', AuditRun::WORKFLOWS)],
+            'callbackUrl' => ['nullable', 'string', 'max:2048'],
+            'callback_url' => ['nullable', 'string', 'max:2048'],
             'targetUrls' => ['required', 'array', 'min:1', 'max:'.self::MAX_TARGET_URLS],
             'targetUrls.*' => ['required', 'string', 'max:2048'],
             'categories' => ['nullable', 'array', 'max:200'],
@@ -34,6 +54,11 @@ class StoreAuditRunRequest extends FormRequest
             $websiteUrl = $this->input('websiteUrl');
             if (is_string($websiteUrl) && trim($websiteUrl) !== '' && ! $this->isHttpUrl($websiteUrl)) {
                 $validator->errors()->add('websiteUrl', 'URL website không hợp lệ.');
+            }
+
+            $callbackUrl = $this->input('callbackUrl');
+            if (is_string($callbackUrl) && trim($callbackUrl) !== '' && ! $this->isHttpUrl($callbackUrl)) {
+                $validator->errors()->add('callbackUrl', 'Callback URL không hợp lệ.');
             }
 
             foreach ((array) $this->input('targetUrls', []) as $index => $url) {

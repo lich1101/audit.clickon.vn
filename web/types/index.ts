@@ -23,6 +23,7 @@ export type Plan = {
 export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
+export type AuditWorkflow = "standard" | "audit_deep_research";
 
 export type WebsiteActiveRunSummary = {
   publicId: string;
@@ -116,7 +117,10 @@ export type AuditPromptStep =
   | "keyword_category_mapping"
   | "keyword_category_json_formatter"
   | "onpage_audit"
-  | "onpage_audit_json_formatter";
+  | "onpage_audit_json_formatter"
+  | "deep_research_research"
+  | "deep_research_audit"
+  | "deep_research_json_formatter";
 
 export type AuditPromptTemplate = {
   step: AuditPromptStep;
@@ -217,6 +221,8 @@ export type AuditRun = {
   websiteId: string;
   websiteName?: string | null;
   websiteUrl?: string | null;
+  workflow?: AuditWorkflow;
+  callbackUrl?: string | null;
   userId: string;
   userEmail?: string | null;
   targetUrls: string[];
@@ -240,6 +246,10 @@ export type AuditRun = {
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider | null;
   step3FormatterModel?: string | null;
+  deepResearchResearchModel?: string | null;
+  deepResearchReasoningModel?: string | null;
+  deepResearchFormatterProvider?: JsonFormatterProvider | null;
+  deepResearchFormatterModel?: string | null;
   status: AuditRunStatus;
   totalUrls: number;
   processedUrls: number;

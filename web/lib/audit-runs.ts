@@ -2,7 +2,7 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
-import type { AuditRun, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 
 export const ACTIVE_AUDIT_POLL_INTERVAL_MS = 3000;
@@ -27,6 +27,7 @@ type CreateAuditRunResponse = {
   data: {
     publicId: string;
     status: AuditRun["status"];
+    workflow?: AuditWorkflow;
     totalUrls: number;
   };
 };
@@ -56,6 +57,11 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
+    deepResearchBatchSize: 5,
+    deepResearchResearchModel: "sonar-pro",
+    deepResearchReasoningModel: "gpt-5.5",
+    deepResearchFormatterProvider: "openai",
+    deepResearchFormatterModel: "gpt-5.5",
     minCreditsPerAiCall: 0,
     minCreditsPerRun: 0,
     minCreditsPerUrl: 0
@@ -99,6 +105,8 @@ export async function createAuditRun(input: {
   websiteId: string;
   websiteName?: string;
   websiteUrl?: string;
+  workflow?: AuditWorkflow;
+  callbackUrl?: string;
   targetUrlsInput: string;
   categoriesInput: string;
   checklistText?: string;
@@ -112,6 +120,8 @@ export async function createAuditRun(input: {
       websiteId: input.websiteId,
       websiteName: input.websiteName,
       websiteUrl: input.websiteUrl,
+      workflow: input.workflow ?? "standard",
+      callbackUrl: input.callbackUrl?.trim() || undefined,
       targetUrls,
       categories,
       checklistText: input.checklistText?.trim() || undefined
@@ -133,6 +143,8 @@ export { formatCategoriesInput } from "@/lib/validators";
 export function normalizeAuditRun(run: AuditRun): AuditRun {
   return {
     ...run,
+    workflow: run.workflow ?? "standard",
+    callbackUrl: run.callbackUrl ?? null,
     targetUrls: Array.isArray(run.targetUrls) ? run.targetUrls : [],
     categories: Array.isArray(run.categories) ? run.categories : [],
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],
@@ -146,6 +158,10 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     step2FormatterModel: run.step2FormatterModel ?? "gemini-2.5-flash",
     step3FormatterProvider: run.step3FormatterProvider ?? "gemini",
     step3FormatterModel: run.step3FormatterModel ?? "gemini-2.5-flash",
+    deepResearchResearchModel: run.deepResearchResearchModel ?? "sonar-pro",
+    deepResearchReasoningModel: run.deepResearchReasoningModel ?? "gpt-5.5",
+    deepResearchFormatterProvider: run.deepResearchFormatterProvider ?? "openai",
+    deepResearchFormatterModel: run.deepResearchFormatterModel ?? "gpt-5.5",
     aiStepResponses: run.aiStepResponses ?? {},
     items: Array.isArray(run.items) ? run.items.map((item) => ({
       ...item,

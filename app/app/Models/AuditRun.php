@@ -7,6 +7,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AuditRun extends Model
 {
+    public const WORKFLOW_STANDARD = 'standard';
+    public const WORKFLOW_AUDIT_DEEP_RESEARCH = 'audit_deep_research';
+
+    public const WORKFLOWS = [
+        self::WORKFLOW_STANDARD,
+        self::WORKFLOW_AUDIT_DEEP_RESEARCH,
+    ];
+
     protected $fillable = [
         'public_id',
         'website_id',
@@ -15,6 +23,8 @@ class AuditRun extends Model
         'user_uid',
         'user_email',
         'status',
+        'workflow',
+        'callback_url',
         'target_urls',
         'categories',
         'category_contexts',
@@ -29,6 +39,10 @@ class AuditRun extends Model
         'step2_formatter_model',
         'step3_formatter_provider',
         'step3_formatter_model',
+        'deep_research_research_model',
+        'deep_research_reasoning_model',
+        'deep_research_formatter_provider',
+        'deep_research_formatter_model',
         'total_urls',
         'processed_urls',
         'completed_urls',

@@ -13,6 +13,8 @@ import { SeoAuditRunForm } from "@/components/forms/seo-audit-run-form";
 import { urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
@@ -29,7 +31,17 @@ import {
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
-import type { AuditRun, AuditRunItem, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunItem, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+
+const workflowLabels: Record<AuditWorkflow, string> = {
+  standard: "Audit chuẩn",
+  audit_deep_research: "Audit Deep Research"
+};
+
+const workflowDescriptions: Record<AuditWorkflow, string> = {
+  standard: "Flow batch hiện tại: phân loại keyword/danh mục rồi audit onpage theo chunk.",
+  audit_deep_research: "Flow mới: vẫn chạy bước 2 cũ để lấy keyword + danh mục, sau đó thay bước 3 bằng Perplexity research -> GPT reasoning audit -> formatter JSON theo batch."
+};
 
 function progressFor(run?: AuditRun | null) {
   if (!run || run.totalUrls <= 0) {
@@ -60,6 +72,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
+    deepResearchBatchSize: 5,
     minCreditsPerAiCall: 0,
     minCreditsPerRun: 0,
     minCreditsPerUrl: 0
@@ -69,6 +82,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [exporting, setExporting] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [workflow, setWorkflow] = useState<AuditWorkflow>("standard");
   const [urlList, setUrlList] = useState<string[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [savingUrls, setSavingUrls] = useState(false);
@@ -129,6 +143,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         maxParallelItems: 3,
         step2BatchSize: 60,
         step3BatchSize: 30,
+        deepResearchBatchSize: 5,
         minCreditsPerAiCall: 0,
         minCreditsPerRun: 0,
         minCreditsPerUrl: 0
@@ -251,12 +266,17 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
   const step2BatchSize = Math.max(1, Number(systemAi.step2BatchSize ?? 60));
   const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
+  const deepResearchBatchSize = Math.max(1, Number(systemAi.deepResearchBatchSize ?? 5));
   const step2Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) : 0;
   const step3Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step3BatchSize) : 0;
+  const deepResearchChunks = selectedUrls.length ? Math.ceil(selectedUrls.length / deepResearchBatchSize) : 0;
   const step2Provider = systemAi.step2AiProvider ?? systemAi.aiProvider;
   const step3Provider = systemAi.step3AiProvider ?? systemAi.aiProvider;
-  const formatterChunks = (step2Provider === "gemini_deep_research" ? step2Chunks : 0) + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
-  const estimatedAiCalls = step2Chunks + step3Chunks + formatterChunks;
+  const step2FormatterChunks = step2Provider === "gemini_deep_research" ? step2Chunks : 0;
+  const formatterChunks = step2FormatterChunks + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
+  const estimatedAiCalls = workflow === "audit_deep_research"
+    ? step2Chunks + step2FormatterChunks + deepResearchChunks * 3
+    : step2Chunks + step3Chunks + formatterChunks;
   const currentCredits = profile?.credits ?? 0;
   const hasEnoughCredits = currentCredits > 0;
 
@@ -371,6 +391,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         websiteId: website!.id,
         websiteName: website!.name,
         websiteUrl: website!.url,
+        workflow,
         targetUrlsInput: selectedUrls.join("\n"),
         categoriesInput: formatCategoriesInput(audit.categories),
         checklistText: audit.checklistText ?? ""
@@ -448,15 +469,33 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </div>
           <p className="text-sm text-muted-foreground">
             {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
-            {` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
+            {run?.workflow === "audit_deep_research"
+              ? " · Flow audit_deep_research"
+              : ` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
+          {!isRunActive ? (
+            <div className="grid gap-2 sm:max-w-sm">
+              <Label htmlFor="audit-workflow">Flow chạy audit</Label>
+              <Select value={workflow} onValueChange={(value) => setWorkflow(value as AuditWorkflow)}>
+                <SelectTrigger id="audit-workflow">
+                  <SelectValue placeholder="Chọn flow audit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">{workflowLabels.standard}</SelectItem>
+                  <SelectItem value="audit_deep_research">{workflowLabels.audit_deep_research}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{workflowDescriptions[workflow]}</p>
+            </div>
+          ) : null}
           {isRunActive ? <p className="text-xs text-muted-foreground">Trạng thái URL đang tự cập nhật mỗi 3 giây trong lúc run chạy.</p> : null}
           {isRunActive ? <p className="text-xs text-muted-foreground">Danh sách URL tạm khóa khi run đang chạy để giữ đúng snapshot dữ liệu audit.</p> : null}
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
-              Dự kiến tối đa {estimatedAiCalls} AI call ({selectedUrls.length} URL; bước 2 tạo {step2Chunks} batch x {step2BatchSize} URL, bước 3 tạo {step3Chunks} batch x {step3BatchSize} URL
-              {formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có {currentCredits} credit.
+              {workflow === "audit_deep_research"
+                ? `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 vẫn chạy ${step2Chunks} batch x ${step2BatchSize} URL${step2FormatterChunks ? `, thêm ${step2FormatterChunks} batch 2.5 để ép JSON` : ""}; sau đó bước 3 mới tạo ${deepResearchChunks} batch x ${deepResearchBatchSize} URL, mỗi batch gọi 3 bước: Perplexity research, GPT reasoning, JSON formatter). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`
+                : `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 tạo ${step2Chunks} batch x ${step2BatchSize} URL, bước 3 tạo ${step3Chunks} batch x ${step3BatchSize} URL${formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`}
             </p>
           ) : null}
           {run ? (

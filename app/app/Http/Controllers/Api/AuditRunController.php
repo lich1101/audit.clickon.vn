@@ -128,6 +128,11 @@ class AuditRunController extends Controller
                     'maxParallelItems' => $systemSettings['maxParallelItems'],
                     'step2BatchSize' => $systemSettings['step2BatchSize'],
                     'step3BatchSize' => $systemSettings['step3BatchSize'],
+                    'deepResearchBatchSize' => $systemSettings['deepResearchBatchSize'],
+                    'deepResearchResearchModel' => $systemSettings['deepResearchResearchModel'],
+                    'deepResearchReasoningModel' => $systemSettings['deepResearchReasoningModel'],
+                    'deepResearchFormatterProvider' => $systemSettings['deepResearchFormatterProvider'],
+                    'deepResearchFormatterModel' => $systemSettings['deepResearchFormatterModel'],
                     'minCreditsPerAiCall' => $this->auditRunService->minimumCreditsPerAiCall($systemSettings['aiProvider'], $systemSettings['aiModel']),
                     'minCreditsPerRun' => $minimumCreditsPerRun,
                     'minCreditsPerUrl' => $minimumCreditsPerRun,
@@ -174,6 +179,7 @@ class AuditRunController extends Controller
             'data' => [
                 'publicId' => $run->public_id,
                 'status' => $run->status,
+                'workflow' => $run->workflow,
                 'totalUrls' => $run->total_urls,
             ],
         ], 201);

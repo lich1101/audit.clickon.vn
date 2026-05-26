@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\ProcessAuditRunJob;
+use App\Jobs\ProcessAuditDeepResearchBatchJob;
 use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
@@ -20,16 +21,20 @@ class AuditRunService
     private const SOURCE_STEP2_DONE = 'url_only_batch_step2_done';
     private const SOURCE_STEP3_RUNNING = 'url_only_batch_step3_running';
     private const SOURCE_COMPLETED = 'url_only_batch';
+    private const SOURCE_DEEP_RESEARCH_RUNNING = 'audit_deep_research_running';
+    private const SOURCE_DEEP_RESEARCH_COMPLETED = 'audit_deep_research';
 
     public function __construct(
         private readonly SeoContentExtractionService $contentExtractionService,
         private readonly SeoAiAuditService $seoAiAuditService,
+        private readonly DeepResearchSeoAuditService $deepResearchSeoAuditService,
         private readonly AuditRunFirestoreSyncService $firestoreSyncService,
         private readonly WebsiteDataService $websiteDataService,
         private readonly AuditSettingsService $auditSettingsService,
         private readonly WebsiteAuditUrlResultService $urlResultService,
         private readonly CreditService $creditService,
         private readonly TokenBillingService $tokenBillingService,
+        private readonly AuditRunCallbackService $callbackService,
     ) {
     }
 
@@ -58,6 +63,9 @@ class AuditRunService
     public function createRun(string $userUid, string $userEmail, array $payload): AuditRun
     {
         $website = $this->websiteDataService->getWebsite((string) $payload['websiteId']);
+        $workflow = in_array(($payload['workflow'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
+            ? (string) ($payload['workflow'] ?? AuditRun::WORKFLOW_STANDARD)
+            : AuditRun::WORKFLOW_STANDARD;
 
         if (! $website) {
             throw new RuntimeException('Website does not exist.');
@@ -83,7 +91,7 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website): AuditRun {
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow): AuditRun {
             $targetUrls = array_values(array_unique($payload['targetUrls']));
             $categories = $payload['categories'] ?? [];
             $settings = $this->auditSettingsService->getAuditSettings();
@@ -96,6 +104,8 @@ class AuditRunService
                 'user_uid' => $userUid,
                 'user_email' => $userEmail,
                 'status' => 'queued',
+                'workflow' => $workflow,
+                'callback_url' => isset($payload['callbackUrl']) ? trim((string) $payload['callbackUrl']) ?: null : null,
                 'target_urls' => $targetUrls,
                 'categories' => $categories,
                 'checklist_text' => $payload['checklistText'] ?? null,
@@ -109,6 +119,10 @@ class AuditRunService
                 'step2_formatter_model' => $settings['step2FormatterModel'],
                 'step3_formatter_provider' => $settings['step3FormatterProvider'],
                 'step3_formatter_model' => $settings['step3FormatterModel'],
+                'deep_research_research_model' => $settings['deepResearchResearchModel'],
+                'deep_research_reasoning_model' => $settings['deepResearchReasoningModel'],
+                'deep_research_formatter_provider' => $settings['deepResearchFormatterProvider'],
+                'deep_research_formatter_model' => $settings['deepResearchFormatterModel'],
                 'total_urls' => count($targetUrls),
                 'processed_urls' => 0,
                 'completed_urls' => 0,
@@ -218,6 +232,24 @@ class AuditRunService
         $this->dispatchStep2Batches($run);
     }
 
+    public function startDeepResearchRun(AuditRun $run): void
+    {
+        $run = $run->fresh('items');
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        if ($run->items()->count() === 0) {
+            $this->markRunFailed($run, 'Audit run does not have any URL items.');
+
+            return;
+        }
+
+        $this->prepareCategoryContexts($run);
+        $this->dispatchStep2Batches($run);
+    }
+
     public function dispatchStep2Batches(AuditRun $run): void
     {
         $state = DB::transaction(function () use ($run): array {
@@ -283,6 +315,12 @@ class AuditRunService
 
         foreach ($state['chunks'] as $chunk) {
             ProcessAuditRunStep2BatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['step2Complete'] && ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
+            $this->dispatchDeepResearchBatches($run);
+
+            return;
         }
 
         if ($state['step2Complete']) {
@@ -370,6 +408,94 @@ class AuditRunService
         if ($state['stageComplete']) {
             $this->refreshRunProgress($run);
         }
+    }
+
+    public function dispatchDeepResearchBatches(AuditRun $run): void
+    {
+        $state = DB::transaction(function () use ($run): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            if ($freshRun->items()
+                ->whereIn('status', ['queued', 'fetching'])
+                ->exists()) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            $settings = $this->auditSettingsService->getAuditSettings();
+            $batchSize = max(1, (int) ($settings['deepResearchBatchSize'] ?? 5));
+            $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
+            $activeItems = $freshRun->items()
+                ->whereIn('status', ['fetching', 'analyzing'])
+                ->where('extraction_source', self::SOURCE_DEEP_RESEARCH_RUNNING)
+                ->count();
+            $activeBatches = (int) ceil($activeItems / $batchSize);
+            $slots = max(0, $maxParallel - $activeBatches);
+
+            if ($slots === 0) {
+                return ['chunks' => [], 'stageComplete' => false];
+            }
+
+            $pendingItems = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->orderBy('position')
+                ->limit($slots * $batchSize)
+                ->get(['id']);
+
+            $chunks = $pendingItems
+                ->pluck('id')
+                ->chunk($batchSize)
+                ->map(fn ($chunk): array => $chunk->values()->all())
+                ->values()
+                ->all();
+
+            foreach ($chunks as $chunk) {
+                $freshRun->items()
+                    ->whereIn('id', $chunk)
+                    ->update([
+                        'status' => 'fetching',
+                        'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
+                        'error_message' => null,
+                        'completed_at' => null,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            $hasPending = $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->exists();
+            $hasRunning = $freshRun->items()
+                ->whereIn('status', ['fetching', 'analyzing'])
+                ->where('extraction_source', self::SOURCE_DEEP_RESEARCH_RUNNING)
+                ->exists();
+
+            return [
+                'chunks' => $chunks,
+                'stageComplete' => ! $hasPending && ! $hasRunning,
+            ];
+        });
+
+        if (count($state['chunks']) > 0) {
+            $this->syncRunIfEnabled($run->fresh());
+        }
+
+        foreach ($state['chunks'] as $chunk) {
+            ProcessAuditDeepResearchBatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['stageComplete']) {
+            $this->refreshRunProgress($run);
+        }
+    }
+
+    public function dispatchDeepResearchItems(AuditRun $run): void
+    {
+        $this->dispatchDeepResearchBatches($run);
     }
 
     /**
@@ -825,6 +951,66 @@ class AuditRunService
         return true;
     }
 
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function retryDeepResearchBatchItemIdsInSmallerChunks(AuditRun $run, array $itemIds, string $message): bool
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if (count($itemIds) <= 1 || ! $this->isRecoverableBatchShapeFailure($message)) {
+            return false;
+        }
+
+        $chunkSize = $this->smallerRetryChunkSize(count($itemIds));
+
+        $shouldRetry = DB::transaction(function () use ($run, $itemIds): bool {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return false;
+            }
+
+            $freshRun->items()
+                ->whereIn('id', $itemIds)
+                ->update([
+                    'status' => 'fetching',
+                    'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
+                    'error_message' => null,
+                    'completed_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+            return true;
+        });
+
+        if (! $shouldRetry) {
+            return false;
+        }
+
+        foreach (array_chunk($itemIds, $chunkSize) as $chunk) {
+            ProcessAuditDeepResearchBatchJob::dispatch($run->id, array_values($chunk));
+        }
+
+        $this->syncRunIfEnabled($run->fresh());
+
+        return true;
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function markDeepResearchBatchItemIdsFailed(AuditRun $run, array $itemIds, string $message): void
+    {
+        $this->markBatchItemIdsFailed($run, $itemIds, $message);
+
+        $freshRun = $run->fresh();
+
+        foreach ($run->items()->whereIn('id', $itemIds)->get() as $item) {
+            $this->notifyCallbackErrorSafely($freshRun ?: $run, $item->fresh('run') ?: $item, $message);
+        }
+    }
+
     private function isRecoverableBatchShapeFailure(string $message): bool
     {
         return str_contains($message, 'JSON thiếu dòng kết quả')
@@ -1008,6 +1194,123 @@ class AuditRunService
         return $stepProvider ? null : $run->ai_model;
     }
 
+    /**
+     * @param  array<int, array<string, mixed>>  $usageEvents
+     * @return array{warning: string|null, cost: array<string, mixed>}
+     */
+    private function chargeUsageEventsSafely(AuditRunItem $item, array $usageEvents): array
+    {
+        $warnings = [];
+        $events = [];
+        $totalCredits = 0;
+
+        foreach ($usageEvents as $usage) {
+            if (! is_array($usage)) {
+                continue;
+            }
+
+            try {
+                $event = $this->tokenBillingService->chargeForAiCall(
+                    $item->fresh('run'),
+                    (string) ($usage['step'] ?? 'deep_research_ai_call'),
+                    $usage,
+                );
+
+                $events[] = [
+                    'step' => (string) ($usage['step'] ?? 'deep_research_ai_call'),
+                    'provider' => (string) ($usage['provider'] ?? ''),
+                    'model' => (string) ($usage['model'] ?? ''),
+                    'inputTokens' => (int) ($usage['input_tokens'] ?? 0),
+                    'outputTokens' => (int) ($usage['output_tokens'] ?? 0),
+                    'totalTokens' => (int) ($usage['total_tokens'] ?? 0),
+                    'creditsCharged' => (int) $event->credits_charged,
+                ];
+                $totalCredits += (int) $event->credits_charged;
+            } catch (RuntimeException $exception) {
+                $warnings[] = $exception->getMessage();
+                report($exception);
+            }
+        }
+
+        return [
+            'warning' => $warnings !== [] ? implode(' | ', array_unique($warnings)) : null,
+            'cost' => [
+                'totalCreditsCharged' => $totalCredits,
+                'events' => $events,
+            ],
+        ];
+    }
+
+    private function notifyCallbackErrorSafely(AuditRun $run, AuditRunItem $item, string $message): void
+    {
+        try {
+            $this->callbackService->notifyError($run, $item, $message);
+        } catch (RuntimeException $exception) {
+            report($exception);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $page
+     */
+    private function guessPrimaryKeywordSeed(array $page, string $targetUrl): string
+    {
+        $h1 = is_array($page['headings']['h1'] ?? null) ? implode(' ', $page['headings']['h1']) : '';
+        $title = trim((string) ($page['title'] ?? ''));
+        $candidate = trim($h1 !== '' ? $h1 : $title);
+
+        if ($candidate !== '') {
+            return $candidate;
+        }
+
+        $path = trim((string) parse_url($targetUrl, PHP_URL_PATH), '/');
+        $path = str_replace(['-', '/'], ' ', $path);
+
+        return trim($path);
+    }
+
+    private function itemStepSuffix(AuditRunItem $item): string
+    {
+        return sprintf('%03d', max(1, (int) $item->position));
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
+     */
+    private function chunkPositionSuffix(\Illuminate\Support\Collection $items): string
+    {
+        $positions = $items
+            ->pluck('position')
+            ->filter(fn ($position): bool => is_numeric($position))
+            ->map(fn ($position): int => (int) $position)
+            ->values();
+
+        if ($positions->isEmpty()) {
+            return Str::lower((string) Str::ulid());
+        }
+
+        return sprintf('%03d_%03d', $positions->min(), $positions->max());
+    }
+
+    private function persistDeepResearchWarning(AuditRun $run, string $step, string $message): void
+    {
+        $freshRun = $run->fresh();
+        $responses = is_array($freshRun?->ai_step_responses) ? $freshRun->ai_step_responses : [];
+        $responses[$step] = [
+            'step' => $step,
+            'stepLabel' => 'Deep Research warning',
+            'status' => 'warning',
+            'provider' => null,
+            'model' => null,
+            'rawTextPreview' => $message,
+            'createdAt' => now()->toIso8601String(),
+        ];
+
+        if ($freshRun) {
+            $freshRun->forceFill(['ai_step_responses' => $responses])->save();
+        }
+    }
+
     public function isRunCancelled(AuditRun $run): bool
     {
         $fresh = $run->fresh();
@@ -1142,6 +1445,302 @@ class AuditRunService
         $this->dispatchNextItems($run->fresh('items'));
     }
 
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function processDeepResearchBatch(AuditRun $run, array $itemIds): void
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $batchPages = [];
+
+        foreach ($items as $item) {
+            $page = $this->contentExtractionService->extractOrFallback($item->target_url);
+            $page['websiteUrl'] = $run->website_url;
+
+            $primaryKeywordSeed = trim((string) ($item->primary_keyword ?: $this->guessPrimaryKeywordSeed($page, $item->target_url)));
+            $seedCategory = $this->guessCategoryFromUrl(
+                $run->categories ?? [],
+                $item->target_url,
+                $primaryKeywordSeed,
+            );
+
+            $item->forceFill([
+                'status' => 'analyzing',
+                'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
+                'page_title' => $page['title'],
+                'meta_description' => $page['metaDescription'],
+                'canonical_url' => $page['canonicalUrl'],
+                'extracted_headings' => $page['headings'],
+                'extracted_metrics' => $page['metrics'],
+                'content_excerpt' => $page['content'],
+            ])->save();
+            $this->syncItemIfEnabled($item->fresh('run'));
+
+            $batchPages[] = [
+                'targetUrl' => $item->target_url,
+                'page' => $page,
+                'primaryKeywordSeed' => $primaryKeywordSeed,
+                'categoryNameSeed' => $item->category_name ?: ($seedCategory['name'] ?? null),
+                'categoryUrlSeed' => $item->category_url ?: ($seedCategory['url'] ?? null),
+            ];
+        }
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $analysis = $this->deepResearchSeoAuditService->analyzeBatch(
+            batchPages: $batchPages,
+            categories: $run->categories ?? [],
+            categoryContexts: $run->category_contexts ?? [],
+            siteUrls: array_values($run->target_urls ?? []),
+            checklistText: $run->checklist_text,
+            auditRunId: $run->id,
+            stepSuffix: $this->chunkPositionSuffix($items),
+            researchModel: $run->deep_research_research_model,
+            reasoningModel: $run->deep_research_reasoning_model,
+            formatterProvider: $run->deep_research_formatter_provider,
+            formatterModel: $run->deep_research_formatter_model,
+        );
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $firstItem = $items->first();
+        $billing = $firstItem
+            ? $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? [])
+            : ['warning' => null, 'cost' => ['totalCreditsCharged' => 0, 'events' => []]];
+
+        $cost = is_array($billing['cost'] ?? null)
+            ? array_merge($billing['cost'], [
+                'sharedAcrossBatch' => true,
+                'batchItemCount' => $items->count(),
+            ])
+            : null;
+
+        $resultList = collect($analysis['items'] ?? [])
+            ->filter(fn (mixed $item): bool => is_array($item))
+            ->values();
+        $resultsByUrl = $resultList
+            ->filter(fn (mixed $item): bool => is_array($item) && isset($item['targetUrl']))
+            ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
+
+        foreach ($items->values() as $index => $item) {
+            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+
+            if (! is_array($result)) {
+                $item->forceFill([
+                    'status' => 'failed',
+                    'error_message' => 'Deep research batch không trả kết quả cho URL này.',
+                    'completed_at' => now(),
+                ])->save();
+                $this->syncItemIfEnabled($item->fresh('run'));
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+                $this->notifyCallbackErrorSafely($run->fresh() ?: $run, $item->fresh('run') ?: $item, 'Deep research batch không trả kết quả cho URL này.');
+
+                continue;
+            }
+
+            $category = $this->resolveCategoryFields(
+                $result,
+                $run->categories ?? [],
+                $item->target_url,
+                $item->category_name,
+                $item->category_url,
+            );
+
+            $item->forceFill([
+                'status' => 'completed',
+                'extraction_source' => self::SOURCE_DEEP_RESEARCH_COMPLETED,
+                'primary_keyword' => $result['primaryKeyword'] ?? $item->primary_keyword,
+                'category_name' => $category['name'],
+                'category_url' => $category['url'],
+                'category_match_reason' => $result['categoryMatchReason'] ?? $item->category_match_reason,
+                'audit_score' => max(0, min(100, (int) ($result['auditScore'] ?? 0))),
+                'audit_findings' => implode("\n", array_filter($result['auditFindings'] ?? [], 'is_string')),
+                'audit_recommendations' => implode("\n", array_filter($result['auditRecommendations'] ?? [], 'is_string')),
+                'content_revision_direction' => is_string($result['contentRevisionDirection'] ?? null) ? $result['contentRevisionDirection'] : null,
+                'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], $analysis['promptSnapshots'] ?? []),
+                'error_message' => null,
+                'completed_at' => now(),
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+            $callbackWarning = is_string($billing['warning'] ?? null) ? $billing['warning'] : null;
+
+            try {
+                $this->callbackService->notifySuccess(
+                    $run->fresh() ?: $run,
+                    $item->fresh('run') ?: $item,
+                    is_array($result['researchData'] ?? null) ? $result['researchData'] : null,
+                    is_array($analysis['modelUsed'] ?? null) ? $analysis['modelUsed'] : null,
+                    $cost,
+                    $callbackWarning !== '' ? $callbackWarning : null,
+                );
+            } catch (RuntimeException $exception) {
+                $callbackWarning = trim(implode(' | ', array_filter([
+                    $callbackWarning,
+                    $exception->getMessage(),
+                ])));
+            }
+
+            if (is_string($callbackWarning) && $callbackWarning !== '') {
+                $this->persistDeepResearchWarning($run, 'deep_research_warning_'.$this->itemStepSuffix($item), $callbackWarning);
+            }
+        }
+
+        $this->refreshRunProgress($run);
+        $this->dispatchDeepResearchBatches($run->fresh('items'));
+    }
+
+    public function processDeepResearchItem(AuditRunItem $item): void
+    {
+        $run = $item->run()->firstOrFail();
+
+        if ($this->isRunCancelled($run)) {
+            return;
+        }
+
+        $item->forceFill([
+            'status' => 'fetching',
+            'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
+            'error_message' => null,
+            'completed_at' => null,
+        ])->save();
+        $this->syncItemIfEnabled($item->fresh('run'));
+
+        $page = $this->contentExtractionService->extractOrFallback($item->target_url);
+        $page['websiteUrl'] = $run->website_url;
+
+        $item->forceFill([
+            'status' => 'analyzing',
+            'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
+            'page_title' => $page['title'],
+            'meta_description' => $page['metaDescription'],
+            'canonical_url' => $page['canonicalUrl'],
+            'extracted_headings' => $page['headings'],
+            'extracted_metrics' => $page['metrics'],
+            'content_excerpt' => $page['content'],
+        ])->save();
+        $this->syncItemIfEnabled($item->fresh('run'));
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $seedCategory = $this->guessCategoryFromUrl(
+            $run->categories ?? [],
+            $item->target_url,
+            $this->guessPrimaryKeywordSeed($page, $item->target_url),
+        );
+
+        try {
+            $analysis = $this->deepResearchSeoAuditService->analyze(
+                page: $page,
+                categories: $run->categories ?? [],
+                categoryContexts: $run->category_contexts ?? [],
+                siteUrls: array_values(array_filter($run->target_urls ?? [], fn (string $url): bool => $url !== $item->target_url)),
+                checklistText: $run->checklist_text,
+                auditRunId: $run->id,
+                stepSuffix: $this->itemStepSuffix($item),
+                primaryKeywordSeed: trim((string) ($item->primary_keyword ?: $this->guessPrimaryKeywordSeed($page, $item->target_url))),
+                categoryNameSeed: $item->category_name ?: ($seedCategory['name'] ?? null),
+                categoryUrlSeed: $item->category_url ?: ($seedCategory['url'] ?? null),
+                researchModel: $run->deep_research_research_model,
+                reasoningModel: $run->deep_research_reasoning_model,
+                formatterProvider: $run->deep_research_formatter_provider,
+                formatterModel: $run->deep_research_formatter_model,
+            );
+        } catch (\Throwable $exception) {
+            $this->markItemFailed($item, $exception->getMessage(), false);
+            $this->notifyCallbackErrorSafely($run->fresh() ?: $run, $item->fresh('run') ?: $item, $exception->getMessage());
+
+            return;
+        }
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $billing = $this->chargeUsageEventsSafely($item, $analysis['usageEvents'] ?? []);
+
+        $item->forceFill([
+            'status' => 'completed',
+            'extraction_source' => self::SOURCE_DEEP_RESEARCH_COMPLETED,
+            'primary_keyword' => $analysis['primaryKeyword'],
+            'category_name' => $analysis['categoryName'],
+            'category_url' => $analysis['categoryUrl'],
+            'category_match_reason' => $analysis['categoryMatchReason'],
+            'audit_score' => $analysis['auditScore'],
+            'audit_findings' => implode("\n", $analysis['auditFindings']),
+            'audit_recommendations' => implode("\n", $analysis['auditRecommendations']),
+            'content_revision_direction' => $analysis['contentRevisionDirection'],
+            'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], $analysis['promptSnapshots'] ?? []),
+            'error_message' => null,
+            'completed_at' => now(),
+        ])->save();
+
+        $this->syncItemIfEnabled($item->fresh('run'));
+        $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+        $callbackWarning = $billing['warning'] ?? null;
+
+        try {
+            $this->callbackService->notifySuccess(
+                $run->fresh() ?: $run,
+                $item->fresh('run') ?: $item,
+                is_array($analysis['researchData'] ?? null) ? $analysis['researchData'] : null,
+                is_array($analysis['modelUsed'] ?? null) ? $analysis['modelUsed'] : null,
+                is_array($billing['cost'] ?? null) ? $billing['cost'] : null,
+                is_string($callbackWarning) && $callbackWarning !== '' ? $callbackWarning : null,
+            );
+        } catch (RuntimeException $exception) {
+            $callbackWarning = trim(implode(' | ', array_filter([
+                is_string($callbackWarning) ? $callbackWarning : null,
+                $exception->getMessage(),
+            ])));
+        }
+
+        if (is_string($callbackWarning) && $callbackWarning !== '') {
+            $freshRun = $run->fresh();
+            $responses = is_array($freshRun?->ai_step_responses) ? $freshRun->ai_step_responses : [];
+            $responses['deep_research_warning_'.$this->itemStepSuffix($item)] = [
+                'step' => 'deep_research_warning_'.$this->itemStepSuffix($item),
+                'stepLabel' => 'Deep Research warning',
+                'status' => 'warning',
+                'provider' => null,
+                'model' => null,
+                'rawTextPreview' => $callbackWarning,
+                'createdAt' => now()->toIso8601String(),
+            ];
+
+            if ($freshRun) {
+                $freshRun->forceFill(['ai_step_responses' => $responses])->save();
+            }
+        }
+
+        $run = $item->run()->firstOrFail();
+        $this->refreshRunProgress($run);
+        $this->dispatchDeepResearchItems($run->fresh('items'));
+    }
+
     public function dispatchNextItems(AuditRun $run): void
     {
         if ($this->isRunCancelled($run)) {
@@ -1189,6 +1788,12 @@ class AuditRunService
 
         $run = $item->run()->firstOrFail();
         $this->refreshRunProgress($run);
+        if (($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
+            $this->dispatchDeepResearchBatches($run->fresh('items'));
+
+            return;
+        }
+
         $this->dispatchNextItems($run->fresh('items'));
     }
 
@@ -1245,6 +1850,7 @@ class AuditRunService
             'websiteId' => $run->website_id,
             'websiteName' => $run->website_name,
             'websiteUrl' => $run->website_url,
+            'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
             'targetUrls' => [],
             'categories' => [],
             'categoryContexts' => [],
@@ -1259,6 +1865,10 @@ class AuditRunService
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
             'step3FormatterModel' => $run->step3_formatter_model,
+            'deepResearchResearchModel' => $run->deep_research_research_model,
+            'deepResearchReasoningModel' => $run->deep_research_reasoning_model,
+            'deepResearchFormatterProvider' => $run->deep_research_formatter_provider,
+            'deepResearchFormatterModel' => $run->deep_research_formatter_model,
             'status' => $run->status,
             'totalUrls' => $run->total_urls,
             'processedUrls' => $run->processed_urls,
@@ -1316,6 +1926,8 @@ class AuditRunService
             'websiteId' => $run->website_id,
             'websiteName' => $run->website_name,
             'websiteUrl' => $run->website_url,
+            'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
+            'callbackUrl' => $run->callback_url,
             'targetUrls' => $run->target_urls ?? [],
             'categories' => $run->categories ?? [],
             'categoryContexts' => $run->category_contexts ?? [],
@@ -1330,6 +1942,10 @@ class AuditRunService
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
             'step3FormatterModel' => $run->step3_formatter_model,
+            'deepResearchResearchModel' => $run->deep_research_research_model,
+            'deepResearchReasoningModel' => $run->deep_research_reasoning_model,
+            'deepResearchFormatterProvider' => $run->deep_research_formatter_provider,
+            'deepResearchFormatterModel' => $run->deep_research_formatter_model,
             'status' => $run->status,
             'totalUrls' => $run->total_urls,
             'processedUrls' => $run->processed_urls,

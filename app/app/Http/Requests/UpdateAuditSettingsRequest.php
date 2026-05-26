@@ -27,6 +27,11 @@ class UpdateAuditSettingsRequest extends FormRequest
             'maxParallelItems' => ['required', 'integer', 'min:1', 'max:10'],
             'step2BatchSize' => ['required', 'integer', 'min:1', 'max:300'],
             'step3BatchSize' => ['required', 'integer', 'min:1', 'max:300'],
+            'deepResearchBatchSize' => ['required', 'integer', 'min:1', 'max:100'],
+            'deepResearchResearchModel' => ['required', 'string', 'max:160'],
+            'deepResearchReasoningModel' => ['required', 'string', 'max:160'],
+            'deepResearchFormatterProvider' => ['required', 'string', 'in:openai,gemini'],
+            'deepResearchFormatterModel' => ['required', 'string', 'max:160'],
         ];
     }
 }

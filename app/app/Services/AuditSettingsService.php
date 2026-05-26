@@ -10,7 +10,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function getAuditSettings(): array
     {
@@ -28,6 +28,24 @@ class AuditSettingsService
 
             $step3BatchSize = (int) ($value['step3BatchSize'] ?? 30);
             $step3BatchSize = max(1, min(300, $step3BatchSize));
+
+            $deepResearchBatchSize = (int) ($value['deepResearchBatchSize'] ?? env('AUDIT_DEEP_RESEARCH_BATCH_SIZE', 5));
+            $deepResearchBatchSize = max(1, min(100, $deepResearchBatchSize));
+            $deepResearchResearchModel = $this->normalizeModel(
+                $value['deepResearchResearchModel'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', config('services.perplexity.model', 'sonar-pro')),
+                (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro')),
+            );
+            $deepResearchReasoningModel = $this->normalizeModel(
+                $value['deepResearchReasoningModel'] ?? env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', config('services.openai.model', 'gpt-5.5')),
+                (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')),
+            );
+            $deepResearchFormatterProvider = $this->normalizeFormatterProvider(
+                $value['deepResearchFormatterProvider'] ?? env('AUDIT_DEEP_RESEARCH_FORMATTER_PROVIDER', 'openai')
+            );
+            $deepResearchFormatterModel = $this->normalizeModel(
+                $value['deepResearchFormatterModel'] ?? env('AUDIT_DEEP_RESEARCH_FORMATTER_MODEL', null),
+                $this->defaultFormatterModel($deepResearchFormatterProvider),
+            );
 
             $aiModel = $this->normalizeOptionalModel($value['aiModel'] ?? env('AUDIT_DEFAULT_AI_MODEL', $this->defaultModelForProvider($provider)));
             $step2AiProvider = $this->normalizeAiProvider($value['step2AiProvider'] ?? env('AUDIT_STEP2_AI_PROVIDER', $provider));
@@ -60,13 +78,18 @@ class AuditSettingsService
                 'maxParallelItems' => $maxParallel,
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
+                'deepResearchBatchSize' => $deepResearchBatchSize,
+                'deepResearchResearchModel' => $deepResearchResearchModel,
+                'deepResearchReasoningModel' => $deepResearchReasoningModel,
+                'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
+                'deepResearchFormatterModel' => $deepResearchFormatterModel,
             ];
         });
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -87,6 +110,22 @@ class AuditSettingsService
         $step3BatchSize = isset($payload['step3BatchSize'])
             ? max(1, min(300, (int) $payload['step3BatchSize']))
             : $current['step3BatchSize'];
+
+        $deepResearchBatchSize = isset($payload['deepResearchBatchSize'])
+            ? max(1, min(100, (int) $payload['deepResearchBatchSize']))
+            : $current['deepResearchBatchSize'];
+        $deepResearchResearchModel = array_key_exists('deepResearchResearchModel', $payload)
+            ? $this->normalizeModel($payload['deepResearchResearchModel'], (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-pro')))
+            : $current['deepResearchResearchModel'];
+        $deepResearchReasoningModel = array_key_exists('deepResearchReasoningModel', $payload)
+            ? $this->normalizeModel($payload['deepResearchReasoningModel'], (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))
+            : $current['deepResearchReasoningModel'];
+        $deepResearchFormatterProvider = array_key_exists('deepResearchFormatterProvider', $payload)
+            ? $this->normalizeFormatterProvider($payload['deepResearchFormatterProvider'])
+            : $current['deepResearchFormatterProvider'];
+        $deepResearchFormatterModel = array_key_exists('deepResearchFormatterModel', $payload)
+            ? $this->normalizeModel($payload['deepResearchFormatterModel'], $this->defaultFormatterModel($deepResearchFormatterProvider))
+            : $current['deepResearchFormatterModel'];
 
         $aiModel = array_key_exists('aiModel', $payload)
             ? $this->normalizeOptionalModel($payload['aiModel'] ?? null)
@@ -130,6 +169,11 @@ class AuditSettingsService
             'maxParallelItems' => $maxParallel,
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
+            'deepResearchBatchSize' => $deepResearchBatchSize,
+            'deepResearchResearchModel' => $deepResearchResearchModel,
+            'deepResearchReasoningModel' => $deepResearchReasoningModel,
+            'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
+            'deepResearchFormatterModel' => $deepResearchFormatterModel,
         ];
 
         SystemSetting::query()->updateOrCreate(
@@ -155,6 +199,31 @@ class AuditSettingsService
     public function step3BatchSize(): int
     {
         return $this->getAuditSettings()['step3BatchSize'];
+    }
+
+    public function deepResearchBatchSize(): int
+    {
+        return $this->getAuditSettings()['deepResearchBatchSize'];
+    }
+
+    public function deepResearchResearchModel(): ?string
+    {
+        return $this->getAuditSettings()['deepResearchResearchModel'];
+    }
+
+    public function deepResearchReasoningModel(): ?string
+    {
+        return $this->getAuditSettings()['deepResearchReasoningModel'];
+    }
+
+    public function deepResearchFormatterProvider(): string
+    {
+        return $this->getAuditSettings()['deepResearchFormatterProvider'];
+    }
+
+    public function deepResearchFormatterModel(): ?string
+    {
+        return $this->getAuditSettings()['deepResearchFormatterModel'];
     }
 
     public function aiProvider(): string

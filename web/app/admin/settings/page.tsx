@@ -1,6 +1,6 @@
 "use client";
 
-import { Save } from "lucide-react";
+import { Loader2, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -12,7 +12,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchAdminAuditSettings, updateAdminAuditSettings, type AuditSystemSettings } from "@/lib/audit-settings";
+import {
+  checkAdminAuditSettingsConfiguration,
+  fetchAdminAuditSettings,
+  updateAdminAuditSettings,
+  type AuditConfigurationCheckReport,
+  type AuditSystemSettings
+} from "@/lib/audit-settings";
 import type { AiProvider, AuditWorkflow, JsonFormatterProvider } from "@/types";
 
 const providerDescriptions = {
@@ -34,7 +40,9 @@ const step3FlowModeDescriptions: Record<AuditWorkflow, string> = {
 export default function AdminAuditSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [modelPricing, setModelPricing] = useState<AuditSystemSettings["modelPricing"]>([]);
+  const [checkReport, setCheckReport] = useState<AuditConfigurationCheckReport | null>(null);
   const [settings, setSettings] = useState<AuditSystemSettings>({
     aiProvider: "openai",
     aiModel: null,
@@ -81,11 +89,25 @@ export default function AdminAuditSettingsPage() {
       setSaving(true);
       const saved = await updateAdminAuditSettings(settings);
       setSettings(saved);
+      setCheckReport(null);
       toast.success("Đã lưu cấu hình audit hệ thống.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể lưu cấu hình.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCheckConfiguration() {
+    try {
+      setChecking(true);
+      const report = await checkAdminAuditSettingsConfiguration(settings);
+      setCheckReport(report);
+      toast.success(report.ready ? "Cấu hình hiện tại đã sẵn sàng chạy." : "Đã kiểm tra cấu hình. Vẫn còn mục cần xử lý.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể kiểm tra cấu hình.");
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -133,6 +155,82 @@ export default function AdminAuditSettingsPage() {
             </Select>
             <p className="text-xs text-muted-foreground">{step3FlowModeDescriptions[settings.step3FlowMode]}</p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className={checkReport ? (checkReport.ready ? "border-emerald-500/40" : "border-destructive/40") : undefined}>
+        <CardHeader>
+          <CardTitle>Kiểm tra cấu hình runtime</CardTitle>
+          <CardDescription>
+            Kiểm tra mode bước 3 hiện tại có đủ prompt, model và API key để chạy hay chưa. Nút này không gọi AI thật, chỉ rà soát cấu hình đang lưu và env runtime của backend.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" disabled={checking} onClick={handleCheckConfiguration}>
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+              {checking ? "Đang kiểm tra..." : "Kiểm tra cấu hình"}
+            </Button>
+            {checkReport ? (
+              <p className={checkReport.ready ? "text-sm text-emerald-600" : "text-sm text-destructive"}>
+                {checkReport.ready ? "Cấu hình hiện tại đã sẵn sàng chạy." : "Cấu hình hiện tại còn thiếu hoặc có cảnh báo cần xem lại."}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nút này kiểm tra ngay bộ cấu hình đang nằm trên form hiện tại, không cần lưu trước để biết còn thiếu gì.</p>
+            )}
+          </div>
+
+          {checkReport ? (
+            <div className="space-y-4 rounded-2xl border border-border/70 bg-secondary/20 p-4">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-medium">
+                  Mode bước 3: {checkReport.step3FlowMode === "audit_deep_research" ? "Deep Research" : "Chuẩn"}
+                </span>
+                <span className="text-muted-foreground">OK: {checkReport.summary.ok}</span>
+                <span className="text-amber-600">Warning: {checkReport.summary.warning}</span>
+                <span className="text-destructive">Error: {checkReport.summary.error}</span>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                {checkReport.groups.map((group) => (
+                  <div key={group.id} className="rounded-2xl border border-border/70 bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium">{group.title}</p>
+                      <span
+                        className={
+                          group.status === "error"
+                            ? "text-sm font-medium text-destructive"
+                            : group.status === "warning"
+                              ? "text-sm font-medium text-amber-600"
+                              : "text-sm font-medium text-emerald-600"
+                        }
+                      >
+                        {group.status === "error" ? "Lỗi" : group.status === "warning" ? "Cảnh báo" : "Ổn"}
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {group.items.map((item, index) => (
+                        <div key={`${group.id}-${index}`} className="rounded-xl border border-border/60 px-3 py-2 text-sm">
+                          <p
+                            className={
+                              item.status === "error"
+                                ? "font-medium text-destructive"
+                                : item.status === "warning"
+                                  ? "font-medium text-amber-600"
+                                  : "font-medium text-emerald-600"
+                            }
+                          >
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">{item.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

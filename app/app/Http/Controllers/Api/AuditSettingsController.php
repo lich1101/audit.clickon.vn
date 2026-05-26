@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UpdateAuditSettingsRequest;
+use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditSettingsService;
 use App\Services\TokenBillingService;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ class AuditSettingsController extends Controller
 {
     public function __construct(
         private readonly AuditSettingsService $auditSettingsService,
+        private readonly AuditConfigurationCheckService $auditConfigurationCheckService,
         private readonly TokenBillingService $tokenBillingService,
     ) {
     }
@@ -66,6 +68,20 @@ class AuditSettingsController extends Controller
 
         return response()->json([
             'data' => $settings,
+        ]);
+    }
+
+    public function checkAdmin(Request $request)
+    {
+        $settings = $this->auditSettingsService->getAuditSettings();
+
+        if ($request->all() !== []) {
+            $validated = validator($request->all(), (new UpdateAuditSettingsRequest())->rules())->validate();
+            $settings = $this->auditSettingsService->previewAuditSettings($validated);
+        }
+
+        return response()->json([
+            'data' => $this->auditConfigurationCheckService->check($settings),
         ]);
     }
 }

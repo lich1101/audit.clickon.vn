@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Services\AiModelCatalogService;
+use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditSettingsService;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -54,5 +56,79 @@ class AuditSettingsTest extends TestCase
 
         $this->assertContains('deep-research-pro-preview-12-2025', $ids);
         $this->assertContains('deep-research-preview-04-2026', $ids);
+    }
+
+    public function test_configuration_check_reports_missing_openai_key_in_standard_mode(): void
+    {
+        Config::set('services.openai.api_key', '');
+        Config::set('services.gemini.api_key', 'gemini-test-key');
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'gemini',
+            'step2FormatterModel' => 'gemini-2.5-flash',
+            'step3FormatterProvider' => 'openai',
+            'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => 'standard',
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 5,
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $report = app(AuditConfigurationCheckService::class)->check();
+
+        $this->assertFalse($report['ready']);
+        $this->assertSame('standard', $report['step3FlowMode']);
+        $this->assertGreaterThan(0, $report['summary']['error']);
+        $this->assertStringContainsString(
+            'OPENAI_API_KEY',
+            collect($report['groups'])->flatMap(fn (array $group) => $group['items'])->pluck('message')->implode("\n")
+        );
+    }
+
+    public function test_configuration_check_passes_for_deep_research_mode_with_required_keys(): void
+    {
+        Config::set('services.openai.api_key', 'openai-test-key');
+        Config::set('services.perplexity.api_key', 'perplexity-test-key');
+        Config::set('services.gemini.api_key', 'gemini-test-key');
+        Config::set('services.audit.deep_research_research_use_async', true);
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'gemini',
+            'step2FormatterModel' => 'gemini-2.5-flash',
+            'step3FormatterProvider' => 'openai',
+            'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => 'audit_deep_research',
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 20,
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $report = app(AuditConfigurationCheckService::class)->check();
+
+        $this->assertTrue($report['ready']);
+        $this->assertSame('audit_deep_research', $report['step3FlowMode']);
+        $this->assertSame(0, $report['summary']['error']);
     }
 }

@@ -43,6 +43,7 @@ Route::prefix('admin')
     ->middleware('admin.or.api-key')
     ->group(function (): void {
         Route::get('/audit-settings', [AuditSettingsController::class, 'showAdmin']);
+        Route::match(['GET', 'POST'], '/audit-settings/check', [AuditSettingsController::class, 'checkAdmin']);
         Route::put('/audit-settings', [AuditSettingsController::class, 'updateAdmin']);
         Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
         Route::get('/users', [AdminUserController::class, 'index']);

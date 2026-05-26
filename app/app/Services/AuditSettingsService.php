@@ -96,10 +96,36 @@ class AuditSettingsService
      * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
      * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
+    public function previewAuditSettings(array $payload): array
+    {
+        return $this->mergeAuditSettings($payload, $this->getAuditSettings());
+    }
+
+    /**
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     */
     public function updateAuditSettings(array $payload): array
     {
-        $current = $this->getAuditSettings();
+        $value = $this->mergeAuditSettings($payload, $this->getAuditSettings());
 
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'audit'],
+            ['value' => $value],
+        );
+
+        Cache::forget(self::CACHE_KEY);
+
+        return $value;
+    }
+
+    /**
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @param  array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}  $current
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     */
+    private function mergeAuditSettings(array $payload, array $current): array
+    {
         $provider = array_key_exists('aiProvider', $payload)
             ? $this->normalizeAiProvider($payload['aiProvider'])
             : $current['aiProvider'];
@@ -163,7 +189,7 @@ class AuditSettingsService
             ? $this->normalizeModel($payload['step3FormatterModel'], $this->defaultFormatterModel($step3FormatterProvider))
             : $current['step3FormatterModel'];
 
-        $value = [
+        return [
             'aiProvider' => $provider,
             'aiModel' => $aiModel ?: $this->defaultModelForProvider($provider),
             'step2AiProvider' => $step2AiProvider,
@@ -184,15 +210,6 @@ class AuditSettingsService
             'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
             'deepResearchFormatterModel' => $deepResearchFormatterModel,
         ];
-
-        SystemSetting::query()->updateOrCreate(
-            ['key' => 'audit'],
-            ['value' => $value],
-        );
-
-        Cache::forget(self::CACHE_KEY);
-
-        return $value;
     }
 
     public function maxParallelItems(): int

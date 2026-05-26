@@ -60,6 +60,31 @@ export type PublicAuditSettings = {
   minCreditsPerUrl?: number;
 };
 
+export type AuditConfigurationCheckItem = {
+  status: "ok" | "warning" | "error";
+  label: string;
+  message: string;
+};
+
+export type AuditConfigurationCheckGroup = {
+  id: string;
+  title: string;
+  status: "ok" | "warning" | "error";
+  items: AuditConfigurationCheckItem[];
+};
+
+export type AuditConfigurationCheckReport = {
+  ready: boolean;
+  checkedAt: string;
+  step3FlowMode: AuditWorkflow;
+  summary: {
+    ok: number;
+    warning: number;
+    error: number;
+  };
+  groups: AuditConfigurationCheckGroup[];
+};
+
 export async function fetchPublicAuditSettings() {
   const response = await laravelRequest<{ data: PublicAuditSettings }>("/api/audit-settings", {
     method: "GET",
@@ -82,6 +107,16 @@ export async function updateAdminAuditSettings(input: AuditSystemSettings) {
   const response = await laravelRequest<{ data: AuditSystemSettings }>("/api/admin/audit-settings", {
     method: "PUT",
     body: JSON.stringify(input)
+  });
+
+  return response.data;
+}
+
+export async function checkAdminAuditSettingsConfiguration(input?: AuditSystemSettings) {
+  const response = await laravelRequest<{ data: AuditConfigurationCheckReport }>("/api/admin/audit-settings/check", {
+    method: input ? "POST" : "GET",
+    cache: "no-store",
+    body: input ? JSON.stringify(input) : undefined
   });
 
   return response.data;

@@ -24,6 +24,7 @@ class AuditSettingsTest extends TestCase
             'step2FormatterModel' => 'gemini-2.5-flash',
             'step3FormatterProvider' => 'openai',
             'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => 'audit_deep_research',
             'maxParallelItems' => 3,
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
@@ -38,6 +39,7 @@ class AuditSettingsTest extends TestCase
         $this->assertSame('gemini-2.5-flash', $settings['step2AiModel']);
         $this->assertSame('gemini_deep_research', $settings['step3AiProvider']);
         $this->assertSame('deep-research-pro-preview-12-2025', $settings['step3AiModel']);
+        $this->assertSame('audit_deep_research', $settings['step3FlowMode']);
         $this->assertSame(5, $settings['deepResearchBatchSize']);
         $this->assertSame('sonar-deep-research', $settings['deepResearchResearchModel']);
         $this->assertSame('gpt-5.5', $settings['deepResearchReasoningModel']);

@@ -63,9 +63,6 @@ class AuditRunService
     public function createRun(string $userUid, string $userEmail, array $payload): AuditRun
     {
         $website = $this->websiteDataService->getWebsite((string) $payload['websiteId']);
-        $workflow = in_array(($payload['workflow'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
-            ? (string) ($payload['workflow'] ?? AuditRun::WORKFLOW_STANDARD)
-            : AuditRun::WORKFLOW_STANDARD;
 
         if (! $website) {
             throw new RuntimeException('Website does not exist.');
@@ -76,6 +73,9 @@ class AuditRunService
         }
 
         $settings = $this->auditSettingsService->getAuditSettings();
+        $workflow = in_array(($settings['step3FlowMode'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
+            ? (string) $settings['step3FlowMode']
+            : AuditRun::WORKFLOW_STANDARD;
         $targetUrls = array_values(array_unique($payload['targetUrls']));
 
         if ($this->creditService->getBalance($userUid) <= 0) {
@@ -91,10 +91,9 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow): AuditRun {
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings): AuditRun {
             $targetUrls = array_values(array_unique($payload['targetUrls']));
             $categories = $payload['categories'] ?? [];
-            $settings = $this->auditSettingsService->getAuditSettings();
 
             $run = AuditRun::query()->create([
                 'public_id' => (string) Str::ulid(),

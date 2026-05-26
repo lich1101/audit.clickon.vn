@@ -3,15 +3,18 @@
 namespace Tests\Feature;
 
 use App\Jobs\ProcessAuditDeepResearchBatchJob;
+use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use App\Services\AuditSettingsService;
 use App\Services\AuditRunService;
+use App\Services\CreditService;
 use App\Services\DeepResearchSeoAuditService;
 use App\Services\SeoContentExtractionService;
 use App\Services\TokenBillingService;
+use App\Services\WebsiteDataService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -260,6 +263,61 @@ class AuditDeepResearchWorkflowTest extends TestCase
 
         $this->assertSame('processing', $run->status);
         Queue::assertPushed(ProcessAuditDeepResearchBatchJob::class, 2);
+    }
+
+    public function test_create_run_uses_admin_step_3_flow_mode_instead_of_client_payload(): void
+    {
+        Queue::fake();
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'openai',
+            'step2FormatterModel' => 'gpt-5.5',
+            'step3FormatterProvider' => 'openai',
+            'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH,
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 5,
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $websiteData = Mockery::mock(WebsiteDataService::class);
+        $websiteData->shouldReceive('getWebsite')->once()->with('website-live')->andReturn([
+            'id' => 'website-live',
+            'userId' => 'user-test',
+            'name' => 'Website live',
+            'url' => 'https://example.com',
+        ]);
+        $this->app->instance(WebsiteDataService::class, $websiteData);
+
+        $creditService = Mockery::mock(CreditService::class);
+        $creditService->shouldReceive('getBalance')->once()->with('user-test')->andReturn(500);
+        $this->app->instance(CreditService::class, $creditService);
+
+        $run = app(AuditRunService::class)->createRun('user-test', 'test@example.com', [
+            'websiteId' => 'website-live',
+            'workflow' => AuditRun::WORKFLOW_STANDARD,
+            'targetUrls' => ['https://example.com/post-1'],
+            'categories' => [],
+            'checklistText' => 'Checklist test',
+        ]);
+
+        $run->refresh();
+
+        $this->assertSame(AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH, $run->workflow);
+        Queue::assertPushed(ProcessAuditRunJob::class, function (ProcessAuditRunJob $job) use ($run): bool {
+            return $job->runId === $run->id;
+        });
     }
 
     private function makeRun(int $totalUrls = 1): AuditRun

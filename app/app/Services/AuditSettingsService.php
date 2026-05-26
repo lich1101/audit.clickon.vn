@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AuditRun;
 use App\Models\SystemSetting;
 use Illuminate\Support\Facades\Cache;
 
@@ -10,7 +11,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function getAuditSettings(): array
     {
@@ -19,6 +20,9 @@ class AuditSettingsService
             $value = is_array($record?->value) ? $record->value : [];
 
             $provider = $this->normalizeAiProvider($value['aiProvider'] ?? env('AUDIT_DEFAULT_AI_PROVIDER', 'openai'));
+            $step3FlowMode = $this->normalizeStep3FlowMode(
+                $value['step3FlowMode'] ?? env('AUDIT_STEP3_FLOW_MODE', AuditRun::WORKFLOW_STANDARD)
+            );
 
             $maxParallel = (int) ($value['maxParallelItems'] ?? 3);
             $maxParallel = max(1, min(10, $maxParallel));
@@ -75,6 +79,7 @@ class AuditSettingsService
                 'step2FormatterModel' => $step2FormatterModel,
                 'step3FormatterProvider' => $step3FormatterProvider,
                 'step3FormatterModel' => $step3FormatterModel,
+                'step3FlowMode' => $step3FlowMode,
                 'maxParallelItems' => $maxParallel,
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
@@ -88,8 +93,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -98,6 +103,9 @@ class AuditSettingsService
         $provider = array_key_exists('aiProvider', $payload)
             ? $this->normalizeAiProvider($payload['aiProvider'])
             : $current['aiProvider'];
+        $step3FlowMode = array_key_exists('step3FlowMode', $payload)
+            ? $this->normalizeStep3FlowMode($payload['step3FlowMode'])
+            : $current['step3FlowMode'];
 
         $maxParallel = isset($payload['maxParallelItems'])
             ? max(1, min(10, (int) $payload['maxParallelItems']))
@@ -166,6 +174,7 @@ class AuditSettingsService
             'step2FormatterModel' => $step2FormatterModel,
             'step3FormatterProvider' => $step3FormatterProvider,
             'step3FormatterModel' => $step3FormatterModel,
+            'step3FlowMode' => $step3FlowMode,
             'maxParallelItems' => $maxParallel,
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
@@ -199,6 +208,11 @@ class AuditSettingsService
     public function step3BatchSize(): int
     {
         return $this->getAuditSettings()['step3BatchSize'];
+    }
+
+    public function step3FlowMode(): string
+    {
+        return $this->getAuditSettings()['step3FlowMode'];
     }
 
     public function deepResearchBatchSize(): int
@@ -264,6 +278,13 @@ class AuditSettingsService
     private function normalizeFormatterProvider(mixed $value): string
     {
         return in_array($value, ['openai', 'gemini'], true) ? (string) $value : 'gemini';
+    }
+
+    private function normalizeStep3FlowMode(mixed $value): string
+    {
+        return in_array($value, AuditRun::WORKFLOWS, true)
+            ? (string) $value
+            : AuditRun::WORKFLOW_STANDARD;
     }
 
     private function normalizeModel(mixed $value, string $default): ?string

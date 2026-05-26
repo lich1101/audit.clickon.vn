@@ -34,6 +34,7 @@ class AuditSettingsController extends Controller
                 'step2FormatterModel' => $settings['step2FormatterModel'],
                 'step3FormatterProvider' => $settings['step3FormatterProvider'],
                 'step3FormatterModel' => $settings['step3FormatterModel'],
+                'step3FlowMode' => $settings['step3FlowMode'],
                 'maxParallelItems' => $settings['maxParallelItems'],
                 'step2BatchSize' => $settings['step2BatchSize'],
                 'step3BatchSize' => $settings['step3BatchSize'],

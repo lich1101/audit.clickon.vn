@@ -14,7 +14,6 @@ import { urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
@@ -69,6 +68,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
+    step3FlowMode: "standard",
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -82,7 +82,6 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [exporting, setExporting] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [workflow, setWorkflow] = useState<AuditWorkflow>("standard");
   const [urlList, setUrlList] = useState<string[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [savingUrls, setSavingUrls] = useState(false);
@@ -140,6 +139,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         step2FormatterModel: "gemini-2.5-flash",
         step3FormatterProvider: "gemini",
         step3FormatterModel: "gemini-2.5-flash",
+        step3FlowMode: "standard",
         maxParallelItems: 3,
         step2BatchSize: 60,
         step3BatchSize: 30,
@@ -272,9 +272,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const deepResearchChunks = selectedUrls.length ? Math.ceil(selectedUrls.length / deepResearchBatchSize) : 0;
   const step2Provider = systemAi.step2AiProvider ?? systemAi.aiProvider;
   const step3Provider = systemAi.step3AiProvider ?? systemAi.aiProvider;
+  const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
   const step2FormatterChunks = step2Provider === "gemini_deep_research" ? step2Chunks : 0;
   const formatterChunks = step2FormatterChunks + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
-  const estimatedAiCalls = workflow === "audit_deep_research"
+  const estimatedAiCalls = configuredWorkflow === "audit_deep_research"
     ? step2Chunks + step2FormatterChunks + deepResearchChunks * 3
     : step2Chunks + step3Chunks + formatterChunks;
   const currentCredits = profile?.credits ?? 0;
@@ -391,7 +392,6 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         websiteId: website!.id,
         websiteName: website!.name,
         websiteUrl: website!.url,
-        workflow,
         targetUrlsInput: selectedUrls.join("\n"),
         categoriesInput: formatCategoriesInput(audit.categories),
         checklistText: audit.checklistText ?? ""
@@ -474,26 +474,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               : ` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
             {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
           </p>
-          {!isRunActive ? (
-            <div className="grid gap-2 sm:max-w-sm">
-              <Label htmlFor="audit-workflow">Flow chạy audit</Label>
-              <Select value={workflow} onValueChange={(value) => setWorkflow(value as AuditWorkflow)}>
-                <SelectTrigger id="audit-workflow">
-                  <SelectValue placeholder="Chọn flow audit" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="standard">{workflowLabels.standard}</SelectItem>
-                  <SelectItem value="audit_deep_research">{workflowLabels.audit_deep_research}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{workflowDescriptions[workflow]}</p>
-            </div>
-          ) : null}
+          <div className="grid gap-2 sm:max-w-xl">
+            <Label>Bước 3 đang áp dụng</Label>
+            <p className="rounded-xl border border-border/70 bg-secondary/30 px-3 py-2 text-sm font-medium">
+              {workflowLabels[configuredWorkflow]} (do admin cấu hình)
+            </p>
+            <p className="text-xs text-muted-foreground">{workflowDescriptions[configuredWorkflow]}</p>
+          </div>
           {isRunActive ? <p className="text-xs text-muted-foreground">Trạng thái URL đang tự cập nhật mỗi 3 giây trong lúc run chạy.</p> : null}
           {isRunActive ? <p className="text-xs text-muted-foreground">Danh sách URL tạm khóa khi run đang chạy để giữ đúng snapshot dữ liệu audit.</p> : null}
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
-              {workflow === "audit_deep_research"
+              {configuredWorkflow === "audit_deep_research"
                 ? `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 vẫn chạy ${step2Chunks} batch x ${step2BatchSize} URL${step2FormatterChunks ? `, thêm ${step2FormatterChunks} batch 2.5 để ép JSON` : ""}; sau đó bước 3 mới tạo ${deepResearchChunks} batch x ${deepResearchBatchSize} URL, mỗi batch gọi 3 bước: Perplexity research, GPT reasoning, JSON formatter). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`
                 : `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 tạo ${step2Chunks} batch x ${step2BatchSize} URL, bước 3 tạo ${step3Chunks} batch x ${step3BatchSize} URL${formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`}
             </p>

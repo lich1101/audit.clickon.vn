@@ -54,6 +54,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
+    step3FlowMode: "standard",
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -82,6 +83,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     systemAi: {
       ...defaultSystemAi,
       ...systemAi,
+      step3FlowMode: systemAi.step3FlowMode ?? "standard",
       step2AiProvider: systemAi.step2AiProvider ?? systemAi.aiProvider,
       step3AiProvider: systemAi.step3AiProvider ?? systemAi.aiProvider
     }
@@ -105,7 +107,6 @@ export async function createAuditRun(input: {
   websiteId: string;
   websiteName?: string;
   websiteUrl?: string;
-  workflow?: AuditWorkflow;
   callbackUrl?: string;
   targetUrlsInput: string;
   categoriesInput: string;
@@ -120,7 +121,6 @@ export async function createAuditRun(input: {
       websiteId: input.websiteId,
       websiteName: input.websiteName,
       websiteUrl: input.websiteUrl,
-      workflow: input.workflow ?? "standard",
       callbackUrl: input.callbackUrl?.trim() || undefined,
       targetUrls,
       categories,

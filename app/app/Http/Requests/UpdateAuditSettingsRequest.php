@@ -24,6 +24,7 @@ class UpdateAuditSettingsRequest extends FormRequest
             'step2FormatterModel' => ['nullable', 'string', 'max:160'],
             'step3FormatterProvider' => ['required', 'string', 'in:openai,gemini'],
             'step3FormatterModel' => ['nullable', 'string', 'max:160'],
+            'step3FlowMode' => ['required', 'string', 'in:standard,audit_deep_research'],
             'maxParallelItems' => ['required', 'integer', 'min:1', 'max:10'],
             'step2BatchSize' => ['required', 'integer', 'min:1', 'max:300'],
             'step3BatchSize' => ['required', 'integer', 'min:1', 'max:300'],

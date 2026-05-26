@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchAdminAuditSettings, updateAdminAuditSettings, type AuditSystemSettings } from "@/lib/audit-settings";
-import type { AiProvider, JsonFormatterProvider } from "@/types";
+import type { AiProvider, AuditWorkflow, JsonFormatterProvider } from "@/types";
 
 const providerDescriptions = {
   openai: "OpenAI Responses API, phù hợp output JSON ổn định.",
@@ -25,6 +25,11 @@ const formatterProviderDescriptions = {
   openai: "Dùng OpenAI để ép raw report về JSON.",
   gemini: "Dùng Gemini generateContent + JSON schema để ép raw report về JSON."
 } as const;
+
+const step3FlowModeDescriptions: Record<AuditWorkflow, string> = {
+  standard: "Khóa toàn hệ thống ở bước 3 chuẩn. User chạy audit sẽ luôn dùng bước 2 cũ + bước 3 cũ.",
+  audit_deep_research: "Khóa toàn hệ thống ở bước 3 Deep Research. User chạy audit sẽ luôn dùng bước 2 cũ + bước 3 mới 3A/3B/3C."
+};
 
 export default function AdminAuditSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -41,6 +46,7 @@ export default function AdminAuditSettingsPage() {
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
+    step3FlowMode: "standard",
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -58,6 +64,7 @@ export default function AdminAuditSettingsPage() {
           ...data,
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
+          step3FlowMode: data.step3FlowMode ?? "standard",
           deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-deep-research",
           deepResearchReasoningModel: data.deepResearchReasoningModel ?? "gpt-5.5",
           deepResearchFormatterProvider: data.deepResearchFormatterProvider ?? "openai",
@@ -96,6 +103,38 @@ export default function AdminAuditSettingsPage() {
           { label: "Audit Settings" }
         ]}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Chế độ bước 3 toàn hệ thống</CardTitle>
+          <CardDescription>
+            Admin chọn cứng bước 3 dùng flow chuẩn hay flow Deep Research. Người dùng ở màn hình audit chỉ chạy theo cấu hình này, không được tự chọn nữa.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 lg:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="step3-flow-mode">Flow bước 3</Label>
+            <Select
+              value={settings.step3FlowMode}
+              onValueChange={(value) =>
+                setSettings((current) => ({
+                  ...current,
+                  step3FlowMode: value as AuditWorkflow
+                }))
+              }
+            >
+              <SelectTrigger id="step3-flow-mode">
+                <SelectValue placeholder="Chọn flow bước 3" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standard">Bước 3 chuẩn</SelectItem>
+                <SelectItem value="audit_deep_research">Bước 3 Deep Research</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{step3FlowModeDescriptions[settings.step3FlowMode]}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -141,7 +180,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Model chính riêng cho bước 2 và bước 3</CardTitle>
           <CardDescription>
-            Mỗi bước có provider và model riêng. Bước 2 dùng cho cả flow chuẩn lẫn audit_deep_research. Bước 3 trong card này chỉ áp dụng cho flow chuẩn; flow audit_deep_research có cấu hình step 3 riêng ở card bên dưới.
+            Mỗi bước có provider và model riêng. Bước 2 dùng cho mọi run. Bước 3 trong card này chỉ được dùng khi chế độ bước 3 toàn hệ thống đang là bước 3 chuẩn.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-2">
@@ -311,7 +350,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Flow audit_deep_research: giữ bước 2 cũ, thay bước 3</CardTitle>
           <CardDescription>
-            Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A Perplexity research, 3B GPT reasoning audit, 3C JSON formatter.
+            Card này chỉ áp dụng khi chế độ bước 3 toàn hệ thống đang bật Deep Research. Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A Perplexity research, 3B GPT reasoning audit, 3C JSON formatter.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-3">
@@ -423,7 +462,7 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Kích thước batch và giới hạn đồng thời</CardTitle>
           <CardDescription>
-            Hệ thống tự chia batch theo số URL đã chọn. Trường đồng thời chỉ là giới hạn tối đa số batch được phép chạy cùng lúc, không phải tổng số batch.
+            Hệ thống tự chia batch theo số URL đã chọn. Trường đồng thời chỉ là giới hạn tối đa số batch được phép chạy cùng lúc, không phải tổng số batch. Bước 3: URL / batch chỉ áp dụng cho bước 3 chuẩn; Deep Research: URL / batch chỉ áp dụng khi bật bước 3 Deep Research.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">

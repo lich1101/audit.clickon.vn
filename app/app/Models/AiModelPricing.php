@@ -14,6 +14,11 @@ class AiModelPricing extends Model
         'label',
         'credits_per_1k_input',
         'credits_per_1k_output',
+        'usd_per_1m_input',
+        'usd_per_1m_output',
+        'usd_per_1m_reasoning',
+        'usd_per_1m_citation',
+        'usd_per_1k_search_queries',
         'min_credits_per_call',
         'is_active',
     ];
@@ -23,6 +28,11 @@ class AiModelPricing extends Model
         return [
             'credits_per_1k_input' => 'float',
             'credits_per_1k_output' => 'float',
+            'usd_per_1m_input' => 'float',
+            'usd_per_1m_output' => 'float',
+            'usd_per_1m_reasoning' => 'float',
+            'usd_per_1m_citation' => 'float',
+            'usd_per_1k_search_queries' => 'float',
             'min_credits_per_call' => 'integer',
             'is_active' => 'boolean',
         ];

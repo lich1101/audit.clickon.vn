@@ -1280,6 +1280,8 @@ class AuditRunService
         $warnings = [];
         $events = [];
         $totalCredits = 0;
+        $totalProviderReportedUsd = 0.0;
+        $hasProviderReportedUsd = false;
 
         foreach ($usageEvents as $usage) {
             if (! is_array($usage)) {
@@ -1300,9 +1302,20 @@ class AuditRunService
                     'inputTokens' => (int) ($usage['input_tokens'] ?? 0),
                     'outputTokens' => (int) ($usage['output_tokens'] ?? 0),
                     'totalTokens' => (int) ($usage['total_tokens'] ?? 0),
+                    'citationTokens' => (int) ($usage['citation_tokens'] ?? 0),
+                    'reasoningTokens' => (int) ($usage['reasoning_tokens'] ?? 0),
+                    'searchQueries' => (int) ($usage['search_queries'] ?? 0),
+                    'providerReportedCostUsd' => is_numeric($usage['provider_reported_cost_usd'] ?? null)
+                        ? round((float) $usage['provider_reported_cost_usd'], 6)
+                        : null,
                     'creditsCharged' => (int) $event->credits_charged,
                 ];
                 $totalCredits += (int) $event->credits_charged;
+
+                if (is_numeric($usage['provider_reported_cost_usd'] ?? null)) {
+                    $totalProviderReportedUsd += (float) $usage['provider_reported_cost_usd'];
+                    $hasProviderReportedUsd = true;
+                }
             } catch (RuntimeException $exception) {
                 $warnings[] = $exception->getMessage();
                 report($exception);
@@ -1313,6 +1326,7 @@ class AuditRunService
             'warning' => $warnings !== [] ? implode(' | ', array_unique($warnings)) : null,
             'cost' => [
                 'totalCreditsCharged' => $totalCredits,
+                'totalProviderReportedCostUsd' => $hasProviderReportedUsd ? round($totalProviderReportedUsd, 6) : null,
                 'events' => $events,
             ],
         ];
@@ -2041,6 +2055,7 @@ class AuditRunService
             'createdAt' => optional($run->created_at)?->toIso8601String(),
             'updatedAt' => optional($run->updated_at)?->toIso8601String(),
             'lastError' => $run->last_error,
+            'usageSummary' => $this->serializeUsageSummary($run),
             'aiStepResponses' => $this->compactAiStepResponses($run->ai_step_responses ?? []),
             'items' => $run->items->map(fn (AuditRunItem $item): array => [
                 'publicId' => $item->public_id,
@@ -2072,6 +2087,185 @@ class AuditRunService
                 'updatedAt' => optional($item->updated_at)?->toIso8601String(),
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeUsageSummary(AuditRun $run): array
+    {
+        $rows = DB::table('ai_usage_events')
+            ->join('audit_run_items', 'audit_run_items.id', '=', 'ai_usage_events.audit_run_item_id')
+            ->where('audit_run_items.audit_run_id', $run->id)
+            ->orderBy('ai_usage_events.id')
+            ->get([
+                'ai_usage_events.step',
+                'ai_usage_events.provider',
+                'ai_usage_events.model',
+                'ai_usage_events.input_tokens',
+                'ai_usage_events.output_tokens',
+                'ai_usage_events.total_tokens',
+                'ai_usage_events.citation_tokens',
+                'ai_usage_events.reasoning_tokens',
+                'ai_usage_events.search_queries',
+                'ai_usage_events.provider_reported_cost_usd',
+                'ai_usage_events.credits_charged',
+            ]);
+
+        $totals = [
+            'eventCount' => 0,
+            'inputTokens' => 0,
+            'outputTokens' => 0,
+            'totalTokens' => 0,
+            'citationTokens' => 0,
+            'reasoningTokens' => 0,
+            'searchQueries' => 0,
+            'creditsCharged' => 0,
+            'providerReportedCostUsd' => null,
+            'estimatedCostUsd' => null,
+        ];
+        $reportedCostEventCount = 0;
+        $totalReportedCostUsd = 0.0;
+        $estimatedCostEventCount = 0;
+        $totalEstimatedCostUsd = 0.0;
+        $byStep = [];
+
+        foreach ($rows as $row) {
+            $step = (string) ($row->step ?? 'unknown_ai_step');
+            $meta = $this->usageStepMeta($step);
+            $groupKey = $meta['key'];
+            $reportedCostUsd = is_numeric($row->provider_reported_cost_usd ?? null)
+                ? round((float) $row->provider_reported_cost_usd, 6)
+                : null;
+            $estimatedUsd = $this->tokenBillingService->estimateUsdForUsage([
+                'provider' => (string) ($row->provider ?? ''),
+                'model' => (string) ($row->model ?? ''),
+                'input_tokens' => (int) ($row->input_tokens ?? 0),
+                'output_tokens' => (int) ($row->output_tokens ?? 0),
+                'citation_tokens' => (int) ($row->citation_tokens ?? 0),
+                'reasoning_tokens' => (int) ($row->reasoning_tokens ?? 0),
+                'search_queries' => (int) ($row->search_queries ?? 0),
+            ]);
+
+            if (! isset($byStep[$groupKey])) {
+                $byStep[$groupKey] = [
+                    'key' => $groupKey,
+                    'label' => $meta['label'],
+                    'order' => $meta['order'],
+                    'eventCount' => 0,
+                    'providers' => [],
+                    'models' => [],
+                    'rawSteps' => [],
+                    'inputTokens' => 0,
+                    'outputTokens' => 0,
+                    'totalTokens' => 0,
+                    'citationTokens' => 0,
+                    'reasoningTokens' => 0,
+                    'searchQueries' => 0,
+                    'creditsCharged' => 0,
+                    'providerReportedCostUsd' => null,
+                    'estimatedCostUsd' => null,
+                ];
+            }
+
+            $byStep[$groupKey]['eventCount']++;
+            $byStep[$groupKey]['providers'][(string) ($row->provider ?? '')] = true;
+            $byStep[$groupKey]['models'][(string) ($row->model ?? '')] = true;
+            $byStep[$groupKey]['rawSteps'][$step] = true;
+            $byStep[$groupKey]['inputTokens'] += (int) ($row->input_tokens ?? 0);
+            $byStep[$groupKey]['outputTokens'] += (int) ($row->output_tokens ?? 0);
+            $byStep[$groupKey]['totalTokens'] += (int) ($row->total_tokens ?? 0);
+            $byStep[$groupKey]['citationTokens'] += (int) ($row->citation_tokens ?? 0);
+            $byStep[$groupKey]['reasoningTokens'] += (int) ($row->reasoning_tokens ?? 0);
+            $byStep[$groupKey]['searchQueries'] += (int) ($row->search_queries ?? 0);
+            $byStep[$groupKey]['creditsCharged'] += (int) ($row->credits_charged ?? 0);
+
+            if ($reportedCostUsd !== null) {
+                $stepTotalUsd = (float) ($byStep[$groupKey]['providerReportedCostUsd'] ?? 0);
+                $byStep[$groupKey]['providerReportedCostUsd'] = round($stepTotalUsd + $reportedCostUsd, 6);
+                $reportedCostEventCount++;
+                $totalReportedCostUsd += $reportedCostUsd;
+            }
+
+            if ($estimatedUsd['amount'] !== null) {
+                $stepEstimatedUsd = (float) ($byStep[$groupKey]['estimatedCostUsd'] ?? 0);
+                $byStep[$groupKey]['estimatedCostUsd'] = round($stepEstimatedUsd + (float) $estimatedUsd['amount'], 6);
+                $estimatedCostEventCount++;
+                $totalEstimatedCostUsd += (float) $estimatedUsd['amount'];
+            }
+
+            $totals['eventCount']++;
+            $totals['inputTokens'] += (int) ($row->input_tokens ?? 0);
+            $totals['outputTokens'] += (int) ($row->output_tokens ?? 0);
+            $totals['totalTokens'] += (int) ($row->total_tokens ?? 0);
+            $totals['citationTokens'] += (int) ($row->citation_tokens ?? 0);
+            $totals['reasoningTokens'] += (int) ($row->reasoning_tokens ?? 0);
+            $totals['searchQueries'] += (int) ($row->search_queries ?? 0);
+            $totals['creditsCharged'] += (int) ($row->credits_charged ?? 0);
+        }
+
+        $groups = array_values(array_map(function (array $group): array {
+            $group['providers'] = array_values(array_filter(array_keys($group['providers'])));
+            $group['models'] = array_values(array_filter(array_keys($group['models'])));
+            $group['rawSteps'] = array_values(array_filter(array_keys($group['rawSteps'])));
+
+            return $group;
+        }, $byStep));
+
+        usort($groups, function (array $left, array $right): int {
+            $byOrder = ((int) ($left['order'] ?? 999)) <=> ((int) ($right['order'] ?? 999));
+
+            return $byOrder !== 0 ? $byOrder : ((string) ($left['key'] ?? '')) <=> ((string) ($right['key'] ?? ''));
+        });
+
+        $groups = array_values(array_map(function (array $group): array {
+            unset($group['order']);
+
+            return $group;
+        }, $groups));
+
+        if ($reportedCostEventCount > 0) {
+            $totals['providerReportedCostUsd'] = round($totalReportedCostUsd, 6);
+        }
+
+        if ($estimatedCostEventCount > 0) {
+            $totals['estimatedCostUsd'] = round($totalEstimatedCostUsd, 6);
+        }
+
+        $costVisibility = 'tokens_only';
+        $estimateVisibility = 'none';
+
+        if ($totals['eventCount'] > 0 && $reportedCostEventCount > 0) {
+            $costVisibility = $reportedCostEventCount === $totals['eventCount'] ? 'reported' : 'partial';
+        }
+
+        if ($totals['eventCount'] > 0 && $estimatedCostEventCount > 0) {
+            $estimateVisibility = $estimatedCostEventCount === $totals['eventCount'] ? 'estimated' : 'partial';
+        }
+
+        return [
+            'costVisibility' => $costVisibility,
+            'estimateVisibility' => $estimateVisibility,
+            'totals' => $totals,
+            'byStep' => $groups,
+        ];
+    }
+
+    /**
+     * @return array{key:string,label:string,order:int}
+     */
+    private function usageStepMeta(string $step): array
+    {
+        return match (true) {
+            str_starts_with($step, 'keyword_category_json_formatter') => ['key' => 'step2_formatter', 'label' => 'Bước 2.5: formatter JSON', 'order' => 25],
+            str_starts_with($step, 'batch_keyword_category_mapping') => ['key' => 'step2', 'label' => 'Bước 2: keyword + danh mục', 'order' => 20],
+            str_starts_with($step, 'onpage_audit_json_formatter') => ['key' => 'step3_formatter', 'label' => 'Bước 3.5: formatter JSON', 'order' => 35],
+            str_starts_with($step, 'batch_onpage_audit') => ['key' => 'step3', 'label' => 'Bước 3: audit onpage', 'order' => 30],
+            str_starts_with($step, 'deep_research_research') => ['key' => 'deep_research_3a', 'label' => 'Bước 3A: research', 'order' => 31],
+            str_starts_with($step, 'deep_research_audit') => ['key' => 'deep_research_3b', 'label' => 'Bước 3B: reasoning audit', 'order' => 32],
+            str_starts_with($step, 'deep_research_json_formatter') => ['key' => 'deep_research_3c', 'label' => 'Bước 3C: JSON formatter', 'order' => 33],
+            default => ['key' => 'other', 'label' => 'Bước khác', 'order' => 999],
+        };
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\AiModelCatalogService;
 use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditSettingsService;
+use App\Services\TokenBillingService;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -60,6 +61,34 @@ class AuditSettingsTest extends TestCase
 
         $this->assertContains('deep-research-pro-preview-12-2025', $ids);
         $this->assertContains('deep-research-preview-04-2026', $ids);
+    }
+
+    public function test_model_pricing_list_and_sync_include_usd_fields(): void
+    {
+        $billing = app(TokenBillingService::class);
+
+        $billing->syncPricing([
+            [
+                'provider' => 'openai',
+                'model' => 'gpt-5.5',
+                'label' => 'GPT-5.5',
+                'creditsPer1kInput' => 5,
+                'creditsPer1kOutput' => 15,
+                'usdPer1MInput' => 5,
+                'usdPer1MOutput' => 30,
+                'usdPer1MReasoning' => null,
+                'usdPer1MCitation' => null,
+                'usdPer1kSearchQueries' => null,
+                'minCreditsPerCall' => 3,
+            ],
+        ]);
+
+        $row = collect($billing->listPricing())->firstWhere(fn (array $pricing): bool => $pricing['provider'] === 'openai' && $pricing['model'] === 'gpt-5.5');
+
+        $this->assertNotNull($row);
+        $this->assertSame(5.0, $row['usdPer1MInput']);
+        $this->assertSame(30.0, $row['usdPer1MOutput']);
+        $this->assertNull($row['usdPer1MReasoning']);
     }
 
     public function test_configuration_check_reports_missing_openai_key_in_standard_mode(): void

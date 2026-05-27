@@ -449,6 +449,7 @@ class PerplexityResearchService
             'citation_tokens' => (int) ($usageMeta['citation_tokens'] ?? 0),
             'reasoning_tokens' => (int) ($usageMeta['reasoning_tokens'] ?? 0),
             'search_queries' => (int) ($usageMeta['num_search_queries'] ?? 0),
+            'provider_reported_cost_usd' => $this->numericOrNull($usageMeta['cost']['total_cost'] ?? null),
         ];
 
         $searchResults = array_values(array_filter(
@@ -1001,12 +1002,14 @@ class PerplexityResearchService
 
             if ($status === 'completed') {
                 $rawText = $this->extractTextFromInteraction($payload);
+                $usageMeta = is_array($payload['usage'] ?? null) ? $payload['usage'] : [];
                 $usage = [
                     'provider' => 'gemini_deep_research',
                     'model' => $model,
-                    'input_tokens' => 0,
-                    'output_tokens' => 0,
-                    'total_tokens' => 0,
+                    'input_tokens' => (int) ($usageMeta['total_input_tokens'] ?? 0),
+                    'output_tokens' => (int) ($usageMeta['total_output_tokens'] ?? 0),
+                    'total_tokens' => (int) ($usageMeta['total_tokens'] ?? 0),
+                    'reasoning_tokens' => (int) ($usageMeta['total_reasoning_tokens'] ?? 0),
                 ];
 
                 $this->persistAiStepResponse($auditRunId, $persistStep, [
@@ -1182,6 +1185,15 @@ class PerplexityResearchService
         $value = trim($value);
 
         return $value !== '' ? $value : null;
+    }
+
+    private function numericOrNull(mixed $value): ?float
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        return round((float) $value, 6);
     }
 
     /**

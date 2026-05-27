@@ -175,6 +175,49 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     deepResearchReasoningModel: run.deepResearchReasoningModel ?? "gpt-5.5",
     deepResearchFormatterProvider: run.deepResearchFormatterProvider ?? "openai",
     deepResearchFormatterModel: run.deepResearchFormatterModel ?? "gpt-5.5",
+    usageSummary: run.usageSummary
+      ? {
+          costVisibility: run.usageSummary.costVisibility ?? "tokens_only",
+          estimateVisibility: run.usageSummary.estimateVisibility ?? "none",
+          totals: {
+            eventCount: Number(run.usageSummary.totals?.eventCount ?? 0),
+            inputTokens: Number(run.usageSummary.totals?.inputTokens ?? 0),
+            outputTokens: Number(run.usageSummary.totals?.outputTokens ?? 0),
+            totalTokens: Number(run.usageSummary.totals?.totalTokens ?? 0),
+            citationTokens: Number(run.usageSummary.totals?.citationTokens ?? 0),
+            reasoningTokens: Number(run.usageSummary.totals?.reasoningTokens ?? 0),
+            searchQueries: Number(run.usageSummary.totals?.searchQueries ?? 0),
+            creditsCharged: Number(run.usageSummary.totals?.creditsCharged ?? 0),
+            providerReportedCostUsd:
+              run.usageSummary.totals?.providerReportedCostUsd == null
+                ? null
+                : Number(run.usageSummary.totals.providerReportedCostUsd),
+            estimatedCostUsd:
+              run.usageSummary.totals?.estimatedCostUsd == null
+                ? null
+                : Number(run.usageSummary.totals.estimatedCostUsd)
+          },
+          byStep: Array.isArray(run.usageSummary.byStep)
+            ? run.usageSummary.byStep.map((step) => ({
+                key: step.key,
+                label: step.label,
+                eventCount: Number(step.eventCount ?? 0),
+                providers: Array.isArray(step.providers) ? step.providers : [],
+                models: Array.isArray(step.models) ? step.models : [],
+                rawSteps: Array.isArray(step.rawSteps) ? step.rawSteps : [],
+                inputTokens: Number(step.inputTokens ?? 0),
+                outputTokens: Number(step.outputTokens ?? 0),
+                totalTokens: Number(step.totalTokens ?? 0),
+                citationTokens: Number(step.citationTokens ?? 0),
+                reasoningTokens: Number(step.reasoningTokens ?? 0),
+                searchQueries: Number(step.searchQueries ?? 0),
+                creditsCharged: Number(step.creditsCharged ?? 0),
+                providerReportedCostUsd: step.providerReportedCostUsd == null ? null : Number(step.providerReportedCostUsd),
+                estimatedCostUsd: step.estimatedCostUsd == null ? null : Number(step.estimatedCostUsd)
+              }))
+            : []
+        }
+      : null,
     aiStepResponses: run.aiStepResponses ?? {},
     items: Array.isArray(run.items) ? run.items.map((item) => ({
       ...item,

@@ -1144,6 +1144,7 @@ TEXT;
                 'input_tokens' => $inputTokens,
                 'output_tokens' => $outputTokens,
                 'total_tokens' => $totalTokens,
+                'reasoning_tokens' => (int) ($meta['thoughtsTokenCount'] ?? 0),
             ],
         ];
     }
@@ -1221,15 +1222,18 @@ TEXT;
             $status = $payload['status'] ?? null;
 
             if ($status === 'completed') {
+                $usageMeta = is_array($payload['usage'] ?? null) ? $payload['usage'] : [];
+
                 return [
                     'rawText' => $this->extractTextFromInteraction($payload),
                     'interactionId' => $interactionId,
                     'usage' => [
                         'provider' => $provider,
                         'model' => $agent,
-                        'input_tokens' => 0,
-                        'output_tokens' => 0,
-                        'total_tokens' => 0,
+                        'input_tokens' => (int) ($usageMeta['total_input_tokens'] ?? 0),
+                        'output_tokens' => (int) ($usageMeta['total_output_tokens'] ?? 0),
+                        'total_tokens' => (int) ($usageMeta['total_tokens'] ?? 0),
+                        'reasoning_tokens' => (int) ($usageMeta['total_reasoning_tokens'] ?? 0),
                     ],
                 ];
             }

@@ -15,6 +15,11 @@ export type ModelPricingRow = {
   label: string;
   creditsPer1kInput: number;
   creditsPer1kOutput: number;
+  usdPer1MInput?: number | null;
+  usdPer1MOutput?: number | null;
+  usdPer1MReasoning?: number | null;
+  usdPer1MCitation?: number | null;
+  usdPer1kSearchQueries?: number | null;
   minCreditsPerCall: number;
 };
 

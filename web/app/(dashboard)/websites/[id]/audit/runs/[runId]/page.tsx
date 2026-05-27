@@ -11,7 +11,7 @@ import { LoadingState } from "@/components/dashboard/loading-state";
 import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
@@ -25,6 +25,48 @@ function buildDeepResearchFlowLabel(run: AuditRun) {
   const formatterProvider = run.deepResearchFormatterProvider ?? "openai";
 
   return `Flow audit_deep_research · 3A ${researchProvider} · 3B ${reasoningProvider} · 3C ${formatterProvider}`;
+}
+
+function formatUsd(value?: number | null) {
+  if (value == null || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `$${value.toFixed(6)}`;
+}
+
+function buildUsageDescription(run: AuditRun) {
+  const usageSummary = run.usageSummary;
+
+  if (! usageSummary) {
+    return "";
+  }
+
+  if (usageSummary.costVisibility === "reported" && usageSummary.estimateVisibility === "estimated") {
+    return "Tất cả bước trong run này đều có USD thực tế từ provider và cũng có USD ước tính từ bảng giá model để đối chiếu.";
+  }
+
+  if (usageSummary.costVisibility === "partial" && usageSummary.estimateVisibility === "estimated") {
+    return "Một phần bước có USD thực tế từ provider; các bước còn lại đã được ước tính bằng bảng giá model trong admin.";
+  }
+
+  if (usageSummary.costVisibility === "tokens_only" && usageSummary.estimateVisibility === "estimated") {
+    return "Provider không trả USD trực tiếp cho run này, nhưng hệ thống đã tính được USD ước tính từ bảng giá model.";
+  }
+
+  if (usageSummary.costVisibility === "tokens_only" && usageSummary.estimateVisibility === "partial") {
+    return "Run này mới tính được USD ước tính cho một phần bước; phần còn lại vẫn chỉ theo dõi bằng token/credit do thiếu đơn giá model.";
+  }
+
+  if (usageSummary.costVisibility === "partial") {
+    return "Chỉ một phần bước có USD thực tế từ provider; các bước còn lại hiện theo dõi bằng token và credit.";
+  }
+
+  if (usageSummary.costVisibility === "reported") {
+    return "Tất cả bước trong run này đều có số tiền USD do provider trả trực tiếp.";
+  }
+
+  return "Run này hiện theo dõi chắc chắn bằng token và credit; hãy cấu hình thêm đơn giá USD cho model nếu muốn xem chi phí ước tính.";
 }
 
 export default function AuditRunDetailPage({
@@ -178,6 +220,7 @@ export default function AuditRunDetailPage({
   const progressPercent = run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0;
   const completedCount = items.filter((item) => item.status === "completed").length;
   const failedCount = items.filter((item) => item.status === "failed").length;
+  const usageSummary = run.usageSummary ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -217,6 +260,69 @@ export default function AuditRunDetailPage({
           {isActiveAuditRun(run.status) ? <p className="text-xs text-muted-foreground">Bảng chi tiết đang tự cập nhật mỗi 3 giây trong lúc run còn chạy.</p> : null}
         </CardContent>
       </Card>
+
+      {usageSummary ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Token / cost theo bước</CardTitle>
+            <CardDescription>{buildUsageDescription(run)}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-5">
+              <StatCard title="Tổng token" value={formatNumber(usageSummary.totals.totalTokens)} hint={`${formatNumber(usageSummary.totals.eventCount)} AI call`} icon={Waypoints} />
+              <StatCard title="Input / Output" value={`${formatNumber(usageSummary.totals.inputTokens)} / ${formatNumber(usageSummary.totals.outputTokens)}`} icon={Waves} />
+              <StatCard title="Reasoning / Citation" value={`${formatNumber(usageSummary.totals.reasoningTokens)} / ${formatNumber(usageSummary.totals.citationTokens)}`} icon={ListChecks} />
+              <StatCard title="USD thực tế" value={formatUsd(usageSummary.totals.providerReportedCostUsd)} icon={FileSpreadsheet} />
+              <StatCard title="USD ước tính / Credit" value={`${formatUsd(usageSummary.totals.estimatedCostUsd)} / ${formatNumber(usageSummary.totals.creditsCharged)}`} icon={FileSpreadsheet} />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1120px] text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4">Bước</th>
+                    <th className="py-2 pr-4">Provider / model</th>
+                    <th className="py-2 pr-4">AI call</th>
+                    <th className="py-2 pr-4">Input</th>
+                    <th className="py-2 pr-4">Output</th>
+                    <th className="py-2 pr-4">Reasoning</th>
+                    <th className="py-2 pr-4">Citation</th>
+                    <th className="py-2 pr-4">Search</th>
+                    <th className="py-2 pr-4">Total token</th>
+                    <th className="py-2 pr-4">Credit</th>
+                    <th className="py-2 pr-4">USD thực tế</th>
+                    <th className="py-2 pr-4">USD ước tính</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usageSummary.byStep.map((step) => (
+                    <tr key={step.key} className="border-b border-border/60 align-top">
+                      <td className="py-3 pr-4">
+                        <p className="font-medium">{step.label}</p>
+                        <p className="text-xs text-muted-foreground">{step.rawSteps.length} raw step key</p>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <p>{step.providers.join(", ") || "—"}</p>
+                        <p className="text-xs text-muted-foreground break-all">{step.models.join(", ") || "—"}</p>
+                      </td>
+                      <td className="py-3 pr-4">{formatNumber(step.eventCount)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.inputTokens)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.outputTokens)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.reasoningTokens)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.citationTokens)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.searchQueries)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.totalTokens)}</td>
+                      <td className="py-3 pr-4">{formatNumber(step.creditsCharged)}</td>
+                      <td className="py-3 pr-4">{formatUsd(step.providerReportedCostUsd)}</td>
+                      <td className="py-3 pr-4">{formatUsd(step.estimatedCostUsd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <AuditRunItemsTable run={run} items={items} onExport={handleExport} exporting={exporting} />
     </div>

@@ -1215,6 +1215,7 @@ class DeepResearchSeoAuditService
                 'input_tokens' => (int) ($meta['promptTokenCount'] ?? 0),
                 'output_tokens' => (int) ($meta['candidatesTokenCount'] ?? 0),
                 'total_tokens' => (int) ($meta['totalTokenCount'] ?? 0),
+                'reasoning_tokens' => (int) ($meta['thoughtsTokenCount'] ?? 0),
             ],
         ];
     }

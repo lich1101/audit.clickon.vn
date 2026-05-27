@@ -66,10 +66,18 @@ class AuditSettingsController extends Controller
 
     public function updateAdmin(UpdateAuditSettingsRequest $request)
     {
-        $settings = $this->auditSettingsService->updateAuditSettings($request->validated());
+        $validated = $request->validated();
+        $settings = $this->auditSettingsService->updateAuditSettings($validated);
+
+        if (array_key_exists('modelPricing', $validated) && is_array($validated['modelPricing'])) {
+            $this->tokenBillingService->syncPricing($validated['modelPricing']);
+        }
 
         return response()->json([
-            'data' => $settings,
+            'data' => [
+                ...$settings,
+                'modelPricing' => $this->tokenBillingService->listPricing(),
+            ],
         ]);
     }
 

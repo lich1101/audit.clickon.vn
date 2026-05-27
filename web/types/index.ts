@@ -218,6 +218,42 @@ export type AuditAiStepResponse = {
   createdAt?: string | null;
 };
 
+export type AuditRunUsageStepSummary = {
+  key: string;
+  label: string;
+  eventCount: number;
+  providers: string[];
+  models: string[];
+  rawSteps: string[];
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  citationTokens: number;
+  reasoningTokens: number;
+  searchQueries: number;
+  creditsCharged: number;
+  providerReportedCostUsd?: number | null;
+  estimatedCostUsd?: number | null;
+};
+
+export type AuditRunUsageSummary = {
+  costVisibility: "reported" | "partial" | "tokens_only";
+  estimateVisibility: "estimated" | "partial" | "none";
+  totals: {
+    eventCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    citationTokens: number;
+    reasoningTokens: number;
+    searchQueries: number;
+    creditsCharged: number;
+    providerReportedCostUsd?: number | null;
+    estimatedCostUsd?: number | null;
+  };
+  byStep: AuditRunUsageStepSummary[];
+};
+
 export type AuditRun = {
   publicId: string;
   databaseId?: number;
@@ -265,6 +301,7 @@ export type AuditRun = {
   createdAt: string;
   updatedAt: string;
   lastError?: string | null;
+  usageSummary?: AuditRunUsageSummary | null;
   aiStepResponses?: Record<string, AuditAiStepResponse>;
   items?: AuditRunItem[];
 };

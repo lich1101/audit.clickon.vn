@@ -35,6 +35,18 @@ class UpdateAuditSettingsRequest extends FormRequest
             'deepResearchReasoningModel' => ['required', 'string', 'max:160'],
             'deepResearchFormatterProvider' => ['required', 'string', 'in:openai,gemini'],
             'deepResearchFormatterModel' => ['required', 'string', 'max:160'],
+            'modelPricing' => ['sometimes', 'array'],
+            'modelPricing.*.provider' => ['required_with:modelPricing', 'string', 'in:openai,gemini,gemini_deep_research,perplexity'],
+            'modelPricing.*.model' => ['required_with:modelPricing', 'string', 'max:160'],
+            'modelPricing.*.label' => ['nullable', 'string', 'max:255'],
+            'modelPricing.*.creditsPer1kInput' => ['required_with:modelPricing', 'numeric', 'min:0'],
+            'modelPricing.*.creditsPer1kOutput' => ['required_with:modelPricing', 'numeric', 'min:0'],
+            'modelPricing.*.usdPer1MInput' => ['nullable', 'numeric', 'min:0'],
+            'modelPricing.*.usdPer1MOutput' => ['nullable', 'numeric', 'min:0'],
+            'modelPricing.*.usdPer1MReasoning' => ['nullable', 'numeric', 'min:0'],
+            'modelPricing.*.usdPer1MCitation' => ['nullable', 'numeric', 'min:0'],
+            'modelPricing.*.usdPer1kSearchQueries' => ['nullable', 'numeric', 'min:0'],
+            'modelPricing.*.minCreditsPerCall' => ['required_with:modelPricing', 'integer', 'min:0'],
         ];
     }
 }

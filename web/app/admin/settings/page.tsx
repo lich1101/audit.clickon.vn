@@ -16,6 +16,7 @@ import {
   checkAdminAuditSettingsConfiguration,
   fetchAdminAuditSettings,
   updateAdminAuditSettings,
+  type ModelPricingRow,
   type AuditConfigurationCheckReport,
   type AuditSystemSettings
 } from "@/lib/audit-settings";
@@ -53,6 +54,18 @@ const step3FlowModeDescriptions: Record<AuditWorkflow, string> = {
   standard: "Khóa toàn hệ thống ở bước 3 chuẩn. User chạy audit sẽ luôn dùng bước 2 cũ + bước 3 cũ.",
   audit_deep_research: "Khóa toàn hệ thống ở bước 3 Deep Research. User chạy audit sẽ luôn dùng bước 2 cũ + bước 3 mới 3A/3B/3C."
 };
+
+function parseNullableDecimal(value: string) {
+  const normalized = value.trim();
+
+  if (normalized === "") {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 export default function AdminAuditSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -108,8 +121,12 @@ export default function AdminAuditSettingsPage() {
   async function handleSave() {
     try {
       setSaving(true);
-      const saved = await updateAdminAuditSettings(settings);
+      const saved = await updateAdminAuditSettings({
+        ...settings,
+        modelPricing
+      });
       setSettings(saved);
+      setModelPricing(saved.modelPricing ?? []);
       setCheckReport(null);
       toast.success("Đã lưu cấu hình audit hệ thống.");
     } catch (error) {
@@ -130,6 +147,12 @@ export default function AdminAuditSettingsPage() {
     } finally {
       setChecking(false);
     }
+  }
+
+  function updateModelPricingRow(index: number, updates: Partial<ModelPricingRow>) {
+    setModelPricing((current) =>
+      (current ?? []).map((row, rowIndex) => (rowIndex === index ? { ...row, ...updates } : row))
+    );
   }
 
   if (loading) {
@@ -701,31 +724,142 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Bảng giá credit theo model (token)</CardTitle>
           <CardDescription>
-            Mỗi chunk AI trừ credit theo token thực tế mà provider trả về. Số call ước tính = ceil(URL/batch bước 2) + ceil(URL/batch bước 3).
+            Credit vẫn trừ theo token như hiện tại. USD ở đây dùng để ước tính chi phí thật cho từng model khi provider không trả trực tiếp cost theo call. Để trống cột USD nếu chưa có giá chính xác.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[1320px] text-sm">
             <thead>
               <tr className="border-b text-left text-muted-foreground">
                 <th className="py-2 pr-4">Model</th>
                 <th className="py-2 pr-4">Credit / 1K input</th>
                 <th className="py-2 pr-4">Credit / 1K output</th>
+                <th className="py-2 pr-4">USD / 1M input</th>
+                <th className="py-2 pr-4">USD / 1M output</th>
+                <th className="py-2 pr-4">USD / 1M reasoning</th>
+                <th className="py-2 pr-4">USD / 1M citation</th>
+                <th className="py-2 pr-4">USD / 1K search</th>
+                <th className="py-2 pr-4">Min credit / call</th>
               </tr>
             </thead>
             <tbody>
-              {(modelPricing ?? []).map((row) => (
+              {(modelPricing ?? []).map((row, index) => (
                 <tr key={`${row.provider}-${row.model}`} className="border-b border-border/60">
                   <td className="py-3 pr-4">
                     <p className="font-medium">{row.label}</p>
                     <p className="text-xs text-muted-foreground">{row.provider} · {row.model}</p>
                   </td>
-                  <td className="py-3 pr-4">{row.creditsPer1kInput}</td>
-                  <td className="py-3 pr-4">{row.creditsPer1kOutput}</td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      value={row.creditsPer1kInput}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          creditsPer1kInput: Math.max(0, Number(event.target.value) || 0)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      value={row.creditsPer1kOutput}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          creditsPer1kOutput: Math.max(0, Number(event.target.value) || 0)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={row.usdPer1MInput ?? ""}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          usdPer1MInput: parseNullableDecimal(event.target.value)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={row.usdPer1MOutput ?? ""}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          usdPer1MOutput: parseNullableDecimal(event.target.value)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={row.usdPer1MReasoning ?? ""}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          usdPer1MReasoning: parseNullableDecimal(event.target.value)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={row.usdPer1MCitation ?? ""}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          usdPer1MCitation: parseNullableDecimal(event.target.value)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={row.usdPer1kSearchQueries ?? ""}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          usdPer1kSearchQueries: parseNullableDecimal(event.target.value)
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={row.minCreditsPerCall}
+                      onChange={(event) =>
+                        updateModelPricingRow(index, {
+                          minCreditsPerCall: Math.max(0, Number(event.target.value) || 0)
+                        })
+                      }
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Cột USD này được dùng để tính <span className="font-medium">USD ước tính</span> cho cả flow cũ lẫn flow mới. Nếu provider trả trực tiếp cost theo call thì màn hình run detail sẽ ưu tiên hiển thị USD thực tế.
+          </p>
         </CardContent>
       </Card>
 

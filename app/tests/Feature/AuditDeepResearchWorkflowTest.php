@@ -6,6 +6,7 @@ use App\Jobs\ProcessAuditDeepResearchBatchJob;
 use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
+use App\Models\AiUsageEvent;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use App\Models\WebsiteAuditUrlResult;
@@ -536,6 +537,66 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'categories' => [],
             'checklistText' => 'Checklist test',
         ]);
+    }
+
+    public function test_serialize_run_includes_usage_summary_grouped_by_business_step(): void
+    {
+        $run = $this->makeRun(totalUrls: 1);
+        $item = $this->makeItem($run, 1, 'completed', 'audit_deep_research');
+
+        AiUsageEvent::query()->create([
+            'audit_run_item_id' => $item->id,
+            'step' => 'deep_research_research_001_001',
+            'provider' => 'perplexity',
+            'model' => 'sonar-deep-research',
+            'input_tokens' => 120,
+            'output_tokens' => 80,
+            'total_tokens' => 200,
+            'citation_tokens' => 40,
+            'reasoning_tokens' => 300,
+            'search_queries' => 6,
+            'provider_reported_cost_usd' => 0.321654,
+            'credits_charged' => 9,
+        ]);
+
+        AiUsageEvent::query()->create([
+            'audit_run_item_id' => $item->id,
+            'step' => 'deep_research_audit_001_001',
+            'provider' => 'openai',
+            'model' => 'gpt-5.5',
+            'input_tokens' => 500,
+            'output_tokens' => 150,
+            'total_tokens' => 650,
+            'citation_tokens' => 0,
+            'reasoning_tokens' => 0,
+            'search_queries' => 0,
+            'provider_reported_cost_usd' => null,
+            'credits_charged' => 12,
+        ]);
+
+        $payload = app(AuditRunService::class)->serializeRun($run->fresh('items'));
+
+        $this->assertSame('partial', $payload['usageSummary']['costVisibility']);
+        $this->assertSame('partial', $payload['usageSummary']['estimateVisibility']);
+        $this->assertSame(2, $payload['usageSummary']['totals']['eventCount']);
+        $this->assertSame(850, $payload['usageSummary']['totals']['totalTokens']);
+        $this->assertSame(300, $payload['usageSummary']['totals']['reasoningTokens']);
+        $this->assertSame(6, $payload['usageSummary']['totals']['searchQueries']);
+        $this->assertSame(21, $payload['usageSummary']['totals']['creditsCharged']);
+        $this->assertEquals(0.321654, $payload['usageSummary']['totals']['providerReportedCostUsd']);
+        $this->assertEquals(0.03186, $payload['usageSummary']['totals']['estimatedCostUsd']);
+
+        $steps = collect($payload['usageSummary']['byStep'])->keyBy('key');
+
+        $this->assertSame('Bước 3A: research', $steps['deep_research_3a']['label']);
+        $this->assertSame(200, $steps['deep_research_3a']['totalTokens']);
+        $this->assertEquals(0.321654, $steps['deep_research_3a']['providerReportedCostUsd']);
+        $this->assertEquals(0.03186, $steps['deep_research_3a']['estimatedCostUsd']);
+
+        $this->assertSame('Bước 3B: reasoning audit', $steps['deep_research_3b']['label']);
+        $this->assertSame(650, $steps['deep_research_3b']['totalTokens']);
+        $this->assertNull($steps['deep_research_3b']['providerReportedCostUsd']);
+        $this->assertNull($steps['deep_research_3b']['estimatedCostUsd']);
     }
 
     private function deepResearchBatchPage(string $url, string $keyword): array

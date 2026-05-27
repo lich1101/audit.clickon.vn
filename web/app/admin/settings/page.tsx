@@ -505,7 +505,8 @@ export default function AdminAuditSettingsPage() {
                   deepResearchReasoningModel: model || null
                 }))
               }
-              description="Model OpenAI reasoning dùng cho bước 3B của flow audit_deep_research."
+              allowCustomInput
+              description="Chọn từ danh sách hoặc nhập model OpenAI chính xác dùng cho bước 3B."
             />
           </div>
 
@@ -550,7 +551,8 @@ export default function AdminAuditSettingsPage() {
                   deepResearchFormatterModel: model || null
                 }))
               }
-              description="Model formatter cho bước 3C của flow audit_deep_research."
+              allowCustomInput
+              description="Chọn từ danh sách hoặc nhập model formatter chính xác cho bước 3C."
             />
           </div>
         </CardContent>

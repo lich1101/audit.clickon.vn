@@ -37,6 +37,9 @@ const variables = [
   { token: "{{checklist}}", description: "Checklist AuditSEO người dùng nhập hoặc mặc định backend." },
   { token: "{{raw_ai_output}}", description: "Raw output từ bước 2 hoặc bước 3 cần ép về JSON ở bước .5." },
   { token: "{{partial_json}}", description: "JSON parse được một phần trước khi formatter vá schema cuối." },
+  { token: "{{format_error}}", description: "Lỗi validate JSON ở lần formatter trước, dùng khi bước 3C tự repair." },
+  { token: "{{previous_formatter_json}}", description: "JSON formatter đã trả ở lần trước nhưng chưa đạt schema hoặc thiếu item." },
+  { token: "{{formatter_attempt}}", description: "Số lần formatter hiện tại, thường là 1 hoặc 2 khi repair." },
   { token: "{{expected_schema_json}}", description: "Schema JSON backend yêu cầu cho bước formatter." }
 ];
 
@@ -196,6 +199,19 @@ const sampleVariables: Record<string, unknown> = {
     auditRecommendations: ["Viết lại title", "Thêm FAQ", "Bổ sung internal link", "Cập nhật số liệu 2026"],
     contentRevisionDirection: "Audit Content. Bài viết khá đúng intent nhưng còn thiếu tối ưu kỹ thuật. Cần cập nhật title, freshness và internal link. Ưu tiên bổ sung dữ liệu năm hiện tại."
   },
+  format_error: "Deep research JSON thiếu dòng kết quả: cần 2, nhận 1.",
+  previous_formatter_json: {
+    items: [
+      {
+        targetUrl: "https://hoctienganhtaiphilippines.vn/uu-dai-du-hoc-philippines-tai-ims/",
+        auditScore: 72,
+        auditFindings: ["Điểm kỹ thuật SEO: 17/24", "Điểm nội dung: 4/6", "STT 7: Keyword chưa rõ trong H2", "STT 23: Thiếu freshness 2026"],
+        auditRecommendations: ["Viết lại title", "Thêm FAQ", "Bổ sung internal link", "Cập nhật số liệu 2026"],
+        contentRevisionDirection: "Audit Content. Bài viết khá đúng intent nhưng còn thiếu tối ưu kỹ thuật. Cần cập nhật title, freshness và internal link. Ưu tiên bổ sung dữ liệu năm hiện tại."
+      }
+    ]
+  },
+  formatter_attempt: 2,
   expected_schema_json: {
     items: [
       {

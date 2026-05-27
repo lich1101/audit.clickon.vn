@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchAiModels, resolveAiModelValue } from "@/lib/ai-models";
@@ -13,7 +14,8 @@ export function AiModelSelect({
   onChange,
   id = "aiModel",
   label = "Model",
-  description
+  description,
+  allowCustomInput = false
 }: {
   provider: AiProvider;
   value?: string | null;
@@ -21,6 +23,7 @@ export function AiModelSelect({
   id?: string;
   label?: string;
   description?: string;
+  allowCustomInput?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [catalog, setCatalog] = useState<Awaited<ReturnType<typeof fetchAiModels>> | null>(null);
@@ -88,6 +91,14 @@ export function AiModelSelect({
           ))}
         </SelectContent>
       </Select>
+      {allowCustomInput ? (
+        <Input
+          id={`${id}-custom`}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={`Nhập model id ${provider}`}
+        />
+      ) : null}
       <p className="text-xs text-muted-foreground">
         {error
           ? error

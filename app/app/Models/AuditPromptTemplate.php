@@ -729,6 +729,9 @@ Raw output từ bước reasoning audit:
 Danh sách URL mục tiêu bắt buộc phải có trong JSON:
 {{target_urls_json}}
 
+Dữ liệu từng URL trong batch:
+{{batch_pages_json}}
+
 Dữ liệu research cho từng URL:
 {{research_items_json}}
 
@@ -740,6 +743,12 @@ Schema JSON bắt buộc:
 
 JSON hiện tại nếu parse được:
 {{partial_json}}
+
+Lỗi validate hiện tại nếu đang repair:
+{{format_error}}
+
+JSON formatter trước đó nếu có:
+{{previous_formatter_json}}
 
 Hãy trả về đúng 1 JSON object hợp lệ, đủ item cho mọi URL.
 PROMPT,

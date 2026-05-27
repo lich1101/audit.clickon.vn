@@ -141,8 +141,43 @@ class DeepResearchSeoAuditService
             provider: $formatterProvider,
             model: $formatterModel,
         );
+        $formatterResults = [$formatted];
+        $formatterFallbackWarning = null;
 
-        $items = $this->normalizeFinalBatchAudit($formatted['data'], $batchPages, $researchItems);
+        try {
+            $items = $this->normalizeFinalBatchAudit($formatted['data'], $batchPages, $researchItems);
+        } catch (RuntimeException $exception) {
+            try {
+                $formatted = $this->formatBatchAuditJson(
+                    rawOutput: $auditRaw['rawText'],
+                    checklistText: trim((string) ($checklistText ?? '')),
+                    batchPages: $batchPages,
+                    researchItems: $researchItems,
+                    auditRunId: $auditRunId,
+                    persistStep: $formatterStep.'_repair',
+                    provider: $formatterProvider,
+                    model: $formatterModel,
+                    formatError: $exception->getMessage(),
+                    previousFormatterJson: $formatted['data'],
+                    attempt: 2,
+                );
+                $formatterResults[] = $formatted;
+                $items = $this->normalizeFinalBatchAudit($formatted['data'], $batchPages, $researchItems);
+            } catch (RuntimeException $repairException) {
+                $formatterFallbackWarning = $repairException->getMessage();
+                $items = $this->fallbackFinalBatchAuditItems($batchPages, $researchItems, $repairException->getMessage());
+                $this->persistAiStepResponse($auditRunId, $formatterStep.'_fallback', [
+                    'step' => $formatterStep.'_fallback',
+                    'stepLabel' => 'Deep Research C: JSON formatter fallback',
+                    'status' => 'fallback_generated',
+                    'provider' => $this->formatterProvider($formatterProvider),
+                    'model' => $this->formatterModel($formatterProvider, $formatterModel),
+                    'errorMessage' => $repairException->getMessage(),
+                    'parsed' => ['items' => $items],
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+            }
+        }
 
         return [
             'items' => array_map(function (array $item) use ($researchByUrl): array {
@@ -156,11 +191,20 @@ class DeepResearchSeoAuditService
                 'deepResearchResearch' => $research['promptSnapshot'],
                 'deepResearchAudit' => $auditRaw['promptSnapshot'],
                 'deepResearchFormatter' => $formatted['promptSnapshot'],
+                'deepResearchFormatterAttempts' => array_values(array_map(
+                    fn (array $result): array => $result['promptSnapshot'],
+                    $formatterResults,
+                )),
             ],
             'usageEvents' => [
                 ...$this->researchUsageEvents($research, $researchStep),
                 array_merge($auditRaw['usage'], ['step' => $auditStep]),
-                array_merge($formatted['usage'], ['step' => $formatterStep]),
+                ...array_values(array_map(
+                    fn (array $result): array => array_merge($result['usage'], [
+                        'step' => (string) ($result['promptSnapshot']['persistStep'] ?? $formatterStep),
+                    ]),
+                    $formatterResults,
+                )),
             ],
             'modelUsed' => [
                 'research' => [
@@ -174,6 +218,7 @@ class DeepResearchSeoAuditService
                 'formatter' => [
                     'provider' => $this->formatterProvider($formatterProvider),
                     'model' => $formatted['usage']['model'] ?? $this->formatterModel($formatterProvider, $formatterModel),
+                    'fallbackWarning' => $formatterFallbackWarning,
                 ],
             ],
         ];
@@ -258,7 +303,7 @@ class DeepResearchSeoAuditService
     /**
      * @param  array<int, array{targetUrl:string, page: array<string, mixed>, primaryKeywordSeed?: string|null, categoryNameSeed?: string|null, categoryUrlSeed?: string|null}>  $batchPages
      * @param  array<int, array<string, mixed>>  $researchItems
-     * @return array{data: array<string, mixed>, usage: array<string, mixed>, promptSnapshot: array<string, mixed>}
+     * @return array{data: array<string, mixed>, usage: array<string, mixed>, rawText: string, promptSnapshot: array<string, mixed>}
      */
     private function formatBatchAuditJson(
         string $rawOutput,
@@ -269,10 +314,18 @@ class DeepResearchSeoAuditService
         string $persistStep,
         ?string $provider = null,
         ?string $model = null,
+        ?string $formatError = null,
+        ?array $previousFormatterJson = null,
+        int $attempt = 1,
     ): array {
         $provider = $this->formatterProvider($provider);
         $model = $this->formatterModel($provider, $model);
         $schema = $this->batchFinalAuditSchema();
+        $targetUrls = array_values(array_map(
+            fn (array $entry): string => (string) ($entry['targetUrl'] ?? ''),
+            $batchPages,
+        ));
+        $batchPagesJson = $this->batchFormatterPagesPayload($batchPages);
 
         $partialJson = null;
 
@@ -286,12 +339,23 @@ class DeepResearchSeoAuditService
             'checklist' => $checklistText,
             'expected_schema_json' => $schema,
             'partial_json' => $partialJson ?? [],
-            'target_urls_json' => array_values(array_map(
-                fn (array $entry): string => (string) ($entry['targetUrl'] ?? ''),
-                $batchPages,
-            )),
+            'target_urls_json' => $targetUrls,
+            'batch_pages_json' => $batchPagesJson,
             'research_items_json' => $researchItems,
+            'format_error' => $formatError ?? '',
+            'previous_formatter_json' => $previousFormatterJson ?? [],
+            'formatter_attempt' => $attempt,
         ]);
+        $this->appendBatchFormatterRuntimeContract(
+            $prompts,
+            $targetUrls,
+            $batchPagesJson,
+            $researchItems,
+            $schema,
+            $formatError,
+            $previousFormatterJson,
+            $attempt,
+        );
 
         $response = $this->requestJson(
             provider: $provider,
@@ -306,15 +370,100 @@ class DeepResearchSeoAuditService
         return [
             'data' => $response['data'],
             'usage' => $response['usage'],
+            'rawText' => $response['rawText'],
             'promptSnapshot' => [
                 'step' => AuditPromptTemplate::STEP_DEEP_RESEARCH_JSON_FORMATTER,
+                'persistStep' => $persistStep,
                 'provider' => $provider,
                 'model' => $model,
+                'attempt' => $attempt,
+                'formatError' => $formatError,
                 'systemPrompt' => $prompts['system'],
                 'userPrompt' => $prompts['user'],
                 'createdAt' => now()->toIso8601String(),
             ],
         ];
+    }
+
+    /**
+     * @param  array<int, array{targetUrl:string, page: array<string, mixed>, primaryKeywordSeed?: string|null, categoryNameSeed?: string|null, categoryUrlSeed?: string|null}>  $batchPages
+     * @return array<int, array<string, mixed>>
+     */
+    private function batchFormatterPagesPayload(array $batchPages): array
+    {
+        return array_map(function (array $entry): array {
+            $page = is_array($entry['page'] ?? null) ? $entry['page'] : [];
+
+            return [
+                'targetUrl' => (string) ($entry['targetUrl'] ?? ''),
+                'primaryKeyword' => (string) ($entry['primaryKeywordSeed'] ?? ''),
+                'categoryName' => (string) ($entry['categoryNameSeed'] ?? ''),
+                'categoryUrl' => (string) ($entry['categoryUrlSeed'] ?? ''),
+                'page' => [
+                    'url' => $page['url'] ?? '',
+                    'title' => $page['title'] ?? '',
+                    'metaDescription' => $page['metaDescription'] ?? '',
+                    'canonicalUrl' => $page['canonicalUrl'] ?? '',
+                    'headings' => $page['headings'] ?? [],
+                    'metrics' => $page['metrics'] ?? [],
+                    'contentExcerpt' => mb_substr((string) ($page['content'] ?? ''), 0, 2000),
+                    'source' => $page['source'] ?? null,
+                    'extractionError' => $page['extractionError'] ?? null,
+                ],
+            ];
+        }, $batchPages);
+    }
+
+    /**
+     * @param  array{system:string,user:string}  $prompts
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @param  array<int, array<string, mixed>>  $researchItems
+     * @param  array<string, mixed>  $schema
+     * @param  array<string, mixed>|null  $previousFormatterJson
+     */
+    private function appendBatchFormatterRuntimeContract(
+        array &$prompts,
+        array $targetUrls,
+        array $batchPages,
+        array $researchItems,
+        array $schema,
+        ?string $formatError,
+        ?array $previousFormatterJson,
+        int $attempt,
+    ): void {
+        $contract = implode("\n", [
+            '=== RUNTIME BATCH JSON FORMATTER CONTRACT — AUTHORITATIVE ===',
+            'Mode: Deep Research step 3C JSON formatter for one chunk.',
+            'Return exactly one valid JSON object. Do not return markdown or prose.',
+            'Top-level shape must be: {"items":[...]}',
+            'The items array must contain exactly '.count($targetUrls).' item(s), one for each targetUrl.',
+            'Keep every targetUrl exactly as provided; do not merge URLs and do not skip URLs.',
+            'For each item, preserve or infer primaryKeyword/categoryName/categoryUrl from batch_pages_json and research_items_json when raw reasoning output is incomplete.',
+            'For each item, output auditScore, auditFindings, auditRecommendations, contentRevisionDirection according to the schema and Clickon checklist.',
+            'auditFindings[0] must be "Điểm kỹ thuật SEO: X/24".',
+            'auditFindings[1] must be "Điểm nội dung: Y/6".',
+            'contentRevisionDirection must start with Viết lại, Audit Content, Giữ nguyên, or Redirect.',
+            'Formatter attempt: '.$attempt,
+            $formatError ? 'Previous validation error: '.$formatError : 'Previous validation error: none',
+        ]);
+
+        $context = implode("\n\n", [
+            $contract,
+            'Target URLs JSON:',
+            json_encode($targetUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Batch pages JSON:',
+            json_encode($batchPages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Research items JSON:',
+            json_encode($researchItems, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Previous formatter JSON, if any:',
+            json_encode($previousFormatterJson ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Expected schema JSON:',
+            json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        ]);
+
+        $prompts['system'] .= "\n\n".$contract;
+        $prompts['user'] .= "\n\n".$context;
     }
 
     /**
@@ -531,6 +680,47 @@ class DeepResearchSeoAuditService
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<int, array{targetUrl:string, page: array<string, mixed>, primaryKeywordSeed?: string|null, categoryNameSeed?: string|null, categoryUrlSeed?: string|null}>  $batchPages
+     * @param  array<int, array<string, mixed>>  $researchItems
+     * @return array<int, array<string, mixed>>
+     */
+    private function fallbackFinalBatchAuditItems(array $batchPages, array $researchItems, string $reason): array
+    {
+        $researchByUrl = collect($researchItems)
+            ->filter(fn (mixed $item): bool => is_array($item) && trim((string) ($item['targetUrl'] ?? '')) !== '')
+            ->keyBy(fn (array $item): string => trim((string) $item['targetUrl']));
+
+        return array_map(function (array $entry) use ($researchByUrl, $reason): array {
+            $targetUrl = trim((string) ($entry['targetUrl'] ?? ''));
+            $researchItem = $researchByUrl->get($targetUrl);
+            $researchItem = is_array($researchItem) ? $researchItem : [];
+
+            return [
+                'targetUrl' => $targetUrl,
+                'primaryKeyword' => $this->stringOrNull($researchItem['primaryKeyword'] ?? $entry['primaryKeywordSeed'] ?? null) ?? '',
+                'categoryName' => $this->stringOrNull($researchItem['categoryName'] ?? $entry['categoryNameSeed'] ?? null),
+                'categoryUrl' => $this->stringOrNull($researchItem['categoryUrl'] ?? $entry['categoryUrlSeed'] ?? null),
+                'categoryMatchReason' => $this->stringOrNull($researchItem['categoryMatchReason'] ?? null) ?? 'Giữ dữ liệu keyword/danh mục từ bước 2 do formatter không chuẩn hóa được JSON cuối.',
+                'auditScore' => 0,
+                'auditFindings' => [
+                    'Điểm kỹ thuật SEO: 0/24',
+                    'Điểm nội dung: 0/6',
+                    'STT 1-19: Chưa chuẩn hóa được kết quả kỹ thuật SEO cho URL này từ output AI.',
+                    'STT 20-25: Chưa chuẩn hóa được kết quả nội dung cho URL này từ output AI.',
+                    'Lỗi formatter: '.mb_substr($reason, 0, 220),
+                ],
+                'auditRecommendations' => [
+                    'Chạy lại riêng URL này hoặc giảm Deep Research URL / batch để tăng độ ổn định JSON.',
+                    'Kiểm tra raw response của bước 3B và 3C trong ai_step_responses để xác định trường bị thiếu.',
+                    'Đảm bảo prompt bước 3C yêu cầu đủ một item cho mỗi targetUrl.',
+                    'Giữ keyword và danh mục từ bước 2 làm dữ liệu đầu vào khi chạy lại bước 3.',
+                ],
+                'contentRevisionDirection' => 'Audit Content. Hệ thống chưa chuẩn hóa được JSON audit cuối cho URL này sau bước repair. Cần chạy lại với batch nhỏ hơn hoặc kiểm tra raw output AI để lấy kết quả đầy đủ. Ưu tiên không dùng kết quả fallback này làm kết luận SEO cuối cùng.',
+            ];
+        }, $batchPages);
     }
 
     /**
@@ -767,7 +957,7 @@ class DeepResearchSeoAuditService
 
     /**
      * @param  array<string, mixed>  $schema
-     * @return array{data: array<string, mixed>, usage: array<string, mixed>}
+     * @return array{data: array<string, mixed>, usage: array<string, mixed>, rawText: string}
      */
     private function requestJson(
         string $provider,
@@ -810,6 +1000,7 @@ class DeepResearchSeoAuditService
         return [
             'data' => $data,
             'usage' => $raw['usage'],
+            'rawText' => $raw['rawText'],
         ];
     }
 

@@ -17,6 +17,7 @@ use App\Services\SeoContentExtractionService;
 use App\Services\TokenBillingService;
 use App\Services\WebsiteDataService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Mockery;
@@ -266,6 +267,94 @@ class AuditDeepResearchWorkflowTest extends TestCase
         Queue::assertPushed(ProcessAuditDeepResearchBatchJob::class, 2);
     }
 
+    public function test_deep_research_formatter_repairs_missing_batch_items_before_returning_results(): void
+    {
+        config([
+            'services.perplexity.api_key' => 'test-perplexity-key',
+            'services.perplexity.base_url' => 'https://api.perplexity.test',
+            'services.openai.api_key' => 'test-openai-key',
+        ]);
+
+        $openAiCalls = 0;
+
+        Http::fake(function ($request) use (&$openAiCalls) {
+            if ($request->url() === 'https://api.perplexity.test/v1/sonar') {
+                return Http::response([
+                    'model' => 'sonar-pro',
+                    'choices' => [
+                        [
+                            'message' => [
+                                'content' => json_encode([
+                                    'items' => [
+                                        $this->researchItem('https://example.com/post-1', 'keyword 1'),
+                                        $this->researchItem('https://example.com/post-2', 'keyword 2'),
+                                    ],
+                                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                            ],
+                        ],
+                    ],
+                    'usage' => [
+                        'prompt_tokens' => 100,
+                        'completion_tokens' => 60,
+                        'total_tokens' => 160,
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.openai.com/v1/responses') {
+                $openAiCalls++;
+
+                if ($openAiCalls === 1) {
+                    return $this->openAiTextResponse(json_encode([
+                        'items' => [
+                            $this->auditItem('https://example.com/post-1', 'keyword 1'),
+                            $this->auditItem('https://example.com/post-2', 'keyword 2'),
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+
+                if ($openAiCalls === 2) {
+                    return $this->openAiTextResponse(json_encode([
+                        'items' => [
+                            $this->auditItem('https://example.com/post-1', 'keyword 1'),
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+
+                return $this->openAiTextResponse(json_encode([
+                    'items' => [
+                        $this->auditItem('https://example.com/post-1', 'keyword 1'),
+                        $this->auditItem('https://example.com/post-2', 'keyword 2'),
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            }
+
+            return Http::response([], 404);
+        });
+
+        $result = app(DeepResearchSeoAuditService::class)->analyzeBatch(
+            batchPages: [
+                $this->deepResearchBatchPage('https://example.com/post-1', 'keyword 1'),
+                $this->deepResearchBatchPage('https://example.com/post-2', 'keyword 2'),
+            ],
+            categories: [],
+            categoryContexts: [],
+            siteUrls: ['https://example.com/post-1', 'https://example.com/post-2'],
+            checklistText: 'Checklist test',
+            researchModel: 'sonar-pro',
+            reasoningModel: 'gpt-5.5',
+            formatterProvider: 'openai',
+            formatterModel: 'gpt-5.5',
+        );
+
+        $this->assertCount(2, $result['items']);
+        $this->assertSame('https://example.com/post-2', $result['items'][1]['targetUrl']);
+        $this->assertSame(3, $openAiCalls);
+        $this->assertCount(4, $result['usageEvents']);
+        $this->assertArrayHasKey('deepResearchFormatterAttempts', $result['promptSnapshots']);
+        $this->assertCount(2, $result['promptSnapshots']['deepResearchFormatterAttempts']);
+    }
+
     public function test_create_run_uses_admin_step_3_flow_mode_instead_of_client_payload(): void
     {
         Queue::fake();
@@ -437,6 +526,87 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'categories' => [],
             'checklistText' => 'Checklist test',
         ]);
+    }
+
+    private function deepResearchBatchPage(string $url, string $keyword): array
+    {
+        return [
+            'targetUrl' => $url,
+            'page' => [
+                'url' => $url,
+                'title' => 'Title '.$keyword,
+                'metaDescription' => 'Meta '.$keyword,
+                'canonicalUrl' => $url,
+                'headings' => ['h1' => ['Title '.$keyword], 'h2' => ['Heading '.$keyword]],
+                'metrics' => ['wordCount' => 1200, 'imageCount' => 2],
+                'content' => 'Article content '.$keyword,
+                'websiteUrl' => 'https://example.com',
+            ],
+            'primaryKeywordSeed' => $keyword,
+            'categoryNameSeed' => 'Danh mục test',
+            'categoryUrlSeed' => 'https://example.com/category',
+        ];
+    }
+
+    private function researchItem(string $url, string $keyword): array
+    {
+        return [
+            'targetUrl' => $url,
+            'primaryKeyword' => $keyword,
+            'categoryName' => 'Danh mục test',
+            'categoryUrl' => 'https://example.com/category',
+            'categoryMatchReason' => 'Khớp seed từ bước 2',
+            'searchIntent' => 'Commercial',
+            'competitorInsights' => ['Đối thủ có bảng giá và FAQ'],
+            'freshnessInsights' => ['Cần cập nhật dữ liệu 2026'],
+            'keywordDemandEvidence' => 'SERP có nhu cầu rõ ràng',
+            'contentGapInsights' => ['Thiếu FAQ'],
+            'recommendedAngles' => ['Thêm bảng so sánh'],
+            'sources' => [],
+        ];
+    }
+
+    private function auditItem(string $url, string $keyword): array
+    {
+        return [
+            'targetUrl' => $url,
+            'primaryKeyword' => $keyword,
+            'categoryName' => 'Danh mục test',
+            'categoryUrl' => 'https://example.com/category',
+            'categoryMatchReason' => 'Khớp seed từ bước 2',
+            'auditScore' => 80,
+            'auditFindings' => [
+                'Điểm kỹ thuật SEO: 18/24',
+                'Điểm nội dung: 5/6',
+                'STT 7: Keyword xuất hiện trong các vị trí chính',
+                'STT 23: Có dữ liệu cập nhật năm hiện tại',
+            ],
+            'auditRecommendations' => [
+                'Bổ sung internal link liên quan cho bài viết',
+                'Thêm section Q&A cuối bài',
+                'Tối ưu lại meta description khoảng 140 ký tự',
+                'Bổ sung bảng so sánh để tăng khả năng chuyển đổi',
+            ],
+            'contentRevisionDirection' => 'Audit Content. Bài viết đã có nền tảng SEO tương đối tốt. Cần bổ sung internal link, Q&A và dữ liệu mới để tăng độ phủ. Ưu tiên tối ưu các tiêu chí mất điểm nhiều nhất trước.',
+        ];
+    }
+
+    private function openAiTextResponse(string $text)
+    {
+        return Http::response([
+            'output' => [
+                [
+                    'type' => 'message',
+                    'content' => [
+                        ['text' => $text],
+                    ],
+                ],
+            ],
+            'usage' => [
+                'input_tokens' => 50,
+                'output_tokens' => 50,
+            ],
+        ], 200);
     }
 
     private function makeRun(int $totalUrls = 1): AuditRun

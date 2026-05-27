@@ -71,7 +71,7 @@ class PerplexityResearchService
      * @param  array<int, array<string, mixed>>  $categories
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @param  array<int, string>  $siteUrls
-     * @return array{items: array<int, array<string, mixed>>, usage: array<string, mixed>, promptSnapshot: array<string, mixed>}
+     * @return array{items: array<int, array<string, mixed>>, usage: array<string, mixed>, usageEvents: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>}
      */
     public function researchBatch(
         array $batchPages,
@@ -131,21 +131,37 @@ class PerplexityResearchService
             persistStep: $step,
         );
 
-        $data = $this->decodeJsonText($raw['rawText'], 'Perplexity');
-        $items = $this->normalizeResearchBatchItems(
-            data: $data,
-            batchPages: $batchPages,
-            searchResults: $raw['searchResults'] ?? [],
-            citations: $raw['citations'] ?? [],
-        );
+        $usageEvents = [array_merge($raw['usage'], ['step' => $step])];
+        $status = 'parsed';
+        $parseWarning = null;
+
+        try {
+            $data = $this->decodeJsonText($raw['rawText'], 'Perplexity');
+            $items = $this->normalizeResearchBatchItems(
+                data: $data,
+                batchPages: $batchPages,
+                searchResults: $raw['searchResults'] ?? [],
+                citations: $raw['citations'] ?? [],
+            );
+        } catch (RuntimeException $exception) {
+            $parseWarning = $exception->getMessage();
+            $items = $this->fallbackResearchItemsFromRawText(
+                rawOutput: $raw['rawText'],
+                batchPages: $batchPages,
+                searchResults: $raw['searchResults'] ?? [],
+                citations: $raw['citations'] ?? [],
+            );
+            $status = 'raw_text_fallback';
+        }
 
         $this->persistAiStepResponse($auditRunId, $step, [
             'step' => $step,
             'stepLabel' => 'Deep Research A: Perplexity research',
-            'status' => 'parsed',
+            'status' => $status,
             'provider' => $provider,
             'model' => $model,
             'parsed' => ['items' => $items],
+            'parseWarning' => $parseWarning,
             'usage' => $raw['usage'],
             'createdAt' => now()->toIso8601String(),
         ]);
@@ -153,6 +169,7 @@ class PerplexityResearchService
         return [
             'items' => $items,
             'usage' => $raw['usage'],
+            'usageEvents' => $usageEvents,
             'promptSnapshot' => [
                 'step' => AuditPromptTemplate::STEP_DEEP_RESEARCH_RESEARCH,
                 'provider' => $provider,
@@ -682,6 +699,37 @@ class PerplexityResearchService
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<int, array{targetUrl:string, page: array<string, mixed>, primaryKeywordSeed?: string|null, categoryNameSeed?: string|null, categoryUrlSeed?: string|null}>  $batchPages
+     * @param  array<int, array<string, mixed>>  $searchResults
+     * @param  array<int, string>  $citations
+     * @return array<int, array<string, mixed>>
+     */
+    private function fallbackResearchItemsFromRawText(string $rawOutput, array $batchPages, array $searchResults, array $citations): array
+    {
+        $rawPreview = mb_substr(trim($rawOutput), 0, 8000);
+
+        return array_map(function (array $entry) use ($rawPreview, $searchResults, $citations): array {
+            return [
+                'targetUrl' => trim((string) ($entry['targetUrl'] ?? '')),
+                'primaryKeyword' => trim((string) ($entry['primaryKeywordSeed'] ?? '')),
+                'categoryName' => trim((string) ($entry['categoryNameSeed'] ?? '')),
+                'categoryUrl' => trim((string) ($entry['categoryUrlSeed'] ?? '')),
+                'categoryMatchReason' => 'Dữ liệu lấy từ bước 2; Perplexity trả raw text không parse được JSON.',
+                'searchIntent' => 'Cần suy luận từ raw research text.',
+                'competitorInsights' => array_values(array_filter([
+                    $rawPreview !== '' ? $rawPreview : null,
+                ])),
+                'freshnessInsights' => [],
+                'keywordDemandEvidence' => '',
+                'contentGapInsights' => [],
+                'recommendedAngles' => [],
+                'sources' => $this->normalizeSources([], $searchResults, $citations),
+                'rawResearchText' => $rawPreview,
+            ];
+        }, $batchPages);
     }
 
     /**

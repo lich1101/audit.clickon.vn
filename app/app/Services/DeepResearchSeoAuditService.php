@@ -158,7 +158,7 @@ class DeepResearchSeoAuditService
                 'deepResearchFormatter' => $formatted['promptSnapshot'],
             ],
             'usageEvents' => [
-                array_merge($research['usage'], ['step' => $researchStep]),
+                ...$this->researchUsageEvents($research, $researchStep),
                 array_merge($auditRaw['usage'], ['step' => $auditStep]),
                 array_merge($formatted['usage'], ['step' => $formatterStep]),
             ],
@@ -177,6 +177,21 @@ class DeepResearchSeoAuditService
                 ],
             ],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $research
+     * @return array<int, array<string, mixed>>
+     */
+    private function researchUsageEvents(array $research, string $researchStep): array
+    {
+        $events = array_values(array_filter($research['usageEvents'] ?? [], 'is_array'));
+
+        if ($events !== []) {
+            return $events;
+        }
+
+        return [array_merge($research['usage'] ?? [], ['step' => $researchStep])];
     }
 
     /**

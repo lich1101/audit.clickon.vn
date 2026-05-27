@@ -277,4 +277,76 @@ class PerplexityResearchServiceTest extends TestCase
         $this->assertCount(2, $idempotencyKeys);
         $this->assertNotSame($idempotencyKeys[0], $idempotencyKeys[1]);
     }
+
+    public function test_invalid_perplexity_json_is_passed_as_raw_research_without_extra_formatter_call(): void
+    {
+        config([
+            'services.perplexity.api_key' => 'test-perplexity-key',
+            'services.perplexity.base_url' => 'https://api.perplexity.test',
+        ]);
+
+        Http::fake([
+            'https://api.perplexity.test/v1/sonar' => Http::response([
+                'model' => 'sonar-pro',
+                'choices' => [
+                    [
+                        'message' => [
+                            'content' => 'SERP ghi nhận các đối thủ có bảng giá, FAQ và nội dung cập nhật 2026.',
+                        ],
+                    ],
+                ],
+                'usage' => [
+                    'prompt_tokens' => 100,
+                    'completion_tokens' => 60,
+                    'total_tokens' => 160,
+                    'num_search_queries' => 3,
+                ],
+                'citations' => ['https://source.example/invalid-json'],
+                'search_results' => [
+                    [
+                        'title' => 'Nguồn invalid json',
+                        'url' => 'https://source.example/invalid-json',
+                        'date' => '2026-05-01',
+                        'snippet' => 'Đối thủ có bảng giá và FAQ',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $result = app(PerplexityResearchService::class)->researchBatch(
+            batchPages: [[
+                'targetUrl' => 'https://example.com/post-1',
+                'page' => [
+                    'url' => 'https://example.com/post-1',
+                    'title' => 'Bài formatter',
+                    'metaDescription' => 'Mô tả formatter',
+                    'canonicalUrl' => 'https://example.com/post-1',
+                    'headings' => ['h1' => ['Bài formatter']],
+                    'metrics' => ['wordCount' => 1200],
+                    'content' => 'Nội dung formatter',
+                    'websiteUrl' => 'https://example.com',
+                ],
+                'primaryKeywordSeed' => 'keyword formatter',
+                'categoryNameSeed' => 'Danh mục formatter',
+                'categoryUrlSeed' => 'https://example.com/danh-muc',
+            ]],
+            categories: [['name' => 'Danh mục formatter', 'url' => 'https://example.com/danh-muc']],
+            categoryContexts: [],
+            siteUrls: ['https://example.com/post-1'],
+            checklistText: 'Checklist formatter',
+            model: 'sonar-pro',
+        );
+
+        $this->assertSame('keyword formatter', $result['items'][0]['primaryKeyword']);
+        $this->assertSame('Cần suy luận từ raw research text.', $result['items'][0]['searchIntent']);
+        $this->assertSame(
+            'SERP ghi nhận các đối thủ có bảng giá, FAQ và nội dung cập nhật 2026.',
+            $result['items'][0]['rawResearchText'],
+        );
+        $this->assertSame('https://source.example/invalid-json', $result['items'][0]['sources'][0]['url']);
+        $this->assertCount(1, $result['usageEvents']);
+        $this->assertSame('perplexity', $result['usageEvents'][0]['provider']);
+
+        Http::assertNotSent(fn ($request): bool => $request->url() === 'https://api.openai.com/v1/responses');
+    }
 }

@@ -47,3 +47,6 @@ fi
 
 echo "==> Current container status"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+echo
+echo "==> Suggested post-deploy check"
+echo "bash \"$ROOT_DIR/deploy/scripts/prod-audit-preflight.sh\""

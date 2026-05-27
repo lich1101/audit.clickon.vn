@@ -13,13 +13,11 @@ import {
   Plus,
   ReceiptText,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Users2
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
@@ -51,55 +49,31 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
 
   return (
     <aside className={cn("flex h-full w-full flex-col bg-sidebar text-sidebar-foreground", mobile ? "h-screen" : "h-full")}>
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-border/60 px-5">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">Clickon</p>
-          <h1 className="text-xl font-semibold tracking-tight">{isAdminMode ? "Admin" : "Audit"}</h1>
+      <div className="flex h-16 shrink-0 items-center border-b border-border/60 px-5">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">Clickon</p>
+          <h1 className="truncate text-lg font-semibold tracking-tight">{isAdminMode ? "Admin" : "Audit"}</h1>
         </div>
-        <Badge variant="outline" className="bg-card text-sidebar-foreground">
-          {isAdminMode ? "admin" : profile?.role ?? "user"}
-        </Badge>
       </div>
 
-      {!isAdminMode ? (
-        <div className="shrink-0 px-4 py-4">
+      <div className="shrink-0 px-4 py-4">
+        {!isAdminMode ? (
           <Button asChild className="h-11 w-full rounded-xl shadow-sm" size="lg">
             <Link href="/websites/create">
               <Plus className="size-4" />
               Tạo audit website
             </Link>
           </Button>
-        </div>
-      ) : (
-        <div className="shrink-0 px-4 py-4">
-          <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <ShieldCheck className="size-4 text-primary" />
-              Bảng điều khiển quản trị
-            </div>
-            <p className="mt-2 text-xs leading-5">Cấu hình AI, prompt batch và vận hành hệ thống.</p>
+        ) : (
+          <div className="rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+            Chế độ quản trị
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-3 pb-5">
-        <div className="flex flex-col gap-4">
-          {!isAdminMode ? (
-            <div className="rounded-2xl bg-card px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Credit</p>
-              <div className="mt-3 flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-full bg-secondary text-primary">
-                  <ShieldCheck className="size-4" />
-                </div>
-                <div>
-                  <p className="text-xl font-semibold">{profile?.credits ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">Số dư hiện tại</p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <nav className="flex flex-col gap-0.5">
+      <ScrollArea className="min-h-0 flex-1 px-3 pb-4">
+        <div className="flex h-full flex-col gap-3">
+          <nav className="flex flex-col gap-1">
             {items.map((item) => {
               const Icon = item.icon;
               const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -109,7 +83,7 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex h-10 items-center gap-3 rounded-xl px-4 text-sm transition",
+                    "flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition",
                     active ? "bg-primary/10 font-medium text-primary" : "text-sidebar-foreground/75 hover:bg-secondary hover:text-sidebar-foreground"
                   )}
                 >
@@ -119,6 +93,10 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
               );
             })}
           </nav>
+
+          <div className="mt-auto rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+            {isAdminMode ? "Admin mode" : `${profile?.credits ?? 0} credit`}
+          </div>
         </div>
       </ScrollArea>
     </aside>

@@ -13,7 +13,6 @@ import { SeoAuditRunForm } from "@/components/forms/seo-audit-run-form";
 import { urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
@@ -35,11 +34,6 @@ import type { AuditRun, AuditRunItem, AuditRunStartStep, AuditWorkflow, Website,
 const workflowLabels: Record<AuditWorkflow, string> = {
   standard: "Audit chuẩn",
   audit_deep_research: "Audit Deep Research"
-};
-
-const workflowDescriptions: Record<AuditWorkflow, string> = {
-  standard: "Flow batch hiện tại: phân loại keyword/danh mục rồi audit onpage theo chunk.",
-  audit_deep_research: "Flow mới: vẫn chạy bước 2 cũ để lấy keyword + danh mục, sau đó thay bước 3 bằng Perplexity research -> GPT reasoning audit -> formatter JSON theo batch."
 };
 
 function progressFor(run?: AuditRun | null) {
@@ -81,6 +75,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     step2BatchSize: 60,
     step3BatchSize: 30,
     deepResearchBatchSize: 5,
+    deepResearchResearchProvider: "perplexity",
+    deepResearchResearchModel: "sonar-deep-research",
+    deepResearchReasoningProvider: "openai",
+    deepResearchReasoningModel: "gpt-5.5",
+    deepResearchFormatterProvider: "openai",
+    deepResearchFormatterModel: "gpt-5.5",
     minCreditsPerAiCall: 0,
     minCreditsPerRun: 0,
     minCreditsPerUrl: 0
@@ -152,6 +152,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         step2BatchSize: 60,
         step3BatchSize: 30,
         deepResearchBatchSize: 5,
+        deepResearchResearchProvider: "perplexity",
+        deepResearchResearchModel: "sonar-deep-research",
+        deepResearchReasoningProvider: "openai",
+        deepResearchReasoningModel: "gpt-5.5",
+        deepResearchFormatterProvider: "openai",
+        deepResearchFormatterModel: "gpt-5.5",
         minCreditsPerAiCall: 0,
         minCreditsPerRun: 0,
         minCreditsPerUrl: 0
@@ -484,7 +490,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     <div className="flex flex-col gap-5">
       <PageHeader
         title={`Audit: ${website.name}`}
-        description="Mọi thao tác trên một bảng: chọn URL, chạy audit, xem kết quả và quản lý danh sách."
+        description={`${website.url} · thao tác URL, chạy audit và xem kết quả trên cùng một bảng.`}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Websites", href: "/websites" },
@@ -494,47 +500,40 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       />
 
       <div className="flex flex-col gap-3 rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-soft md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0 space-y-2">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium">Bảng audit</p>
             {run ? <AuditStatusBadge status={run.status} /> : null}
+            <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
+              {workflowLabels[configuredWorkflow]}
+            </span>
+            {audit ? <span className="text-xs text-muted-foreground">Cập nhật {formatDate(audit.updatedAt)}</span> : null}
             {savingUrls ? <span className="text-xs text-muted-foreground">Đang lưu URL...</span> : null}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {urlList.length} URL · {audit?.categories.length ?? 0} danh mục
-            {run?.workflow === "audit_deep_research"
-              ? " · Flow audit_deep_research"
-              : ` · B2 ${step2Provider}/${systemAi.step2AiModel ?? systemAi.aiModel ?? "default"} · B3 ${step3Provider}/${systemAi.step3AiModel ?? systemAi.aiModel ?? "default"} (hệ thống)`}
-            {audit ? ` · Cập nhật ${formatDate(audit.updatedAt)}` : ""}
-          </p>
-          <div className="grid gap-2 sm:max-w-xl">
-            <Label>Bước 3 đang áp dụng</Label>
-            <p className="rounded-xl border border-border/70 bg-secondary/30 px-3 py-2 text-sm font-medium">
-              {workflowLabels[configuredWorkflow]} (do admin cấu hình)
-            </p>
-            <p className="text-xs text-muted-foreground">{workflowDescriptions[configuredWorkflow]}</p>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{urlList.length} URL</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{audit?.categories.length ?? 0} danh mục</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{currentCredits} credit</span>
+            {run ? <span className="rounded-full bg-secondary/50 px-2.5 py-1">Run #{run.publicId.slice(-8)}</span> : null}
           </div>
-          {isRunActive ? <p className="text-xs text-muted-foreground">Trạng thái URL đang tự cập nhật mỗi 3 giây trong lúc run chạy.</p> : null}
-          {isRunActive ? <p className="text-xs text-muted-foreground">Danh sách URL tạm khóa khi run đang chạy để giữ đúng snapshot dữ liệu audit.</p> : null}
+          {isRunActive ? <p className="text-xs text-muted-foreground">Tự cập nhật trạng thái mỗi 3 giây. URL chỉ khóa chỉnh sửa trong lúc run chạy.</p> : null}
           {selectedUrls.length ? (
             <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
               {configuredWorkflow === "audit_deep_research"
-                ? `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 vẫn chạy ${step2Chunks} batch x ${step2BatchSize} URL${step2FormatterChunks ? `, thêm ${step2FormatterChunks} batch 2.5 để ép JSON` : ""}; sau đó bước 3 mới tạo ${deepResearchChunks} batch x ${deepResearchBatchSize} URL, mỗi batch gọi 3 bước: Perplexity research, GPT reasoning, JSON formatter). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`
-                : `Dự kiến tối đa ${estimatedAiCalls} AI call (${selectedUrls.length} URL; bước 2 tạo ${step2Chunks} batch x ${step2BatchSize} URL, bước 3 tạo ${step3Chunks} batch x ${step3BatchSize} URL${formatterChunks ? `, thêm ${formatterChunks} batch 2.5/3.5 để ép JSON` : ""}). Credit sẽ trừ theo token thực tế sau từng lần gọi; hiện có ${currentCredits} credit.`}
+                ? `Đã chọn ${selectedUrls.length} URL · B3 sẵn sàng ${step3ReadySelectedUrls.length} URL · tối đa ${estimatedAiCalls} AI call (${deepResearchChunks} batch deep research x ${deepResearchBatchSize}).`
+                : `Đã chọn ${selectedUrls.length} URL · B3 sẵn sàng ${step3ReadySelectedUrls.length} URL · tối đa ${estimatedAiCalls} AI call (${step3Chunks} batch bước 3 x ${step3BatchSize}${formatterChunks ? ` + ${formatterChunks} batch formatter` : ""}).`}
             </p>
           ) : null}
-          {selectedUrls.length ? (
-            <p className={step3ReadySelectedUrls.length > 0 ? "text-xs text-muted-foreground" : "text-xs text-amber-600 dark:text-amber-300"}>
-              {configuredWorkflow === "audit_deep_research"
-                ? `Có ${step3ReadySelectedUrls.length}/${selectedUrls.length} URL đã có đủ dữ liệu bước 2 để chạy thẳng bước 3. Nếu bỏ qua bước 2, hệ thống sẽ tạo ${deepResearchReadyChunks} batch deep research x ${deepResearchBatchSize} URL, tương đương khoảng ${estimatedStep3OnlyAiCalls} AI call.`
-                : `Có ${step3ReadySelectedUrls.length}/${selectedUrls.length} URL đã có đủ dữ liệu bước 2 để chạy thẳng bước 3. Nếu bỏ qua bước 2, hệ thống sẽ tạo ${step3ReadyChunks} batch bước 3 x ${step3BatchSize} URL${step3OnlyFormatterChunks ? `, thêm ${step3OnlyFormatterChunks} batch 3.5 để ép JSON` : ""}, tương đương khoảng ${estimatedStep3OnlyAiCalls} AI call.`}
+          {selectedUrls.length && step3ReadySelectedUrls.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Chạy từ bước 3: {step3ReadySelectedUrls.length} URL đủ dữ liệu bước 2 · khoảng {estimatedStep3OnlyAiCalls} AI call.
             </p>
           ) : null}
           {run ? (
             <div className="space-y-1.5">
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
               <p className="text-xs text-muted-foreground">
-                Run #{run.publicId.slice(-8)} · {run.processedUrls}/{run.totalUrls} hoàn tất · {activeUrls} đang chạy · {queuedUrls} chờ xử lý · {progressPercent}%
+                {run.processedUrls}/{run.totalUrls} hoàn tất · {activeUrls} đang chạy · {queuedUrls} chờ xử lý · {progressPercent}%
                 {isPreparingRun ? " · Đang chuẩn bị chunk AI" : ""}
               </p>
             </div>
@@ -590,6 +589,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         itemsByUrl={itemsByUrl}
         run={run}
         canManageUrls={!isRunActive}
+        canSelectUrls={urlList.length > 0}
       />
 
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>

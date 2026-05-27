@@ -22,9 +22,11 @@ export type Plan = {
 
 export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
-export type AiProvider = "openai" | "gemini" | "gemini_deep_research";
+export type AiProvider = "openai" | "gemini" | "gemini_deep_research" | "perplexity";
 export type AuditWorkflow = "standard" | "audit_deep_research";
 export type AuditRunStartStep = 2 | 3;
+export type DeepResearchResearchProvider = "perplexity" | "gemini_deep_research";
+export type DeepResearchReasoningProvider = "openai" | "gemini";
 
 export type WebsiteActiveRunSummary = {
   publicId: string;
@@ -247,7 +249,9 @@ export type AuditRun = {
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider | null;
   step3FormatterModel?: string | null;
+  deepResearchResearchProvider?: DeepResearchResearchProvider | null;
   deepResearchResearchModel?: string | null;
+  deepResearchReasoningProvider?: DeepResearchReasoningProvider | null;
   deepResearchReasoningModel?: string | null;
   deepResearchFormatterProvider?: JsonFormatterProvider | null;
   deepResearchFormatterModel?: string | null;

@@ -11,7 +11,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function getAuditSettings(): array
     {
@@ -35,13 +35,19 @@ class AuditSettingsService
 
             $deepResearchBatchSize = (int) ($value['deepResearchBatchSize'] ?? env('AUDIT_DEEP_RESEARCH_BATCH_SIZE', 5));
             $deepResearchBatchSize = max(1, min(100, $deepResearchBatchSize));
+            $deepResearchResearchProvider = $this->normalizeDeepResearchResearchProvider(
+                $value['deepResearchResearchProvider'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_PROVIDER', config('services.audit.deep_research_research_provider', 'perplexity'))
+            );
             $deepResearchResearchModel = $this->normalizeModel(
-                $value['deepResearchResearchModel'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', config('services.perplexity.model', 'sonar-deep-research')),
-                (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research')),
+                $value['deepResearchResearchModel'] ?? env('AUDIT_DEEP_RESEARCH_RESEARCH_MODEL', null),
+                $this->defaultDeepResearchResearchModel($deepResearchResearchProvider),
+            );
+            $deepResearchReasoningProvider = $this->normalizeDeepResearchReasoningProvider(
+                $value['deepResearchReasoningProvider'] ?? env('AUDIT_DEEP_RESEARCH_REASONING_PROVIDER', config('services.audit.deep_research_reasoning_provider', 'openai'))
             );
             $deepResearchReasoningModel = $this->normalizeModel(
-                $value['deepResearchReasoningModel'] ?? env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', config('services.openai.model', 'gpt-5.5')),
-                (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')),
+                $value['deepResearchReasoningModel'] ?? env('AUDIT_DEEP_RESEARCH_REASONING_MODEL', null),
+                $this->defaultDeepResearchReasoningModel($deepResearchReasoningProvider),
             );
             $deepResearchFormatterProvider = $this->normalizeFormatterProvider(
                 $value['deepResearchFormatterProvider'] ?? env('AUDIT_DEEP_RESEARCH_FORMATTER_PROVIDER', 'openai')
@@ -84,7 +90,9 @@ class AuditSettingsService
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
                 'deepResearchBatchSize' => $deepResearchBatchSize,
+                'deepResearchResearchProvider' => $deepResearchResearchProvider,
                 'deepResearchResearchModel' => $deepResearchResearchModel,
+                'deepResearchReasoningProvider' => $deepResearchReasoningProvider,
                 'deepResearchReasoningModel' => $deepResearchReasoningModel,
                 'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
                 'deepResearchFormatterModel' => $deepResearchFormatterModel,
@@ -93,8 +101,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function previewAuditSettings(array $payload): array
     {
@@ -102,8 +110,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -120,9 +128,9 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchModel?: string|null, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @param  array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}  $current
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchModel: string|null, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
+     * @param  array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}  $current
+     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
      */
     private function mergeAuditSettings(array $payload, array $current): array
     {
@@ -148,11 +156,17 @@ class AuditSettingsService
         $deepResearchBatchSize = isset($payload['deepResearchBatchSize'])
             ? max(1, min(100, (int) $payload['deepResearchBatchSize']))
             : $current['deepResearchBatchSize'];
+        $deepResearchResearchProvider = array_key_exists('deepResearchResearchProvider', $payload)
+            ? $this->normalizeDeepResearchResearchProvider($payload['deepResearchResearchProvider'])
+            : $current['deepResearchResearchProvider'];
         $deepResearchResearchModel = array_key_exists('deepResearchResearchModel', $payload)
-            ? $this->normalizeModel($payload['deepResearchResearchModel'], (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research')))
+            ? $this->normalizeModel($payload['deepResearchResearchModel'], $this->defaultDeepResearchResearchModel($deepResearchResearchProvider))
             : $current['deepResearchResearchModel'];
+        $deepResearchReasoningProvider = array_key_exists('deepResearchReasoningProvider', $payload)
+            ? $this->normalizeDeepResearchReasoningProvider($payload['deepResearchReasoningProvider'])
+            : $current['deepResearchReasoningProvider'];
         $deepResearchReasoningModel = array_key_exists('deepResearchReasoningModel', $payload)
-            ? $this->normalizeModel($payload['deepResearchReasoningModel'], (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))
+            ? $this->normalizeModel($payload['deepResearchReasoningModel'], $this->defaultDeepResearchReasoningModel($deepResearchReasoningProvider))
             : $current['deepResearchReasoningModel'];
         $deepResearchFormatterProvider = array_key_exists('deepResearchFormatterProvider', $payload)
             ? $this->normalizeFormatterProvider($payload['deepResearchFormatterProvider'])
@@ -205,7 +219,9 @@ class AuditSettingsService
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
             'deepResearchBatchSize' => $deepResearchBatchSize,
+            'deepResearchResearchProvider' => $deepResearchResearchProvider,
             'deepResearchResearchModel' => $deepResearchResearchModel,
+            'deepResearchReasoningProvider' => $deepResearchReasoningProvider,
             'deepResearchReasoningModel' => $deepResearchReasoningModel,
             'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
             'deepResearchFormatterModel' => $deepResearchFormatterModel,
@@ -237,9 +253,19 @@ class AuditSettingsService
         return $this->getAuditSettings()['deepResearchBatchSize'];
     }
 
+    public function deepResearchResearchProvider(): string
+    {
+        return $this->getAuditSettings()['deepResearchResearchProvider'];
+    }
+
     public function deepResearchResearchModel(): ?string
     {
         return $this->getAuditSettings()['deepResearchResearchModel'];
+    }
+
+    public function deepResearchReasoningProvider(): string
+    {
+        return $this->getAuditSettings()['deepResearchReasoningProvider'];
     }
 
     public function deepResearchReasoningModel(): ?string
@@ -297,6 +323,16 @@ class AuditSettingsService
         return in_array($value, ['openai', 'gemini'], true) ? (string) $value : 'gemini';
     }
 
+    private function normalizeDeepResearchResearchProvider(mixed $value): string
+    {
+        return in_array($value, ['perplexity', 'gemini_deep_research'], true) ? (string) $value : 'perplexity';
+    }
+
+    private function normalizeDeepResearchReasoningProvider(mixed $value): string
+    {
+        return in_array($value, ['openai', 'gemini'], true) ? (string) $value : 'openai';
+    }
+
     private function normalizeStep3FlowMode(mixed $value): string
     {
         return in_array($value, AuditRun::WORKFLOWS, true)
@@ -323,6 +359,20 @@ class AuditSettingsService
         return $provider === 'openai'
             ? (string) config('services.openai.model', 'gpt-5.5')
             : 'gemini-2.5-flash';
+    }
+
+    private function defaultDeepResearchResearchModel(string $provider): string
+    {
+        return $provider === 'gemini_deep_research'
+            ? (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025')
+            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+    }
+
+    private function defaultDeepResearchReasoningModel(string $provider): string
+    {
+        return $provider === 'gemini'
+            ? (string) config('services.gemini.model', 'gemini-2.5-pro')
+            : (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5'));
     }
 
     private function defaultModelForProvider(string $provider): string

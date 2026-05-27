@@ -18,6 +18,7 @@ class AiModelCatalogService
                 'openai' => $this->listOpenAiModels(),
                 'gemini' => $this->listGeminiModels(),
                 'gemini_deep_research' => $this->listDeepResearchAgents(),
+                'perplexity' => $this->listPerplexityModels(),
                 default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
             };
         });
@@ -155,6 +156,25 @@ class AiModelCatalogService
         ]);
 
         return $this->payload('gemini_deep_research', $defaultModel, $models, 'config');
+    }
+
+    /**
+     * @return array{provider:string,defaultModel:string,models:array<int,array{id:string,label:string,default?:bool}>,source:string}
+     */
+    private function listPerplexityModels(): array
+    {
+        $defaultModel = (string) config('services.perplexity.model', 'sonar-deep-research');
+        $configuredModels = $this->csvModels((string) config('services.perplexity.models', ''));
+        $models = $this->uniqueModels([
+            $defaultModel,
+            ...$configuredModels,
+            'sonar-deep-research',
+            'sonar-reasoning-pro',
+            'sonar-pro',
+            'sonar',
+        ]);
+
+        return $this->payload('perplexity', $defaultModel, $models, 'config');
     }
 
     private function isUsefulOpenAiModel(string $id): bool

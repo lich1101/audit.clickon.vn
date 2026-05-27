@@ -19,13 +19,30 @@ import {
   type AuditConfigurationCheckReport,
   type AuditSystemSettings
 } from "@/lib/audit-settings";
-import type { AiProvider, AuditWorkflow, JsonFormatterProvider } from "@/types";
+import type {
+  AiProvider,
+  AuditWorkflow,
+  DeepResearchReasoningProvider,
+  DeepResearchResearchProvider,
+  JsonFormatterProvider
+} from "@/types";
 
 const providerDescriptions = {
   openai: "OpenAI Responses API, phù hợp output JSON ổn định.",
   gemini: "Gemini generateContent với JSON schema.",
-  gemini_deep_research: "Gemini Deep Research — chậm hơn, cần quyền project."
+  gemini_deep_research: "Gemini Deep Research — chậm hơn, cần quyền project.",
+  perplexity: "Perplexity Sonar/Deep Research cho research web, SERP và đối thủ."
 } as const;
+
+const deepResearchResearchProviderDescriptions: Record<DeepResearchResearchProvider, string> = {
+  perplexity: "Provider research web gốc của flow 3A, phù hợp intent/SERP/đối thủ/freshness theo batch.",
+  gemini_deep_research: "Agent Gemini Deep Research chạy nền, phù hợp research sâu nhưng chậm hơn và cần quyền project."
+};
+
+const deepResearchReasoningProviderDescriptions: Record<DeepResearchReasoningProvider, string> = {
+  openai: "OpenAI reasoning cho output audit ổn định theo checklist Clickon.",
+  gemini: "Gemini reasoning để chấm audit theo checklist, sau đó vẫn qua bước 3C để ép JSON cuối."
+};
 
 const formatterProviderDescriptions = {
   openai: "Dùng OpenAI để ép raw report về JSON.",
@@ -59,7 +76,9 @@ export default function AdminAuditSettingsPage() {
     step2BatchSize: 60,
     step3BatchSize: 30,
     deepResearchBatchSize: 5,
+    deepResearchResearchProvider: "perplexity",
     deepResearchResearchModel: "sonar-deep-research",
+    deepResearchReasoningProvider: "openai",
     deepResearchReasoningModel: "gpt-5.5",
     deepResearchFormatterProvider: "openai",
     deepResearchFormatterModel: "gpt-5.5"
@@ -73,7 +92,9 @@ export default function AdminAuditSettingsPage() {
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
           step3FlowMode: data.step3FlowMode ?? "standard",
+          deepResearchResearchProvider: data.deepResearchResearchProvider ?? "perplexity",
           deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-deep-research",
+          deepResearchReasoningProvider: data.deepResearchReasoningProvider ?? "openai",
           deepResearchReasoningModel: data.deepResearchReasoningModel ?? "gpt-5.5",
           deepResearchFormatterProvider: data.deepResearchFormatterProvider ?? "openai",
           deepResearchFormatterModel: data.deepResearchFormatterModel ?? "gpt-5.5"
@@ -448,56 +469,90 @@ export default function AdminAuditSettingsPage() {
         <CardHeader>
           <CardTitle>Flow audit_deep_research: giữ bước 2 cũ, thay bước 3</CardTitle>
           <CardDescription>
-            Card này chỉ áp dụng khi chế độ bước 3 toàn hệ thống đang bật Deep Research. Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A Perplexity research, 3B GPT reasoning audit, 3C JSON formatter.
+            Card này chỉ áp dụng khi chế độ bước 3 toàn hệ thống đang bật Deep Research. Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A research, 3B reasoning audit, 3C JSON formatter; admin được chọn provider/model thật cho từng bước.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-3">
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
             <div>
-              <p className="font-medium">Bước 3A: Perplexity research</p>
+              <p className="font-medium">Bước 3A: research</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Nghiên cứu intent, SERP, đối thủ, freshness, keyword demand và cannibalization cho cả chunk, sau khi đã có keyword/danh mục từ bước 2.
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <Label>Provider</Label>
-              <Input value="Perplexity" readOnly />
-              <p className="text-xs text-muted-foreground">Provider cố định cho bước 3A của flow audit_deep_research.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="deep-research-research-model">Model bước 3A</Label>
-              <Input
-                id="deep-research-research-model"
-                value={settings.deepResearchResearchModel ?? ""}
-                onChange={(event) =>
+              <Label htmlFor="deep-research-research-provider">Provider</Label>
+              <Select
+                value={settings.deepResearchResearchProvider}
+                onValueChange={(value) =>
                   setSettings((current) => ({
                     ...current,
-                    deepResearchResearchModel: event.target.value
+                    deepResearchResearchProvider: value as DeepResearchResearchProvider,
+                    deepResearchResearchModel: value === "gemini_deep_research" ? "deep-research-pro-preview-12-2025" : "sonar-deep-research"
                   }))
                 }
-                placeholder="Ví dụ: sonar-deep-research"
-              />
-              <p className="text-xs text-muted-foreground">Nhập model Perplexity dùng để research cho chunk step 3A.</p>
+              >
+                <SelectTrigger id="deep-research-research-provider">
+                  <SelectValue placeholder="Chọn provider research" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="perplexity">Perplexity</SelectItem>
+                  <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{deepResearchResearchProviderDescriptions[settings.deepResearchResearchProvider]}</p>
             </div>
+            <AiModelSelect
+              key={`deep-research-research-${settings.deepResearchResearchProvider}`}
+              id="deep-research-research-model"
+              label="Model bước 3A"
+              provider={settings.deepResearchResearchProvider}
+              value={settings.deepResearchResearchModel ?? ""}
+              onChange={(model) =>
+                setSettings((current) => ({
+                  ...current,
+                  deepResearchResearchModel: model || null
+                }))
+              }
+              allowCustomInput
+              description="Chọn từ danh sách hoặc nhập model research chính xác cho bước 3A."
+            />
           </div>
 
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
             <div>
-              <p className="font-medium">Bước 3B: GPT reasoning audit</p>
+              <p className="font-medium">Bước 3B: reasoning audit</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Dùng dữ liệu crawl + keyword/danh mục bước 2 + research bước 3A để chấm điểm đúng checklist Clickon cho toàn bộ chunk.
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <Label>Provider</Label>
-              <Input value="OpenAI" readOnly />
-              <p className="text-xs text-muted-foreground">Provider reasoning hiện cố định là OpenAI để giữ output audit ổn định.</p>
+              <Label htmlFor="deep-research-reasoning-provider">Provider</Label>
+              <Select
+                value={settings.deepResearchReasoningProvider}
+                onValueChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deepResearchReasoningProvider: value as DeepResearchReasoningProvider,
+                    deepResearchReasoningModel: value === "gemini" ? "gemini-2.5-pro" : "gpt-5.5"
+                  }))
+                }
+              >
+                <SelectTrigger id="deep-research-reasoning-provider">
+                  <SelectValue placeholder="Chọn provider reasoning" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{deepResearchReasoningProviderDescriptions[settings.deepResearchReasoningProvider]}</p>
             </div>
             <AiModelSelect
-              key="deep-research-reasoning-openai"
+              key={`deep-research-reasoning-${settings.deepResearchReasoningProvider}`}
               id="deep-research-reasoning-model"
               label="Model bước 3B"
-              provider="openai"
+              provider={settings.deepResearchReasoningProvider}
               value={settings.deepResearchReasoningModel ?? ""}
               onChange={(model) =>
                 setSettings((current) => ({
@@ -506,7 +561,7 @@ export default function AdminAuditSettingsPage() {
                 }))
               }
               allowCustomInput
-              description="Chọn từ danh sách hoặc nhập model OpenAI chính xác dùng cho bước 3B."
+              description="Chọn từ danh sách hoặc nhập model reasoning chính xác dùng cho bước 3B."
             />
           </div>
 

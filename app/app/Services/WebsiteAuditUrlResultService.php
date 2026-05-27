@@ -38,7 +38,7 @@ class WebsiteAuditUrlResultService
                 'content_revision_direction' => $item->content_revision_direction,
                 'error_message' => $item->error_message,
                 'ai_provider' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
-                    ? 'openai'
+                    ? ($run->deep_research_reasoning_provider ?: 'openai')
                     : ($run->step3_ai_provider ?: ($run->ai_provider ?? 'openai')),
                 'ai_model' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
                     ? ($run->deep_research_reasoning_model ?: (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))

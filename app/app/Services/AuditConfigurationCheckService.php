@@ -109,24 +109,29 @@ class AuditConfigurationCheckService
      */
     private function checkDeepResearchStep3Group(array $settings): array
     {
-        $researchModel = $this->effectivePerplexityModel($settings['deepResearchResearchModel'] ?? null);
-        $reasoningModel = $this->effectiveOpenAiModel($settings['deepResearchReasoningModel'] ?? null);
+        $researchProvider = $this->normalizeDeepResearchResearchProvider($settings['deepResearchResearchProvider'] ?? null);
+        $researchModel = $this->effectiveDeepResearchResearchModel($researchProvider, $settings['deepResearchResearchModel'] ?? null);
+        $reasoningProvider = $this->normalizeDeepResearchReasoningProvider($settings['deepResearchReasoningProvider'] ?? null);
+        $reasoningModel = $this->effectiveDeepResearchReasoningModel($reasoningProvider, $settings['deepResearchReasoningModel'] ?? null);
         $formatterProvider = (string) ($settings['deepResearchFormatterProvider'] ?? 'openai');
         $formatterModel = $this->effectiveFormatterModel($formatterProvider, $settings['deepResearchFormatterModel'] ?? null);
 
         $items = [
-            $this->okItem('Model bước 3A', sprintf('perplexity / %s', $researchModel)),
-            $this->providerCredentialCheck('perplexity', 'API key bước 3A'),
+            $this->okItem('Provider/model bước 3A', sprintf('%s / %s', $researchProvider, $researchModel)),
+            $this->providerCredentialCheck($researchProvider, 'API key bước 3A'),
             $this->promptCheck(AuditPromptTemplate::STEP_DEEP_RESEARCH_RESEARCH, 'Prompt bước 3A'),
-            $this->okItem('Model bước 3B', sprintf('openai / %s', $reasoningModel)),
-            $this->providerCredentialCheck('openai', 'API key bước 3B'),
+            $this->okItem('Provider/model bước 3B', sprintf('%s / %s', $reasoningProvider, $reasoningModel)),
+            $this->providerCredentialCheck($reasoningProvider, 'API key bước 3B'),
             $this->promptCheck(AuditPromptTemplate::STEP_DEEP_RESEARCH_AUDIT, 'Prompt bước 3B'),
             $this->okItem('Provider/model bước 3C', sprintf('%s / %s', $formatterProvider, $formatterModel)),
             $this->providerCredentialCheck($formatterProvider, 'API key bước 3C'),
             $this->promptCheck(AuditPromptTemplate::STEP_DEEP_RESEARCH_JSON_FORMATTER, 'Prompt bước 3C'),
         ];
 
-        if (str_contains(strtolower($researchModel), 'deep-research') && ! (bool) config('services.audit.deep_research_research_use_async', true)) {
+        if ($researchProvider === 'perplexity'
+            && str_contains(strtolower($researchModel), 'deep-research')
+            && ! (bool) config('services.audit.deep_research_research_use_async', true)
+        ) {
             $items[] = $this->warningItem(
                 'Async Perplexity',
                 'Model deep research đang bật nhưng AUDIT_DEEP_RESEARCH_RESEARCH_USE_ASYNC đang tắt; batch lớn có thể timeout.'
@@ -321,7 +326,7 @@ class AuditConfigurationCheckService
             : 'gemini-2.5-flash';
     }
 
-    private function effectivePerplexityModel(mixed $configuredModel): string
+    private function effectiveDeepResearchResearchModel(string $provider, mixed $configuredModel): string
     {
         $configured = trim((string) ($configuredModel ?? ''));
 
@@ -329,10 +334,12 @@ class AuditConfigurationCheckService
             return $configured;
         }
 
-        return (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+        return $provider === 'gemini_deep_research'
+            ? (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025')
+            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
     }
 
-    private function effectiveOpenAiModel(mixed $configuredModel): string
+    private function effectiveDeepResearchReasoningModel(string $provider, mixed $configuredModel): string
     {
         $configured = trim((string) ($configuredModel ?? ''));
 
@@ -340,6 +347,22 @@ class AuditConfigurationCheckService
             return $configured;
         }
 
-        return (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5'));
+        return $provider === 'gemini'
+            ? (string) config('services.gemini.model', 'gemini-2.5-pro')
+            : (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5'));
+    }
+
+    private function normalizeDeepResearchResearchProvider(mixed $provider): string
+    {
+        return in_array($provider, ['perplexity', 'gemini_deep_research'], true)
+            ? (string) $provider
+            : 'perplexity';
+    }
+
+    private function normalizeDeepResearchReasoningProvider(mixed $provider): string
+    {
+        return in_array($provider, ['openai', 'gemini'], true)
+            ? (string) $provider
+            : 'openai';
     }
 }

@@ -1,7 +1,13 @@
 "use client";
 
 import { laravelRequest } from "@/lib/laravel";
-import type { AiProvider, AuditWorkflow, JsonFormatterProvider } from "@/types";
+import type {
+  AiProvider,
+  AuditWorkflow,
+  DeepResearchReasoningProvider,
+  DeepResearchResearchProvider,
+  JsonFormatterProvider
+} from "@/types";
 
 export type ModelPricingRow = {
   provider: AiProvider;
@@ -28,7 +34,9 @@ export type AuditSystemSettings = {
   step2BatchSize: number;
   step3BatchSize: number;
   deepResearchBatchSize: number;
+  deepResearchResearchProvider: DeepResearchResearchProvider;
   deepResearchResearchModel: string | null;
+  deepResearchReasoningProvider: DeepResearchReasoningProvider;
   deepResearchReasoningModel: string | null;
   deepResearchFormatterProvider: JsonFormatterProvider;
   deepResearchFormatterModel: string | null;
@@ -51,7 +59,9 @@ export type PublicAuditSettings = {
   step2BatchSize?: number;
   step3BatchSize?: number;
   deepResearchBatchSize?: number;
+  deepResearchResearchProvider?: DeepResearchResearchProvider;
   deepResearchResearchModel?: string | null;
+  deepResearchReasoningProvider?: DeepResearchReasoningProvider;
   deepResearchReasoningModel?: string | null;
   deepResearchFormatterProvider?: JsonFormatterProvider;
   deepResearchFormatterModel?: string | null;

@@ -95,3 +95,6 @@ fi
 
 echo "==> Deployment complete"
 dc ps
+echo
+echo "==> Suggested post-deploy check"
+echo "bash \"$ROOT_DIR/deploy/scripts/prod-audit-preflight.sh\""

@@ -64,7 +64,9 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     step2BatchSize: 60,
     step3BatchSize: 30,
     deepResearchBatchSize: 5,
+    deepResearchResearchProvider: "perplexity",
     deepResearchResearchModel: "sonar-deep-research",
+    deepResearchReasoningProvider: "openai",
     deepResearchReasoningModel: "gpt-5.5",
     deepResearchFormatterProvider: "openai",
     deepResearchFormatterModel: "gpt-5.5",
@@ -90,7 +92,9 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
       ...systemAi,
       step3FlowMode: systemAi.step3FlowMode ?? "standard",
       step2AiProvider: systemAi.step2AiProvider ?? systemAi.aiProvider,
-      step3AiProvider: systemAi.step3AiProvider ?? systemAi.aiProvider
+      step3AiProvider: systemAi.step3AiProvider ?? systemAi.aiProvider,
+      deepResearchResearchProvider: systemAi.deepResearchResearchProvider ?? "perplexity",
+      deepResearchReasoningProvider: systemAi.deepResearchReasoningProvider ?? "openai"
     }
   };
 }
@@ -165,7 +169,9 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     step2FormatterModel: run.step2FormatterModel ?? "gemini-2.5-flash",
     step3FormatterProvider: run.step3FormatterProvider ?? "gemini",
     step3FormatterModel: run.step3FormatterModel ?? "gemini-2.5-flash",
+    deepResearchResearchProvider: run.deepResearchResearchProvider ?? "perplexity",
     deepResearchResearchModel: run.deepResearchResearchModel ?? "sonar-deep-research",
+    deepResearchReasoningProvider: run.deepResearchReasoningProvider ?? "openai",
     deepResearchReasoningModel: run.deepResearchReasoningModel ?? "gpt-5.5",
     deepResearchFormatterProvider: run.deepResearchFormatterProvider ?? "openai",
     deepResearchFormatterModel: run.deepResearchFormatterModel ?? "gpt-5.5",

@@ -1,6 +1,6 @@
 "use client";
 
-import { HelpCircle, LayoutDashboard, Menu, Moon, Search, Settings2, ShieldCheck, Sun } from "lucide-react";
+import { LayoutDashboard, Menu, Moon, Search, ShieldCheck, Sun } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -47,19 +47,12 @@ export function Topbar() {
           </SheetContent>
         </Sheet>
 
-        <div className="flex h-12 flex-1 items-center gap-3 rounded-full bg-secondary px-4 shadow-sm transition focus-within:bg-card focus-within:shadow-md md:max-w-4xl">
+        <div className="flex h-11 flex-1 items-center gap-3 rounded-full bg-secondary/80 px-4 shadow-sm transition focus-within:bg-card focus-within:shadow-md md:max-w-2xl">
           <Search className="size-4 text-muted-foreground" />
-          <span className="hidden text-sm text-muted-foreground sm:inline">Tìm user, website, plan hoặc credit log</span>
-          <span className="text-sm text-muted-foreground sm:hidden">Tìm kiếm</span>
+          <span className="text-sm text-muted-foreground">Tìm nhanh</span>
         </div>
 
         <div className="ml-auto flex items-center gap-3">
-          <Button variant="ghost" size="icon" aria-label="Help">
-            <HelpCircle className="size-4" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Settings">
-            <Settings2 className="size-4" />
-          </Button>
           <Button
             variant="outline"
             size="icon"
@@ -72,13 +65,13 @@ export function Topbar() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex h-12 items-center gap-3 rounded-full border border-border bg-card px-2 py-1 shadow-sm transition hover:bg-secondary/70 sm:px-3">
+              <button className="flex h-11 items-center gap-2 rounded-full border border-border bg-card px-2 py-1 shadow-sm transition hover:bg-secondary/70 sm:px-3">
                 <Avatar>
                   <AvatarFallback>{profile?.email?.slice(0, 2).toUpperCase() ?? "CA"}</AvatarFallback>
                 </Avatar>
-                <div className="hidden text-left sm:block">
-                  <p className="text-sm font-medium">{profile?.displayName ?? profile?.email ?? "Guest"}</p>
-                  <p className="text-xs text-muted-foreground">
+                <div className="hidden text-left lg:block">
+                  <p className="max-w-[140px] truncate text-sm font-medium">{profile?.displayName ?? profile?.email ?? "Guest"}</p>
+                  <p className="text-[11px] text-muted-foreground">
                     {isAdmin ? (mode === "admin" ? "admin mode" : profile?.role ?? "user") : profile?.role ?? "user"}
                   </p>
                 </div>

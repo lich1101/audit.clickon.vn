@@ -19,6 +19,14 @@ import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { AuditRun, AuditRunItem, Website } from "@/types";
 
+function buildDeepResearchFlowLabel(run: AuditRun) {
+  const researchProvider = run.deepResearchResearchProvider ?? "perplexity";
+  const reasoningProvider = run.deepResearchReasoningProvider ?? "openai";
+  const formatterProvider = run.deepResearchFormatterProvider ?? "openai";
+
+  return `Flow audit_deep_research · 3A ${researchProvider} · 3B ${reasoningProvider} · 3C ${formatterProvider}`;
+}
+
 export default function AuditRunDetailPage({
   params
 }: {
@@ -203,7 +211,7 @@ export default function AuditRunDetailPage({
           <ProgressBar className="h-3" value={progressPercent} />
           <p className="text-sm text-muted-foreground">
             {run.workflow === "audit_deep_research"
-              ? `Tạo ${formatDate(run.createdAt)} · Flow audit_deep_research · Perplexity → OpenAI reasoning → JSON formatter`
+              ? `Tạo ${formatDate(run.createdAt)} · ${buildDeepResearchFlowLabel(run)}`
               : `Tạo ${formatDate(run.createdAt)} · B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
           </p>
           {isActiveAuditRun(run.status) ? <p className="text-xs text-muted-foreground">Bảng chi tiết đang tự cập nhật mỗi 3 giây trong lúc run còn chạy.</p> : null}

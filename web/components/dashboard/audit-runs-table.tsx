@@ -15,6 +15,14 @@ function buildProgressLabel(run: AuditRun) {
   return `${run.processedUrls}/${run.totalUrls} URL`;
 }
 
+function buildDeepResearchFlowLabel(run: AuditRun) {
+  const researchProvider = run.deepResearchResearchProvider ?? "perplexity";
+  const reasoningProvider = run.deepResearchReasoningProvider ?? "openai";
+  const formatterProvider = run.deepResearchFormatterProvider ?? "openai";
+
+  return `Flow audit_deep_research · 3A ${researchProvider} · 3B ${reasoningProvider} · 3C ${formatterProvider}`;
+}
+
 export function AuditRunsTable({
   websiteId,
   runs,
@@ -62,7 +70,7 @@ export function AuditRunsTable({
               <p className="text-xs text-muted-foreground">{formatDate(run.createdAt)}</p>
               <p className="text-xs text-muted-foreground">
                 {run.workflow === "audit_deep_research"
-                  ? "Flow audit_deep_research · Perplexity → OpenAI reasoning → JSON formatter"
+                  ? buildDeepResearchFlowLabel(run)
                   : `B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
               </p>
             </div>

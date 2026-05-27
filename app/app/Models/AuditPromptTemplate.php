@@ -215,7 +215,7 @@ class AuditPromptTemplate extends Model
                 'is_active' => true,
             ],
             self::STEP_DEEP_RESEARCH_RESEARCH => [
-                'title' => 'Deep Research A: Perplexity research (batch)',
+                'title' => 'Deep Research A: research (batch)',
                 'developer_prompt' => <<<'PROMPT'
 Bạn là chuyên gia nghiên cứu SERP và search intent cho SEO Audit Clickon.
 
@@ -299,7 +299,7 @@ PROMPT,
                 'is_active' => true,
             ],
             self::STEP_DEEP_RESEARCH_AUDIT => [
-                'title' => 'Deep Research B: GPT reasoning audit (batch)',
+                'title' => 'Deep Research B: reasoning audit (batch)',
                 'developer_prompt' => <<<'PROMPT'
 Bạn là chuyên gia SEO Onpage Google có 20 năm kinh nghiệm, audit theo chuẩn Checklist Audit SEO của Clickon.
 

@@ -38,7 +38,9 @@ class DeepResearchSeoAuditService
         ?string $primaryKeywordSeed = null,
         ?string $categoryNameSeed = null,
         ?string $categoryUrlSeed = null,
+        ?string $researchProvider = null,
         ?string $researchModel = null,
+        ?string $reasoningProvider = null,
         ?string $reasoningModel = null,
         ?string $formatterProvider = null,
         ?string $formatterModel = null,
@@ -57,7 +59,9 @@ class DeepResearchSeoAuditService
             checklistText: $checklistText,
             auditRunId: $auditRunId,
             stepSuffix: $stepSuffix,
+            researchProvider: $researchProvider,
             researchModel: $researchModel,
+            reasoningProvider: $reasoningProvider,
             reasoningModel: $reasoningModel,
             formatterProvider: $formatterProvider,
             formatterModel: $formatterModel,
@@ -96,7 +100,9 @@ class DeepResearchSeoAuditService
         ?string $checklistText,
         ?int $auditRunId = null,
         ?string $stepSuffix = null,
+        ?string $researchProvider = null,
         ?string $researchModel = null,
+        ?string $reasoningProvider = null,
         ?string $reasoningModel = null,
         ?string $formatterProvider = null,
         ?string $formatterModel = null,
@@ -113,6 +119,7 @@ class DeepResearchSeoAuditService
             checklistText: $checklistText,
             auditRunId: $auditRunId,
             persistStep: $researchStep,
+            provider: $researchProvider,
             model: $researchModel,
         );
 
@@ -128,6 +135,7 @@ class DeepResearchSeoAuditService
             researchItems: $researchItems,
             auditRunId: $auditRunId,
             persistStep: $auditStep,
+            provider: $reasoningProvider,
             model: $reasoningModel,
         );
 
@@ -208,12 +216,12 @@ class DeepResearchSeoAuditService
             ],
             'modelUsed' => [
                 'research' => [
-                    'provider' => 'perplexity',
-                    'model' => $research['usage']['model'] ?? $this->researchModel($researchModel),
+                    'provider' => $research['usage']['provider'] ?? $this->researchProvider($researchProvider),
+                    'model' => $research['usage']['model'] ?? $this->researchModel($researchProvider, $researchModel),
                 ],
                 'reasoning' => [
-                    'provider' => 'openai',
-                    'model' => $auditRaw['usage']['model'] ?? $this->reasoningModel($reasoningModel),
+                    'provider' => $auditRaw['usage']['provider'] ?? $this->reasoningProvider($reasoningProvider),
+                    'model' => $auditRaw['usage']['model'] ?? $this->reasoningModel($reasoningProvider, $reasoningModel),
                 ],
                 'formatter' => [
                     'provider' => $this->formatterProvider($formatterProvider),
@@ -254,9 +262,11 @@ class DeepResearchSeoAuditService
         array $researchItems,
         ?int $auditRunId,
         string $persistStep,
+        ?string $provider = null,
         ?string $model = null,
     ): array {
-        $model = $this->reasoningModel($model);
+        $provider = $this->reasoningProvider($provider);
+        $model = $this->reasoningModel($provider, $model);
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_DEEP_RESEARCH_AUDIT, [
             'website_url' => $batchPages[0]['page']['websiteUrl'] ?? '',
             'target_urls_json' => array_values(array_map(
@@ -278,10 +288,12 @@ class DeepResearchSeoAuditService
             'checklist' => trim((string) ($checklistText ?? '')),
         ]);
 
-        $raw = $this->requestOpenAiRaw(
+        $raw = $this->requestReasoningRaw(
+            provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
+            schema: $this->batchFinalAuditSchema(),
             auditRunId: $auditRunId,
             persistStep: $persistStep,
         );
@@ -291,7 +303,7 @@ class DeepResearchSeoAuditService
             'usage' => $raw['usage'],
             'promptSnapshot' => [
                 'step' => AuditPromptTemplate::STEP_DEEP_RESEARCH_AUDIT,
-                'provider' => 'openai',
+                'provider' => $provider,
                 'model' => $model,
                 'systemPrompt' => $prompts['system'],
                 'userPrompt' => $prompts['user'],
@@ -485,8 +497,10 @@ class DeepResearchSeoAuditService
         ?string $categoryMatchReason,
         ?int $auditRunId,
         string $persistStep,
+        ?string $provider = null,
     ): array {
-        $model = $this->reasoningModel();
+        $provider = $this->reasoningProvider($provider);
+        $model = $this->reasoningModel($provider);
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_DEEP_RESEARCH_AUDIT, [
             'website_url' => $page['websiteUrl'] ?? '',
             'url' => $page['url'] ?? '',
@@ -504,10 +518,12 @@ class DeepResearchSeoAuditService
             'checklist' => trim((string) ($checklistText ?? '')),
         ]);
 
-        $raw = $this->requestOpenAiRaw(
+        $raw = $this->requestReasoningRaw(
+            provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
+            schema: $this->finalAuditSchema(),
             auditRunId: $auditRunId,
             persistStep: $persistStep,
         );
@@ -517,7 +533,7 @@ class DeepResearchSeoAuditService
             'usage' => $raw['usage'],
             'promptSnapshot' => [
                 'step' => AuditPromptTemplate::STEP_DEEP_RESEARCH_AUDIT,
-                'provider' => 'openai',
+                'provider' => $provider,
                 'model' => $model,
                 'systemPrompt' => $prompts['system'],
                 'userPrompt' => $prompts['user'],
@@ -800,26 +816,52 @@ class DeepResearchSeoAuditService
         return $suffix !== '' ? $base.'_'.$suffix : $base;
     }
 
-    private function researchModel(?string $override = null): string
+    private function researchProvider(?string $override = null): string
     {
-        $configured = trim((string) ($override ?? ''));
+        $provider = trim((string) ($override ?? ''));
 
-        if ($configured !== '') {
-            return $configured;
+        if ($provider === '') {
+            $provider = (string) config('services.audit.deep_research_research_provider', 'perplexity');
         }
 
-        return (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+        return in_array($provider, ['perplexity', 'gemini_deep_research'], true) ? $provider : 'perplexity';
     }
 
-    private function reasoningModel(?string $override = null): string
+    private function researchModel(?string $providerOverride = null, ?string $modelOverride = null): string
     {
-        $configured = trim((string) ($override ?? ''));
+        $configured = trim((string) ($modelOverride ?? ''));
 
         if ($configured !== '') {
             return $configured;
         }
 
-        return (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5'));
+        return $this->researchProvider($providerOverride) === 'gemini_deep_research'
+            ? (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025')
+            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+    }
+
+    private function reasoningProvider(?string $override = null): string
+    {
+        $provider = trim((string) ($override ?? ''));
+
+        if ($provider === '') {
+            $provider = (string) config('services.audit.deep_research_reasoning_provider', 'openai');
+        }
+
+        return in_array($provider, ['openai', 'gemini'], true) ? $provider : 'openai';
+    }
+
+    private function reasoningModel(?string $providerOverride = null, ?string $modelOverride = null): string
+    {
+        $configured = trim((string) ($modelOverride ?? ''));
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        return $this->reasoningProvider($providerOverride) === 'gemini'
+            ? (string) config('services.gemini.model', 'gemini-2.5-pro')
+            : (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5'));
     }
 
     private function formatterProvider(?string $override = null): string
@@ -909,7 +951,7 @@ class DeepResearchSeoAuditService
 
         $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
             'step' => $persistStep,
-            'stepLabel' => 'Deep Research B: GPT reasoning audit',
+            'stepLabel' => 'Deep Research B: reasoning audit',
             'provider' => 'openai',
             'model' => $model,
             'systemPrompt' => $systemPrompt,
@@ -940,7 +982,7 @@ class DeepResearchSeoAuditService
 
         $this->persistAiStepResponse($auditRunId, $persistStep, [
             'step' => $persistStep,
-            'stepLabel' => 'Deep Research B: GPT reasoning audit',
+            'stepLabel' => 'Deep Research B: reasoning audit',
             'status' => 'raw',
             'provider' => 'openai',
             'model' => $model,
@@ -953,6 +995,63 @@ class DeepResearchSeoAuditService
             'rawText' => $text,
             'usage' => $usage,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $schema
+     * @return array{rawText: string, usage: array<string, mixed>}
+     */
+    private function requestReasoningRaw(
+        string $provider,
+        string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        array $schema,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        return $provider === 'gemini'
+            ? $this->requestGeminiReasoningRaw($model, $systemPrompt, $userPrompt, $schema, $auditRunId, $persistStep)
+            : $this->requestOpenAiRaw($model, $systemPrompt, $userPrompt, $auditRunId, $persistStep);
+    }
+
+    /**
+     * @param  array<string, mixed>  $schema
+     * @return array{rawText: string, usage: array<string, mixed>}
+     */
+    private function requestGeminiReasoningRaw(
+        string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        array $schema,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
+            'step' => $persistStep,
+            'stepLabel' => 'Deep Research B: reasoning audit',
+            'provider' => 'gemini',
+            'model' => $model,
+            'systemPrompt' => $systemPrompt,
+            'userPrompt' => $userPrompt,
+            'schema' => $schema,
+            'createdAt' => now()->toIso8601String(),
+        ]);
+
+        $raw = $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema);
+
+        $this->persistAiStepResponse($auditRunId, $persistStep, [
+            'step' => $persistStep,
+            'stepLabel' => 'Deep Research B: reasoning audit',
+            'status' => 'raw',
+            'provider' => 'gemini',
+            'model' => $model,
+            'rawText' => $raw['rawText'],
+            'usage' => $raw['usage'],
+            'createdAt' => now()->toIso8601String(),
+        ]);
+
+        return $raw;
     }
 
     /**

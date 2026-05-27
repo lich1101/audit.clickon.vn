@@ -16,7 +16,7 @@ class AiModelController extends Controller
 
     public function index(Request $request, string $provider)
     {
-        if (! in_array($provider, ['openai', 'gemini', 'gemini_deep_research'], true)) {
+        if (! in_array($provider, ['openai', 'gemini', 'gemini_deep_research', 'perplexity'], true)) {
             throw new NotFoundHttpException('AI provider not found.');
         }
 

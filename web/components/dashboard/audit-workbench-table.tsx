@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, ListChecks, Pencil, Plus, Rows3, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
@@ -45,7 +45,8 @@ export function AuditWorkbenchTable({
   onUpdateUrl,
   itemsByUrl,
   run,
-  canManageUrls
+  canManageUrls,
+  canSelectUrls = true,
 }: {
   urls: string[];
   selectedUrls: string[];
@@ -56,12 +57,44 @@ export function AuditWorkbenchTable({
   itemsByUrl: Record<string, AuditWorkbenchRow>;
   run: { status?: string } | null;
   canManageUrls: boolean;
+  canSelectUrls?: boolean;
 }) {
   const [newUrl, setNewUrl] = useState("");
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
   const selectedSet = useMemo(() => new Set(selectedUrls), [selectedUrls]);
+  const lastToggledIndexRef = useRef<number | null>(null);
   const allSelected = urls.length > 0 && selectedUrls.length === urls.length;
+  const quickGroups = useMemo(() => {
+    const completed: string[] = [];
+    const failed: string[] = [];
+    const active: string[] = [];
+    const step2Ready: string[] = [];
+
+    for (const url of urls) {
+      const item = itemsByUrl[url];
+
+      if (item?.status === "completed") {
+        completed.push(url);
+      }
+
+      if (item?.status === "failed") {
+        failed.push(url);
+      }
+
+      if (item?.status === "fetching" || item?.status === "analyzing" || item?.status === "queued") {
+        active.push(url);
+      }
+
+      if (item?.primaryKeyword?.trim() && item?.categoryName?.trim() && item?.categoryUrl?.trim()) {
+        step2Ready.push(url);
+      }
+    }
+
+    return { completed, failed, active, step2Ready };
+  }, [itemsByUrl, urls]);
 
   useEffect(() => {
     if (!editingUrl) {
@@ -78,13 +111,68 @@ export function AuditWorkbenchTable({
     onSelectedChange(checked ? [...urls] : []);
   }
 
-  function toggleOne(url: string, checked: boolean) {
+  function applyRangeSelection(startIndex: number, endIndex: number, checked: boolean) {
+    const [from, to] = [startIndex, endIndex].sort((left, right) => left - right);
+    const rangeUrls = urls.slice(from, to + 1);
+
     if (checked) {
-      onSelectedChange(Array.from(new Set([...selectedUrls, url])));
+      onSelectedChange(Array.from(new Set([...selectedUrls, ...rangeUrls])));
       return;
     }
 
-    onSelectedChange(selectedUrls.filter((item) => item !== url));
+    onSelectedChange(selectedUrls.filter((item) => !rangeUrls.includes(item)));
+  }
+
+  function toggleOne(url: string, checked: boolean, index: number, shiftKey = false) {
+    if (shiftKey && lastToggledIndexRef.current !== null) {
+      applyRangeSelection(lastToggledIndexRef.current, index, checked);
+      lastToggledIndexRef.current = index;
+      return;
+    }
+
+    if (checked) {
+      onSelectedChange(Array.from(new Set([...selectedUrls, url])));
+    } else {
+      onSelectedChange(selectedUrls.filter((item) => item !== url));
+    }
+
+    lastToggledIndexRef.current = index;
+  }
+
+  function applyQuickSelection(targetUrls: string[], mode: "replace" | "add" | "remove" = "replace") {
+    if (mode === "replace") {
+      onSelectedChange([...targetUrls]);
+      return;
+    }
+
+    if (mode === "add") {
+      onSelectedChange(Array.from(new Set([...selectedUrls, ...targetUrls])));
+      return;
+    }
+
+    onSelectedChange(selectedUrls.filter((url) => !targetUrls.includes(url)));
+  }
+
+  function parseRangeValue(value: string) {
+    const parsed = Number(value);
+
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > urls.length) {
+      return null;
+    }
+
+    return parsed - 1;
+  }
+
+  function submitRangeSelection(remove = false) {
+    const startIndex = parseRangeValue(rangeStart);
+    const endIndex = parseRangeValue(rangeEnd);
+
+    if (startIndex === null || endIndex === null) {
+      toast.error("Khoảng dòng không hợp lệ.");
+      return;
+    }
+
+    applyRangeSelection(startIndex, endIndex, !remove);
   }
 
   function submitNewUrl() {
@@ -154,12 +242,65 @@ export function AuditWorkbenchTable({
 
   return (
     <div className="overflow-hidden rounded-[20px] border border-border/70 bg-card shadow-soft">
+      <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2 text-sm">
+            <ListChecks className="size-4 text-primary" />
+            <span className="font-medium">{selectedUrls.length}/{urls.length} URL đã chọn</span>
+            {!canManageUrls ? <span className="text-xs text-muted-foreground">Danh sách URL đang khóa chỉnh sửa, nhưng vẫn có thể chọn nhanh.</span> : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(urls)} disabled={!canSelectUrls || urls.length === 0}>
+              Chọn tất cả
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => onSelectedChange([])} disabled={!canSelectUrls || selectedUrls.length === 0}>
+              Bỏ hết
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Từ dòng</span>
+              <Input className="h-9 w-24" inputMode="numeric" placeholder="1" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Đến dòng</span>
+              <Input className="h-9 w-24" inputMode="numeric" placeholder={String(urls.length || 1)} value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} />
+            </div>
+            <Button type="button" size="sm" variant="secondary" onClick={() => submitRangeSelection(false)} disabled={!canSelectUrls || urls.length === 0}>
+              <Rows3 className="size-4" />
+              Chọn khoảng
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => submitRangeSelection(true)} disabled={!canSelectUrls || selectedUrls.length === 0}>
+              Bỏ khoảng
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.active)} disabled={!canSelectUrls || quickGroups.active.length === 0}>
+              Đang chạy ({quickGroups.active.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.failed)} disabled={!canSelectUrls || quickGroups.failed.length === 0}>
+              Lỗi ({quickGroups.failed.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.completed)} disabled={!canSelectUrls || quickGroups.completed.length === 0}>
+              Hoàn tất ({quickGroups.completed.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Ready)} disabled={!canSelectUrls || quickGroups.step2Ready.length === 0}>
+              Có dữ liệu B2 ({quickGroups.step2Ready.length})
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10 sticky left-0 z-10 bg-card">
-                <Checkbox checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} disabled={urls.length === 0} />
+                <Checkbox checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} disabled={!canSelectUrls || urls.length === 0} />
               </TableHead>
               <TableHead className="w-12">#</TableHead>
               <TableHead className="min-w-[280px]">URL mục tiêu</TableHead>
@@ -197,9 +338,20 @@ export function AuditWorkbenchTable({
                         : null;
 
                 return (
-                  <TableRow key={url}>
+                  <TableRow key={url} className={selectedSet.has(url) ? "bg-primary/5" : undefined}>
                     <TableCell className="sticky left-0 z-10 bg-card">
-                      <Checkbox checked={selectedSet.has(url)} onChange={(event) => toggleOne(url, event.target.checked)} disabled={!canManageUrls} />
+                      <Checkbox
+                        checked={selectedSet.has(url)}
+                        onChange={(event) =>
+                          toggleOne(
+                            url,
+                            event.target.checked,
+                            index,
+                            "shiftKey" in event.nativeEvent ? Boolean((event.nativeEvent as MouseEvent | KeyboardEvent).shiftKey) : false,
+                          )
+                        }
+                        disabled={!canSelectUrls}
+                      />
                     </TableCell>
                     <TableCell className="font-medium">{index + 1}</TableCell>
                     <TableCell>

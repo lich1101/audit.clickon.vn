@@ -31,7 +31,9 @@ class AuditSettingsTest extends TestCase
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
             'deepResearchBatchSize' => 5,
+            'deepResearchResearchProvider' => 'perplexity',
             'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningProvider' => 'openai',
             'deepResearchReasoningModel' => 'gpt-5.5',
             'deepResearchFormatterProvider' => 'gemini',
             'deepResearchFormatterModel' => 'gemini-2.5-flash',
@@ -43,7 +45,9 @@ class AuditSettingsTest extends TestCase
         $this->assertSame('deep-research-pro-preview-12-2025', $settings['step3AiModel']);
         $this->assertSame('audit_deep_research', $settings['step3FlowMode']);
         $this->assertSame(5, $settings['deepResearchBatchSize']);
+        $this->assertSame('perplexity', $settings['deepResearchResearchProvider']);
         $this->assertSame('sonar-deep-research', $settings['deepResearchResearchModel']);
+        $this->assertSame('openai', $settings['deepResearchReasoningProvider']);
         $this->assertSame('gpt-5.5', $settings['deepResearchReasoningModel']);
         $this->assertSame('gemini', $settings['deepResearchFormatterProvider']);
         $this->assertSame('gemini-2.5-flash', $settings['deepResearchFormatterModel']);
@@ -79,7 +83,9 @@ class AuditSettingsTest extends TestCase
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
             'deepResearchBatchSize' => 5,
+            'deepResearchResearchProvider' => 'perplexity',
             'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningProvider' => 'openai',
             'deepResearchReasoningModel' => 'gpt-5.5',
             'deepResearchFormatterProvider' => 'openai',
             'deepResearchFormatterModel' => 'gpt-5.5',
@@ -119,7 +125,9 @@ class AuditSettingsTest extends TestCase
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
             'deepResearchBatchSize' => 20,
+            'deepResearchResearchProvider' => 'perplexity',
             'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningProvider' => 'openai',
             'deepResearchReasoningModel' => 'gpt-5.5',
             'deepResearchFormatterProvider' => 'openai',
             'deepResearchFormatterModel' => 'gpt-5.5',
@@ -130,5 +138,43 @@ class AuditSettingsTest extends TestCase
         $this->assertTrue($report['ready']);
         $this->assertSame('audit_deep_research', $report['step3FlowMode']);
         $this->assertSame(0, $report['summary']['error']);
+    }
+
+    public function test_configuration_check_accepts_gemini_deep_research_and_gemini_reasoning(): void
+    {
+        Config::set('services.openai.api_key', 'openai-test-key');
+        Config::set('services.perplexity.api_key', 'perplexity-test-key');
+        Config::set('services.gemini.api_key', 'gemini-test-key');
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'gemini',
+            'step2FormatterModel' => 'gemini-2.5-flash',
+            'step3FormatterProvider' => 'openai',
+            'step3FormatterModel' => 'gpt-5.5',
+            'step3FlowMode' => 'audit_deep_research',
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 10,
+            'deepResearchResearchProvider' => 'gemini_deep_research',
+            'deepResearchResearchModel' => 'deep-research-preview-04-2026',
+            'deepResearchReasoningProvider' => 'gemini',
+            'deepResearchReasoningModel' => 'gemini-2.5-pro',
+            'deepResearchFormatterProvider' => 'gemini',
+            'deepResearchFormatterModel' => 'gemini-2.5-flash',
+        ]);
+
+        $report = app(AuditConfigurationCheckService::class)->check();
+
+        $this->assertTrue($report['ready']);
+        $messages = collect($report['groups'])->flatMap(fn (array $group) => $group['items'])->pluck('message')->implode("\n");
+        $this->assertStringContainsString('gemini_deep_research / deep-research-preview-04-2026', $messages);
+        $this->assertStringContainsString('gemini / gemini-2.5-pro', $messages);
     }
 }

@@ -38,6 +38,7 @@ class PerplexityResearchService
         ?string $primaryKeywordSeed = null,
         ?string $categoryNameSeed = null,
         ?string $categoryUrlSeed = null,
+        ?string $provider = null,
         ?string $model = null,
     ): array {
         $analysis = $this->researchBatch(
@@ -54,6 +55,7 @@ class PerplexityResearchService
             checklistText: $checklistText,
             auditRunId: $auditRunId,
             persistStep: $persistStep,
+            provider: $provider,
             model: $model,
         );
 
@@ -81,12 +83,14 @@ class PerplexityResearchService
         ?string $checklistText,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        ?string $provider = null,
         ?string $model = null,
     ): array {
-        $provider = 'perplexity';
+        $provider = $this->researchProvider($provider);
+        $providerLabel = $this->providerLabel($provider);
         $model = trim((string) ($model ?? '')) !== ''
             ? trim((string) $model)
-            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+            : $this->defaultModelForProvider($provider);
         $schema = $this->researchBatchSchema();
         $step = $persistStep ?: 'deep_research_research';
         $targetUrls = array_values(array_map(
@@ -123,6 +127,7 @@ class PerplexityResearchService
         ]);
 
         $raw = $this->requestResearchRaw(
+            provider: $provider,
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
@@ -136,7 +141,7 @@ class PerplexityResearchService
         $parseWarning = null;
 
         try {
-            $data = $this->decodeJsonText($raw['rawText'], 'Perplexity');
+            $data = $this->decodeJsonText($raw['rawText'], $providerLabel);
             $items = $this->normalizeResearchBatchItems(
                 data: $data,
                 batchPages: $batchPages,
@@ -150,13 +155,14 @@ class PerplexityResearchService
                 batchPages: $batchPages,
                 searchResults: $raw['searchResults'] ?? [],
                 citations: $raw['citations'] ?? [],
+                providerLabel: $providerLabel,
             );
             $status = 'raw_text_fallback';
         }
 
         $this->persistAiStepResponse($auditRunId, $step, [
             'step' => $step,
-            'stepLabel' => 'Deep Research A: Perplexity research',
+            'stepLabel' => 'Deep Research A: research',
             'status' => $status,
             'provider' => $provider,
             'model' => $model,
@@ -186,6 +192,7 @@ class PerplexityResearchService
      * @return array{rawText: string, usage: array<string, mixed>, citations: array<int, string>, searchResults: array<int, array<string, mixed>>}
      */
     private function requestResearchRaw(
+        string $provider,
         string $model,
         string $systemPrompt,
         string $userPrompt,
@@ -193,6 +200,27 @@ class PerplexityResearchService
         ?int $auditRunId,
         string $persistStep,
     ): array {
+        $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
+            'step' => $persistStep,
+            'stepLabel' => 'Deep Research A: research',
+            'provider' => $provider,
+            'model' => $model,
+            'systemPrompt' => $systemPrompt,
+            'userPrompt' => $userPrompt,
+            'schema' => $schema,
+            'createdAt' => now()->toIso8601String(),
+        ]);
+
+        if ($provider === 'gemini_deep_research') {
+            return $this->requestGeminiDeepResearchRaw(
+                model: $model,
+                systemPrompt: $systemPrompt,
+                userPrompt: $userPrompt,
+                auditRunId: $auditRunId,
+                persistStep: $persistStep,
+            );
+        }
+
         $apiKey = config('services.perplexity.api_key');
 
         if (! $apiKey) {
@@ -228,18 +256,7 @@ class PerplexityResearchService
             $payload['reasoning_effort'] = $this->reasoningEffort();
         }
 
-        $this->persistAiRequestSnapshot($auditRunId, $persistStep, [
-            'step' => $persistStep,
-            'stepLabel' => 'Deep Research A: Perplexity research',
-            'provider' => 'perplexity',
-            'model' => $model,
-            'systemPrompt' => $systemPrompt,
-            'userPrompt' => $userPrompt,
-            'schema' => $schema,
-            'createdAt' => now()->toIso8601String(),
-        ]);
-
-        if ($this->shouldUseAsync($model)) {
+        if ($this->shouldUseAsync($provider, $model)) {
             return $this->requestResearchRawAsync(
                 apiKey: (string) $apiKey,
                 model: $model,
@@ -274,10 +291,11 @@ class PerplexityResearchService
                 ->acceptJson()
                 ->connectTimeout($this->connectTimeoutSeconds())
                 ->timeout($this->timeoutSeconds())
-                ->post($this->sonarEndpoint(), $payload)
+                ->post($this->sonarEndpoint(), $payload),
+            'Perplexity'
         );
 
-        $this->throwIfRequestFailed($response);
+        $this->throwIfRequestFailed($response, 'Perplexity');
 
         return $this->extractCompletionPayload(
             body: $response->json(),
@@ -315,13 +333,14 @@ class PerplexityResearchService
                         ->acceptJson()
                         ->connectTimeout($this->connectTimeoutSeconds())
                         ->timeout($this->timeoutSeconds())
-                        ->post($this->asyncSonarEndpoint(), $submissionPayload)
+                        ->post($this->asyncSonarEndpoint(), $submissionPayload),
+                    'Perplexity'
                 );
 
-                $this->throwIfRequestFailed($response);
+                $this->throwIfRequestFailed($response, 'Perplexity');
                 $this->persistAiStepResponse($auditRunId, $persistStep, [
                     'step' => $persistStep,
-                    'stepLabel' => 'Deep Research A: Perplexity research',
+                    'stepLabel' => 'Deep Research A: research',
                     'status' => 'async_submitted',
                     'provider' => 'perplexity',
                     'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
@@ -344,7 +363,7 @@ class PerplexityResearchService
 
                     $this->persistAiStepResponse($auditRunId, $persistStep, [
                         'step' => $persistStep,
-                        'stepLabel' => 'Deep Research A: Perplexity research',
+                        'stepLabel' => 'Deep Research A: research',
                         'status' => 'async_failed',
                         'provider' => 'perplexity',
                         'model' => (string) (Arr::get($response->json(), 'model') ?? $model),
@@ -387,7 +406,7 @@ class PerplexityResearchService
 
                 $this->persistAiStepResponse($auditRunId, $persistStep, [
                     'step' => $persistStep,
-                    'stepLabel' => 'Deep Research A: Perplexity research',
+                    'stepLabel' => 'Deep Research A: research',
                     'status' => 'async_retrying',
                     'provider' => 'perplexity',
                     'model' => $model,
@@ -443,7 +462,7 @@ class PerplexityResearchService
 
         $this->persistAiStepResponse($auditRunId, $persistStep, [
             'step' => $persistStep,
-            'stepLabel' => 'Deep Research A: Perplexity research',
+            'stepLabel' => 'Deep Research A: research',
             'status' => 'raw',
             'provider' => 'perplexity',
             'model' => (string) ($body['model'] ?? $model),
@@ -478,10 +497,11 @@ class PerplexityResearchService
                     ->acceptJson()
                     ->connectTimeout($this->connectTimeoutSeconds())
                     ->timeout($this->timeoutSeconds())
-                    ->get($this->asyncSonarRequestEndpoint($requestId))
+                    ->get($this->asyncSonarRequestEndpoint($requestId)),
+                'Perplexity'
             );
 
-            $this->throwIfRequestFailed($response);
+            $this->throwIfRequestFailed($response, 'Perplexity');
             $body = $response->json();
             $status = strtoupper(trim((string) ($body['status'] ?? '')));
 
@@ -707,17 +727,23 @@ class PerplexityResearchService
      * @param  array<int, string>  $citations
      * @return array<int, array<string, mixed>>
      */
-    private function fallbackResearchItemsFromRawText(string $rawOutput, array $batchPages, array $searchResults, array $citations): array
+    private function fallbackResearchItemsFromRawText(
+        string $rawOutput,
+        array $batchPages,
+        array $searchResults,
+        array $citations,
+        string $providerLabel,
+    ): array
     {
         $rawPreview = mb_substr(trim($rawOutput), 0, 8000);
 
-        return array_map(function (array $entry) use ($rawPreview, $searchResults, $citations): array {
+        return array_map(function (array $entry) use ($rawPreview, $searchResults, $citations, $providerLabel): array {
             return [
                 'targetUrl' => trim((string) ($entry['targetUrl'] ?? '')),
                 'primaryKeyword' => trim((string) ($entry['primaryKeywordSeed'] ?? '')),
                 'categoryName' => trim((string) ($entry['categoryNameSeed'] ?? '')),
                 'categoryUrl' => trim((string) ($entry['categoryUrlSeed'] ?? '')),
-                'categoryMatchReason' => 'Dữ liệu lấy từ bước 2; Perplexity trả raw text không parse được JSON.',
+                'categoryMatchReason' => sprintf('Dữ liệu lấy từ bước 2; %s trả raw text không parse được JSON.', $providerLabel),
                 'searchIntent' => 'Cần suy luận từ raw research text.',
                 'competitorInsights' => array_values(array_filter([
                     $rawPreview !== '' ? $rawPreview : null,
@@ -750,7 +776,7 @@ class PerplexityResearchService
     /**
      * @param  callable(): Response  $callback
      */
-    private function sendRequest(callable $callback): Response
+    private function sendRequest(callable $callback, string $providerLabel = 'Perplexity'): Response
     {
         $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
         $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
@@ -768,10 +794,10 @@ class PerplexityResearchService
             }
         }
 
-        throw new RuntimeException('Perplexity network error after '.$attempts.' attempts: '.trim((string) $lastException?->getMessage()));
+        throw new RuntimeException($providerLabel.' network error after '.$attempts.' attempts: '.trim((string) $lastException?->getMessage()));
     }
 
-    private function throwIfRequestFailed(Response $response): void
+    private function throwIfRequestFailed(Response $response, string $providerLabel = 'Perplexity'): void
     {
         if ($response->successful()) {
             return;
@@ -786,10 +812,10 @@ class PerplexityResearchService
                 : mb_substr($exception->response->body(), 0, 500);
 
             if ($exception->response->status() === 429) {
-                throw new RuntimeException('Perplexity rate limit (429): '.$message);
+                throw new RuntimeException($providerLabel.' rate limit (429): '.$message);
             }
 
-            throw new RuntimeException('Perplexity API lỗi HTTP '.$exception->response->status().': '.$message, previous: $exception);
+            throw new RuntimeException($providerLabel.' API lỗi HTTP '.$exception->response->status().': '.$message, previous: $exception);
         }
     }
 
@@ -810,9 +836,10 @@ class PerplexityResearchService
         return str_contains(Str::lower($model), 'deep-research');
     }
 
-    private function shouldUseAsync(string $model): bool
+    private function shouldUseAsync(string $provider, string $model): bool
     {
-        return $this->supportsReasoningEffort($model)
+        return $provider === 'perplexity'
+            && $this->supportsReasoningEffort($model)
             && (filter_var(config('services.audit.deep_research_research_use_async', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true);
     }
 
@@ -894,6 +921,229 @@ class PerplexityResearchService
         }
 
         return false;
+    }
+
+    /**
+     * @return array{rawText: string, usage: array<string, mixed>, citations: array<int, string>, searchResults: array<int, array<string, mixed>>}
+     */
+    private function requestGeminiDeepResearchRaw(
+        string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $apiKey = config('services.gemini.api_key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('GEMINI_API_KEY is not configured.');
+        }
+
+        $this->assertAuditRunActive($auditRunId);
+
+        $input = implode("\n\n", [
+            $systemPrompt,
+            $userPrompt,
+            'Bắt buộc trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.',
+        ]);
+
+        $start = $this->sendRequest(
+            fn (): Response => Http::withHeaders([
+                'x-goog-api-key' => $apiKey,
+                'Content-Type' => 'application/json',
+                'Api-Revision' => '2026-05-20',
+            ])
+                ->acceptJson()
+                ->connectTimeout($this->connectTimeoutSeconds())
+                ->timeout($this->timeoutSeconds())
+                ->post('https://generativelanguage.googleapis.com/v1beta/interactions', [
+                    'input' => $input,
+                    'agent' => $model,
+                    'agent_config' => [
+                        'type' => 'deep-research',
+                        'collaborative_planning' => false,
+                    ],
+                    'background' => true,
+                    'store' => true,
+                ]),
+            'Gemini Deep Research'
+        );
+
+        $this->ensureGeminiSuccess($start, 'Gemini Deep Research start failed');
+
+        $interactionId = $start->json('id');
+
+        if (! is_string($interactionId) || $interactionId === '') {
+            throw new RuntimeException('Gemini Deep Research did not return an interaction id.');
+        }
+
+        $deadline = $this->deepResearchDeadlineUnix();
+
+        do {
+            $this->assertAuditRunActive($auditRunId);
+            sleep(10);
+
+            $poll = $this->sendRequest(
+                fn (): Response => Http::withHeaders([
+                    'x-goog-api-key' => $apiKey,
+                    'Api-Revision' => '2026-05-20',
+                ])
+                    ->acceptJson()
+                    ->connectTimeout($this->connectTimeoutSeconds())
+                    ->timeout($this->timeoutSeconds())
+                    ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}"),
+                'Gemini Deep Research'
+            );
+
+            $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
+            $payload = $poll->json();
+            $status = $payload['status'] ?? null;
+
+            if ($status === 'completed') {
+                $rawText = $this->extractTextFromInteraction($payload);
+                $usage = [
+                    'provider' => 'gemini_deep_research',
+                    'model' => $model,
+                    'input_tokens' => 0,
+                    'output_tokens' => 0,
+                    'total_tokens' => 0,
+                ];
+
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => 'Deep Research A: research',
+                    'status' => 'raw',
+                    'provider' => 'gemini_deep_research',
+                    'model' => $model,
+                    'interactionId' => $interactionId,
+                    'rawText' => $rawText,
+                    'usage' => $usage,
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+
+                return [
+                    'rawText' => $rawText,
+                    'usage' => $usage,
+                    'citations' => [],
+                    'searchResults' => [],
+                ];
+            }
+
+            if (in_array($status, ['failed', 'cancelled'], true)) {
+                $errorMessage = json_encode($payload['error'] ?? [], JSON_UNESCAPED_UNICODE);
+
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => 'Deep Research A: research',
+                    'status' => (string) $status,
+                    'provider' => 'gemini_deep_research',
+                    'model' => $model,
+                    'interactionId' => $interactionId,
+                    'parseError' => is_string($errorMessage) ? $errorMessage : null,
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+
+                throw new RuntimeException('Gemini Deep Research failed: '.($errorMessage ?: 'Unknown error.'));
+            }
+
+            if (isset($payload['error']['message'])) {
+                throw new RuntimeException('Gemini Deep Research error: '.$payload['error']['message']);
+            }
+        } while ($deadline === null || time() < $deadline);
+
+        throw new RuntimeException("Gemini Deep Research timed out for interaction [{$interactionId}].");
+    }
+
+    private function ensureGeminiSuccess(Response $response, string $fallback): void
+    {
+        $payload = $response->json();
+
+        if (is_array($payload) && isset($payload['error']['message'])) {
+            $code = $payload['error']['code'] ?? null;
+
+            if ($code === 'permission_denied') {
+                throw new RuntimeException('Gemini Deep Research access denied: '.$payload['error']['message'].' Please contact Google support or enable access for '.(string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025').'.');
+            }
+
+            throw new RuntimeException($fallback.': '.$payload['error']['message']);
+        }
+
+        $this->throwIfRequestFailed($response, 'Gemini Deep Research');
+    }
+
+    private function deepResearchDeadlineUnix(): ?int
+    {
+        $seconds = (int) config('services.gemini.deep_research_timeout_seconds', 0);
+
+        if ($seconds <= 0) {
+            return null;
+        }
+
+        return time() + $seconds;
+    }
+
+    private function assertAuditRunActive(?int $auditRunId): void
+    {
+        if (! $auditRunId) {
+            return;
+        }
+
+        $run = AuditRun::query()->find($auditRunId);
+
+        if (! $run || $run->cancelled_at !== null || $run->status === 'failed') {
+            throw new RuntimeException('Audit run stopped.');
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $interaction
+     */
+    private function extractTextFromInteraction(array $interaction): string
+    {
+        $outputs = $interaction['outputs'] ?? [];
+
+        for ($index = count($outputs) - 1; $index >= 0; $index--) {
+            $text = $outputs[$index]['text'] ?? null;
+
+            if (is_string($text) && trim($text) !== '') {
+                return $text;
+            }
+        }
+
+        $steps = $interaction['steps'] ?? [];
+
+        for ($index = count($steps) - 1; $index >= 0; $index--) {
+            foreach ($steps[$index]['content'] ?? [] as $content) {
+                $text = $content['text'] ?? null;
+
+                if (is_string($text) && trim($text) !== '') {
+                    return $text;
+                }
+            }
+        }
+
+        throw new RuntimeException('Unable to extract text from Gemini Deep Research interaction.');
+    }
+
+    private function researchProvider(?string $provider): string
+    {
+        $provider = trim((string) ($provider ?? ''));
+
+        return in_array($provider, ['perplexity', 'gemini_deep_research'], true)
+            ? $provider
+            : 'perplexity';
+    }
+
+    private function defaultModelForProvider(string $provider): string
+    {
+        return $provider === 'gemini_deep_research'
+            ? (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025')
+            : (string) config('services.audit.deep_research_research_model', config('services.perplexity.model', 'sonar-deep-research'));
+    }
+
+    private function providerLabel(string $provider): string
+    {
+        return $provider === 'gemini_deep_research' ? 'Gemini Deep Research' : 'Perplexity';
     }
 
     /**

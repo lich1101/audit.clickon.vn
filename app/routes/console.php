@@ -1,7 +1,9 @@
 <?php
 
+use App\Services\AuditConfigurationCheckService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\Console\Command\Command as SymfonyCommand;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -26,3 +28,39 @@ Artisan::command('clickon:create-admin {email} {password} {--name=} {--uid=} {--
 
     $this->info("Admin account {$status}: {$result['email']} ({$result['uid']})");
 })->purpose('Create or update a Firebase Authentication admin account and seed its MySQL admin profile');
+
+Artisan::command('audit:check-config {--json}', function (AuditConfigurationCheckService $auditConfigurationCheckService) {
+    $result = $auditConfigurationCheckService->check();
+
+    if ((bool) $this->option('json')) {
+        $this->line((string) json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return $result['ready'] ? SymfonyCommand::SUCCESS : SymfonyCommand::FAILURE;
+    }
+
+    $summary = $result['summary'];
+    $this->line(sprintf(
+        'Audit config ready: %s | mode=%s | ok=%d warning=%d error=%d',
+        $result['ready'] ? 'yes' : 'no',
+        $result['step3FlowMode'],
+        (int) $summary['ok'],
+        (int) $summary['warning'],
+        (int) $summary['error'],
+    ));
+
+    foreach ($result['groups'] as $group) {
+        $this->newLine();
+        $this->line(sprintf('[%s] %s', strtoupper((string) $group['status']), (string) $group['title']));
+
+        foreach ($group['items'] as $item) {
+            $this->line(sprintf(
+                '  - [%s] %s: %s',
+                strtoupper((string) $item['status']),
+                (string) $item['label'],
+                (string) $item['message'],
+            ));
+        }
+    }
+
+    return $result['ready'] ? SymfonyCommand::SUCCESS : SymfonyCommand::FAILURE;
+})->purpose('Check audit runtime configuration, prompts, API keys, and batch settings');

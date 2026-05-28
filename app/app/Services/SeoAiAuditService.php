@@ -456,6 +456,8 @@ TEXT;
             $categories
         );
 
+        $usesDeepResearchBrowse = $this->usesGeminiDeepResearchBrowseMode($provider);
+
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_ONPAGE_AUDIT, [
             'url' => '',
             'target_urls_json' => $targetUrls,
@@ -465,23 +467,21 @@ TEXT;
             'primary_keyword' => '',
             'category_json' => [],
             'category_contexts_json' => [],
-            'page_json' => ['mode' => 'url_only_batch', 'targetUrls' => $targetUrls],
+            'page_json' => [
+                'mode' => $usesDeepResearchBrowse ? 'deep_research_browse_batch' : 'url_only_batch',
+                'targetUrls' => $targetUrls,
+            ],
             'article_content' => '',
             'checklist' => trim($checklistText ?: self::defaultChecklist()),
         ]);
 
-        $batchContract = implode("\n", [
-            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
-            'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
-            'Backend did not crawl content, title, meta, headings, images or internal links.',
-            'For unverified checklist criteria, state "không kiểm chứng được" instead of inventing evidence.',
-            'Return exactly this JSON shape and include every target URL once:',
-            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
-            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
-        ]);
+        $batchContract = $usesDeepResearchBrowse
+            ? $this->geminiDeepResearchOnpageBatchContract()
+            : $this->urlOnlyOnpageBatchContract();
         $prompts['system'] .= "\n\n".$batchContract;
         $prompts['developer'] = $prompts['system'];
-        $prompts['user'] .= "\n\n".implode("\n", [
+
+        $userAppendix = [
             $batchContract,
             'Target URLs JSON:',
             json_encode($targetUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
@@ -489,7 +489,13 @@ TEXT;
             json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
             'Keyword/category results JSON:',
             json_encode($keywordCategoryItems, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
-        ]);
+        ];
+
+        if ($usesDeepResearchBrowse) {
+            $userAppendix[] = $this->geminiDeepResearchBrowseUrlsBlock($targetUrls);
+        }
+
+        $prompts['user'] .= "\n\n".implode("\n", $userAppendix);
 
         $rawResponse = $this->requestAiRaw(
             provider: $provider,
@@ -499,6 +505,7 @@ TEXT;
             schema: $this->batchOnpageSchema(),
             auditRunId: $auditRunId,
             persistStep: $persistStep ?? 'batch_onpage_audit',
+            geminiDeepResearchBrowseMode: $usesDeepResearchBrowse,
         );
 
         $normalized = $this->normalizeBatchOnpageRawResponse(
@@ -659,6 +666,7 @@ TEXT;
         array $schema,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        bool $geminiDeepResearchBrowseMode = false,
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
 
@@ -678,7 +686,15 @@ TEXT;
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw(
+                $resolvedModel,
+                $systemPrompt,
+                $userPrompt,
+                $auditRunId,
+                $provider,
+                $persistStep,
+                $geminiDeepResearchBrowseMode,
+            ),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
 
@@ -1233,6 +1249,7 @@ TEXT;
         ?int $auditRunId,
         string $provider,
         ?string $persistStep = null,
+        bool $browseMode = false,
     ): array
     {
         $apiKey = config('services.gemini.api_key');
@@ -1244,10 +1261,18 @@ TEXT;
         $this->assertAuditRunActive($auditRunId);
 
         $agent = $model;
+        $outputDirective = $browseMode
+            ? implode("\n", [
+                'Mandatory execution order:',
+                '1) Use web browsing / deep-research tools to visit and read each targetUrl in this chunk.',
+                '2) Audit each page from live evidence (title, meta, headings, content, images, internal links) when accessible.',
+                '3) Return exactly one JSON object only. No markdown. No report prose outside JSON.',
+            ])
+            : 'Bắt buộc trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.';
         $input = implode("\n\n", [
             $systemPrompt,
             $userPrompt,
-            'Bắt buộc trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.',
+            $outputDirective,
         ]);
 
         $start = $this->sendAiRequest(
@@ -1875,5 +1900,53 @@ TEXT;
             ],
             'required' => ['items'],
         ];
+    }
+
+    private function usesGeminiDeepResearchBrowseMode(string $provider): bool
+    {
+        return $provider === 'gemini_deep_research';
+    }
+
+    private function urlOnlyOnpageBatchContract(): string
+    {
+        return implode("\n", [
+            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
+            'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
+            'Backend did not crawl content, title, meta, headings, images or internal links.',
+            'For unverified checklist criteria, state "không kiểm chứng được" instead of inventing evidence.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
+        ]);
+    }
+
+    private function geminiDeepResearchOnpageBatchContract(): string
+    {
+        return implode("\n", [
+            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
+            'Mode: Gemini Deep Research browse batch. Override any earlier URL-only or "backend did not crawl" instruction in this prompt.',
+            'You MUST use web browsing / deep-research tools to visit and read each targetUrl in this chunk before scoring.',
+            'For every targetUrl, read live page evidence: title, meta description, headings, main content, images, and internal links when accessible.',
+            'If a page blocks access (403, captcha, paywall, login wall, robots.txt), say so in auditFindings for that URL and only score criteria you can verify from URL slug, step-2 keyword/category data, or partial visible content.',
+            'Do NOT invent page content. Do NOT reuse one generic template across URLs—each item must reflect that specific page.',
+            'Use step-2 primaryKeyword/category seeds when helpful, but live page evidence from browsing takes priority.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
+        ]);
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     */
+    private function geminiDeepResearchBrowseUrlsBlock(array $targetUrls): string
+    {
+        $lines = ['Browse targets (visit each URL with web tool before scoring):'];
+
+        foreach ($targetUrls as $index => $url) {
+            $lines[] = sprintf('%d. %s', $index + 1, $url);
+        }
+
+        return implode("\n", $lines);
     }
 }

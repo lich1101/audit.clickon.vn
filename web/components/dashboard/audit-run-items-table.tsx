@@ -110,36 +110,36 @@ export function AuditRunItemsTable({
       </CardHeader>
       <CardContent>
         {filteredItems.length ? (
-          <Table>
+          <Table className="table-fixed min-w-[1580px]">
             <TableHeader>
               <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>URL mục tiêu</TableHead>
-                <TableHead>B1: dữ liệu</TableHead>
-                <TableHead>B1: nội dung</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead>Từ khóa chính</TableHead>
-                <TableHead>Danh mục</TableHead>
-                <TableHead>Điểm audit</TableHead>
-                <TableHead>Đề xuất</TableHead>
-                <TableHead>Lỗi</TableHead>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead className="w-[240px]">URL mục tiêu</TableHead>
+                <TableHead className="w-[220px]">B1: dữ liệu</TableHead>
+                <TableHead className="w-[300px]">B1: nội dung</TableHead>
+                <TableHead className="w-[132px]">Trạng thái</TableHead>
+                <TableHead className="w-[170px]">Từ khóa chính</TableHead>
+                <TableHead className="w-[190px]">Danh mục</TableHead>
+                <TableHead className="w-[92px]">Điểm audit</TableHead>
+                <TableHead className="w-[240px]">Đề xuất</TableHead>
+                <TableHead className="w-[220px]">Lỗi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredItems.map((item) => (
                 <TableRow key={item.publicId}>
-                  <TableCell className="font-medium">{item.position}</TableCell>
-                  <TableCell className="min-w-[280px]">
-                    <div className="space-y-2">
-                      <p className="font-medium break-all">{item.targetUrl}</p>
+                  <TableCell className="w-12 font-medium">{item.position}</TableCell>
+                  <TableCell className="w-[240px]">
+                    <div className="max-w-[240px] space-y-2">
+                      <p className="line-clamp-4 break-all font-medium">{item.targetUrl}</p>
                       {item.extractionSource ? (
-                        <p className="text-xs text-muted-foreground">Nguồn dữ liệu: {stageLabel(item.extractionSource)}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">Nguồn dữ liệu: {stageLabel(item.extractionSource)}</p>
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell className="min-w-[240px]">
-                    <div className="space-y-1">
-                      {item.pageTitle ? <p className="text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
+                  <TableCell className="w-[220px]">
+                    <div className="max-w-[220px] space-y-1">
+                      {item.pageTitle ? <p className="line-clamp-3 text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
                       {item.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {item.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
@@ -151,46 +151,52 @@ export function AuditRunItemsTable({
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="min-w-[320px]">
+                  <TableCell className="w-[300px]">
                     {item.contentExcerpt ? (
-                      <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                      <div className="max-w-[300px]">
+                        <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                      </div>
                     ) : item.contentError ? (
-                      <p className="text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                      <div className="max-w-[300px]">
+                        <p className="line-clamp-4 break-words text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                      </div>
                     ) : (
                       <span className="text-sm text-muted-foreground">Chưa có nội dung</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="w-[132px]">
                     <div className="space-y-2">
                       <AuditStatusBadge status={item.status} />
                       <p className="text-xs text-muted-foreground">{formatDate(item.updatedAt)}</p>
                     </div>
                   </TableCell>
-                  <TableCell className="min-w-[180px]">
-                    <p className="font-medium">{item.primaryKeyword ?? "Đang chờ phân tích"}</p>
+                  <TableCell className="w-[170px]">
+                    <div className="max-w-[170px]">
+                      <p className="line-clamp-4 break-words font-medium">{item.primaryKeyword ?? "Đang chờ phân tích"}</p>
+                    </div>
                   </TableCell>
-                  <TableCell className="min-w-[220px]">
+                  <TableCell className="w-[190px]">
                     {item.categoryName ? (
-                      <div className="space-y-1">
-                        <p className="font-medium">{item.categoryName}</p>
-                        <p className="text-xs text-muted-foreground break-all">{item.categoryUrl}</p>
+                      <div className="max-w-[190px] space-y-1">
+                        <p className="line-clamp-3 font-medium">{item.categoryName}</p>
+                        <p className="line-clamp-3 break-all text-xs text-muted-foreground">{item.categoryUrl}</p>
                         {item.categoryMatchReason ? (
-                          <p className="text-xs text-muted-foreground">{item.categoryMatchReason}</p>
+                          <p className="line-clamp-3 break-words text-xs text-muted-foreground">{item.categoryMatchReason}</p>
                         ) : null}
                       </div>
                     ) : (
                       <span className="text-sm text-muted-foreground">Chưa phân loại</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="w-[92px]">
                     <ScorePill score={item.auditScore} />
                   </TableCell>
-                  <TableCell className="min-w-[280px]">
+                  <TableCell className="w-[240px]">
                     {item.auditRecommendations.length ? (
-                      <div className="space-y-2">
-                        <p className="text-sm">{item.auditRecommendations[0]}</p>
+                      <div className="max-w-[240px] space-y-2">
+                        <p className="line-clamp-4 break-words text-sm">{item.auditRecommendations[0]}</p>
                         {item.contentRevisionDirection ? (
-                          <p className="text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
+                          <p className="line-clamp-4 break-words text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
                         ) : null}
                       </div>
                     ) : item.status === "completed" || item.status === "failed" ? (
@@ -199,9 +205,11 @@ export function AuditRunItemsTable({
                       <span className="text-sm text-muted-foreground">Đang chờ kết quả AI</span>
                     )}
                   </TableCell>
-                  <TableCell className="min-w-[220px]">
+                  <TableCell className="w-[220px]">
                     {item.errorMessage ? (
-                      <p className="text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                      <div className="max-w-[220px]">
+                        <p className="line-clamp-5 break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                      </div>
                     ) : null}
                   </TableCell>
                 </TableRow>

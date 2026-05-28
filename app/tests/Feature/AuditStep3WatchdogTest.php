@@ -197,6 +197,111 @@ class AuditStep3WatchdogTest extends TestCase
         $this->assertSame(0, $ignoredRun->processed_urls);
     }
 
+    public function test_recover_stale_runs_command_does_not_count_failed_release_as_recovered(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun([
+            'step3_ai_provider' => 'gemini_deep_research',
+            'step3_ai_model' => 'deep-research-preview-04-2026',
+            'total_urls' => 1,
+        ]);
+        $this->makeStep3Item($run, now()->subMinutes(10));
+        $stepKey = 'batch_onpage_audit_001_001';
+        $run->forceFill([
+            'ai_step_responses' => [
+                $stepKey => [
+                    'step' => $stepKey,
+                    'provider' => 'gemini_deep_research',
+                    'model' => 'deep-research-preview-04-2026',
+                    'lastPollAt' => now()->subMinutes(10)->toIso8601String(),
+                ],
+            ],
+        ])->save();
+
+        $this->assertSame(0, Artisan::call('audit:recover-stale-runs', ['--json' => true]));
+
+        $payload = json_decode(trim(Artisan::output()), true);
+
+        $this->assertIsArray($payload);
+        $this->assertSame(1, $payload['scanned'] ?? null);
+        $this->assertSame(1, $payload['changed'] ?? null);
+        $this->assertSame(0, $payload['recovered'] ?? null);
+        $this->assertSame(1, $payload['failedMarked'] ?? null);
+    }
+
+    public function test_recover_run_command_accepts_ui_short_suffix(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun([
+            'step3_ai_provider' => 'gemini_deep_research',
+            'step3_ai_model' => 'deep-research-preview-04-2026',
+            'total_urls' => 1,
+        ]);
+        $item = $this->makeStep3Item($run, now()->subMinutes(10));
+        $stepKey = 'batch_onpage_audit_001_001';
+        $run->forceFill([
+            'ai_step_responses' => [
+                $stepKey => [
+                    'step' => $stepKey,
+                    'provider' => 'gemini_deep_research',
+                    'model' => 'deep-research-preview-04-2026',
+                    'interactionId' => 'interaction-789',
+                    'lastPollAt' => now()->subMinutes(10)->toIso8601String(),
+                ],
+            ],
+        ])->save();
+
+        $seoAi = Mockery::mock(SeoAiAuditService::class);
+        $seoAi->shouldReceive('inspectGeminiDeepResearchInteraction')
+            ->once()
+            ->with('interaction-789', $run->id, $stepKey, 'deep-research-preview-04-2026')
+            ->andReturn([
+                'status' => 'completed',
+                'interactionId' => 'interaction-789',
+                'rawText' => '{"items":[]}',
+                'usage' => [],
+                'errorMessage' => null,
+            ]);
+        $seoAi->shouldReceive('resumeBatchOnpageUrlOnlyFromRaw')
+            ->once()
+            ->andReturn([
+                'items' => [[
+                    'targetUrl' => $item->target_url,
+                    'primaryKeyword' => 'thu mua dây cáp điện phế liệu',
+                    'categoryName' => 'Phế liệu đồng',
+                    'categoryUrl' => 'https://example.com/phe-lieu-dong',
+                    'categoryMatchReason' => 'Khớp theo dữ liệu bước 2.',
+                    'auditScore' => 80,
+                    'auditFindings' => ['Điểm kỹ thuật SEO: 19/24', 'Điểm nội dung: 5/6'],
+                    'auditRecommendations' => ['Bổ sung internal link'],
+                    'contentRevisionDirection' => 'Audit Content. Cần tối ưu thêm internal link và CTA.',
+                ]],
+                'promptSnapshot' => null,
+                'formatterPromptSnapshot' => null,
+                'usage' => [],
+                'usageEvents' => [],
+            ]);
+        $this->app->instance(SeoAiAuditService::class, $seoAi);
+
+        $shortSuffix = substr((string) $run->public_id, -8);
+
+        $this->assertSame(0, Artisan::call('audit:recover-run', [
+            'publicId' => $shortSuffix,
+            '--json' => true,
+        ]));
+
+        $payload = json_decode(trim(Artisan::output()), true);
+
+        $item->refresh();
+
+        $this->assertIsArray($payload);
+        $this->assertTrue((bool) ($payload['ok'] ?? false));
+        $this->assertSame((string) $run->public_id, $payload['publicId'] ?? null);
+        $this->assertSame('completed', $item->status);
+    }
+
     private function makeRun(array $overrides = []): AuditRun
     {
         return AuditRun::query()->create([

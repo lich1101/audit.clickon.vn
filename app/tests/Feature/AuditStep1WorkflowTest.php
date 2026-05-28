@@ -50,6 +50,43 @@ class AuditStep1WorkflowTest extends TestCase
         Queue::assertNotPushed(ProcessAuditRunStep2BatchJob::class);
     }
 
+    public function test_dispatch_step1_batches_pushes_one_job_per_url_up_to_parallel_limit(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun([
+            'target_urls' => [
+                'https://example.com/post-1',
+                'https://example.com/post-2',
+                'https://example.com/post-3',
+                'https://example.com/post-4',
+            ],
+            'total_urls' => 4,
+        ]);
+        $this->makeItems($run, 4, 'queued', null);
+
+        app(AuditRunService::class)->dispatchStep1Batches($run);
+
+        Queue::assertPushed(\App\Jobs\ProcessAuditRunStep1BatchJob::class, 3);
+        Queue::assertPushed(\App\Jobs\ProcessAuditRunStep1BatchJob::class, function ($job): bool {
+            return count($job->itemIds) === 1;
+        });
+
+        $fetchingCount = AuditRunItem::query()
+            ->where('audit_run_id', $run->id)
+            ->where('status', 'fetching')
+            ->where('extraction_source', 'url_only_batch_step1_running')
+            ->count();
+        $queuedCount = AuditRunItem::query()
+            ->where('audit_run_id', $run->id)
+            ->where('status', 'queued')
+            ->whereNull('extraction_source')
+            ->count();
+
+        $this->assertSame(3, $fetchingCount);
+        $this->assertSame(1, $queuedCount);
+    }
+
     public function test_process_step2_batch_passes_step1_payload_into_batch_ai_call(): void
     {
         Queue::fake();

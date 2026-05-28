@@ -392,23 +392,23 @@ export function AuditWorkbenchTable({
       </div>
 
       <div className="overflow-x-auto">
-        <Table>
+        <Table className="table-fixed min-w-[1680px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 sticky left-0 z-10 bg-card">
+              <TableHead className="sticky left-0 z-10 w-10 bg-card">
                 <Checkbox checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} disabled={!canSelectUrls || urls.length === 0} />
               </TableHead>
               <TableHead className="w-12">#</TableHead>
-              <TableHead className="min-w-[280px]">URL mục tiêu</TableHead>
-              <TableHead className="min-w-[260px]">B1: dữ liệu</TableHead>
-              <TableHead className="min-w-[320px]">B1: nội dung</TableHead>
-              <TableHead className="min-w-[120px]">Trạng thái</TableHead>
-              <TableHead className="min-w-[160px]">Từ khóa chính</TableHead>
-              <TableHead className="min-w-[200px]">Danh mục</TableHead>
-              <TableHead className="min-w-[80px]">Điểm</TableHead>
-              <TableHead className="min-w-[280px]">Đề xuất</TableHead>
-              <TableHead className="min-w-[220px]">Lỗi</TableHead>
-              <TableHead className="w-[120px] text-right">Thao tác</TableHead>
+              <TableHead className="w-[240px]">URL mục tiêu</TableHead>
+              <TableHead className="w-[220px]">B1: dữ liệu</TableHead>
+              <TableHead className="w-[300px]">B1: nội dung</TableHead>
+              <TableHead className="w-[124px]">Trạng thái</TableHead>
+              <TableHead className="w-[170px]">Từ khóa chính</TableHead>
+              <TableHead className="w-[190px]">Danh mục</TableHead>
+              <TableHead className="w-[80px]">Điểm</TableHead>
+              <TableHead className="w-[240px]">Đề xuất</TableHead>
+              <TableHead className="w-[220px]">Lỗi</TableHead>
+              <TableHead className="w-[96px] text-right">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -441,7 +441,7 @@ export function AuditWorkbenchTable({
                       />
                     </TableCell>
                     <TableCell className="font-medium">{index + 1}</TableCell>
-                    <TableCell>
+                    <TableCell className="w-[240px]">
                       {editingUrl === url ? (
                         <Input
                           value={editingValue}
@@ -460,13 +460,15 @@ export function AuditWorkbenchTable({
                           autoFocus
                         />
                       ) : (
-                        <p className="break-all text-sm font-medium">{url}</p>
+                        <div className="max-w-[240px]">
+                          <p className="line-clamp-4 break-all text-sm font-medium">{url}</p>
+                        </div>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[220px]">
                       {item?.pageTitle || item?.metaDescription || item?.contentSource ? (
-                        <div className="space-y-1">
-                          {item?.pageTitle ? <p className="text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
+                        <div className="max-w-[220px] space-y-1">
+                          {item?.pageTitle ? <p className="line-clamp-3 text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
                           {item?.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             {item?.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
@@ -481,16 +483,20 @@ export function AuditWorkbenchTable({
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[300px]">
                       {item?.contentExcerpt ? (
-                        <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                        <div className="max-w-[300px]">
+                          <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                        </div>
                       ) : item?.contentError ? (
-                        <p className="whitespace-pre-wrap break-words text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                        <div className="max-w-[300px]">
+                          <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                        </div>
                       ) : (
                         <span className="text-sm text-muted-foreground">Chưa có nội dung</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[124px]">
                       {!status ? (
                         <span className="text-sm text-muted-foreground">Chưa chạy</span>
                       ) : (
@@ -500,26 +506,30 @@ export function AuditWorkbenchTable({
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>{item?.primaryKeyword ?? "—"}</TableCell>
-                    <TableCell>
+                    <TableCell className="w-[170px]">
+                      <div className="max-w-[170px]">
+                        <p className="line-clamp-4 break-words text-sm">{item?.primaryKeyword ?? "—"}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="w-[190px]">
                       {item?.categoryName ? (
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium">{item.categoryName}</p>
-                          {item.categoryUrl ? <p className="break-all text-xs text-muted-foreground">{item.categoryUrl}</p> : null}
+                        <div className="max-w-[190px] space-y-1">
+                          <p className="line-clamp-3 text-sm font-medium">{item.categoryName}</p>
+                          {item.categoryUrl ? <p className="line-clamp-3 break-all text-xs text-muted-foreground">{item.categoryUrl}</p> : null}
                         </div>
                       ) : (
                         "—"
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[80px]">
                       <ScoreCell score={item?.auditScore} />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[240px]">
                       {item?.auditRecommendations?.length ? (
-                        <div className="space-y-1 text-sm">
-                          <p>{item.auditRecommendations[0]}</p>
+                        <div className="max-w-[240px] space-y-1 text-sm">
+                          <p className="line-clamp-4 break-words">{item.auditRecommendations[0]}</p>
                           {item.contentRevisionDirection ? (
-                            <p className="text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
+                            <p className="line-clamp-4 break-words text-xs text-muted-foreground">{item.contentRevisionDirection}</p>
                           ) : null}
                         </div>
                       ) : run && status && status !== "completed" && status !== "failed" ? (
@@ -528,12 +538,14 @@ export function AuditWorkbenchTable({
                         "—"
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="w-[220px]">
                       {item?.errorMessage ? (
-                        <p className="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                        <div className="max-w-[220px]">
+                          <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                        </div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="w-[96px] text-right">
                       <div className="flex justify-end gap-1">
                         {editingUrl === url ? (
                           <>

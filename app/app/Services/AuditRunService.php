@@ -461,40 +461,36 @@ class AuditRunService
             $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
 
             if (! $freshRun || $this->isRunCancelled($freshRun)) {
-                return ['chunks' => [], 'step1Complete' => false];
+                return ['itemIds' => [], 'step1Complete' => false];
             }
 
             $settings = $this->auditSettingsService->getAuditSettings();
-            $batchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
             $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
             $activeItems = $freshRun->items()
                 ->where('status', 'fetching')
                 ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
                 ->count();
-            $activeBatches = (int) ceil($activeItems / $batchSize);
-            $slots = max(0, $maxParallel - $activeBatches);
+            $slots = max(0, $maxParallel - $activeItems);
 
             if ($slots === 0) {
-                return ['chunks' => [], 'step1Complete' => false];
+                return ['itemIds' => [], 'step1Complete' => false];
             }
 
             $pendingItems = $freshRun->items()
                 ->where('status', 'queued')
                 ->whereNull('extraction_source')
                 ->orderBy('position')
-                ->limit($slots * $batchSize)
+                ->limit($slots)
                 ->get(['id']);
 
-            $chunks = $pendingItems
+            $itemIds = $pendingItems
                 ->pluck('id')
-                ->chunk($batchSize)
-                ->map(fn ($chunk): array => $chunk->values()->all())
                 ->values()
                 ->all();
 
-            foreach ($chunks as $chunk) {
+            if ($itemIds !== []) {
                 $freshRun->items()
-                    ->whereIn('id', $chunk)
+                    ->whereIn('id', $itemIds)
                     ->update([
                         'status' => 'fetching',
                         'extraction_source' => self::SOURCE_STEP1_RUNNING,
@@ -513,17 +509,17 @@ class AuditRunService
                 ->exists();
 
             return [
-                'chunks' => $chunks,
+                'itemIds' => $itemIds,
                 'step1Complete' => ! $hasQueued && ! $hasRunning,
             ];
         });
 
-        if (count($state['chunks']) > 0) {
+        if (count($state['itemIds']) > 0) {
             $this->syncRunIfEnabled($run->fresh());
         }
 
-        foreach ($state['chunks'] as $chunk) {
-            ProcessAuditRunStep1BatchJob::dispatch($run->id, $chunk);
+        foreach ($state['itemIds'] as $itemId) {
+            ProcessAuditRunStep1BatchJob::dispatch($run->id, [$itemId]);
         }
 
         if ($state['step1Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_1)) {
@@ -1086,7 +1082,7 @@ class AuditRunService
             ];
 
             $changed = $before !== $after;
-            $recovered = $after['completed'] > $before['completed'] || $after['processed'] > $before['processed'];
+            $recovered = $after['completed'] > $before['completed'];
             $failedMarked = $after['failed'] > $before['failed'];
 
             $summary['scanned']++;

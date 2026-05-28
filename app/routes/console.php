@@ -5,6 +5,7 @@ use App\Services\AuditRunService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Str;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 
 Artisan::command('inspire', function () {
@@ -67,17 +68,59 @@ Artisan::command('audit:check-config {--json}', function (AuditConfigurationChec
     return $result['ready'] ? SymfonyCommand::SUCCESS : SymfonyCommand::FAILURE;
 })->purpose('Check audit runtime configuration, prompts, API keys, and batch settings');
 
-Artisan::command('audit:recover-run {publicId} {--json}', function (AuditRunService $auditRunService, string $publicId) {
+$resolveAuditRun = function (string $publicId): ?\App\Models\AuditRun {
+    $needle = strtoupper((string) preg_replace('/[^A-Z0-9]/', '', trim($publicId)));
+
+    if ($needle === '') {
+        return null;
+    }
+
+    $baseQuery = \App\Models\AuditRun::query()
+        ->with(['items' => fn ($query) => $query->orderBy('position')]);
+
+    if (Str::length($needle) >= 26) {
+        return (clone $baseQuery)
+            ->where('public_id', $needle)
+            ->first();
+    }
+
+    $matches = (clone $baseQuery)
+        ->where('public_id', 'like', '%'.$needle)
+        ->limit(2)
+        ->get();
+
+    if ($matches->count() > 1) {
+        throw new RuntimeException("Multiple audit runs match suffix [{$needle}]. Use the full public id.");
+    }
+
+    return $matches->first();
+};
+
+Artisan::command('audit:recover-run {publicId} {--json}', function (AuditRunService $auditRunService, string $publicId) use ($resolveAuditRun) {
     /** @var \App\Models\AuditRun|null $run */
-    $run = \App\Models\AuditRun::query()
-        ->where('public_id', $publicId)
-        ->with(['items' => fn ($query) => $query->orderBy('position')])
-        ->first();
+    try {
+        $run = $resolveAuditRun($publicId);
+    } catch (\RuntimeException $exception) {
+        $payload = [
+            'ok' => false,
+            'message' => $exception->getMessage(),
+        ];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
 
     if (! $run) {
         $payload = [
             'ok' => false,
-            'message' => "Audit run [{$publicId}] not found.",
+            'message' => "Audit run [{$publicId}] not found. Use the full public id or the short suffix shown on the UI.",
         ];
 
         if ((bool) $this->option('json')) {
@@ -111,7 +154,7 @@ Artisan::command('audit:recover-run {publicId} {--json}', function (AuditRunServ
 
     $payload = [
         'ok' => true,
-        'publicId' => $publicId,
+        'publicId' => (string) $run->public_id,
         'before' => $before,
         'after' => $after,
     ];
@@ -124,7 +167,7 @@ Artisan::command('audit:recover-run {publicId} {--json}', function (AuditRunServ
 
     $this->line(sprintf(
         'Recovered run %s | before: %s %d/%d/%d | after: %s %d/%d/%d',
-        $publicId,
+        (string) $run->public_id,
         (string) $before['status'],
         (int) $before['processed'],
         (int) $before['completed'],

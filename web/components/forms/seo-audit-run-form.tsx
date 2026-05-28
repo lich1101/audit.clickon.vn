@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileUp, Save, Sparkles } from "lucide-react";
+import { Download, FileUp, Save, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -10,7 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { parseCategoryFile, parseChecklistFile } from "@/lib/audit-files";
+import {
+  downloadCategoryTemplateFile,
+  downloadChecklistTemplateFile,
+  parseCategoryFile,
+  parseChecklistFile,
+} from "@/lib/audit-files";
 import { formatCategoriesInput } from "@/lib/audit-runs";
 import { saveWebsiteAudit } from "@/lib/firestore";
 import { auditRunSchema, parseArticleUrls, parseCategories, type AuditRunValues } from "@/lib/validators";
@@ -170,10 +175,27 @@ export function SeoAuditRunForm({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-3">
                 <Label htmlFor="categoriesInput">Danh mục chuẩn</Label>
-                <Button size="sm" type="button" variant="outline" onClick={() => categoryInputRef.current?.click()}>
-                  <FileUp className="size-4" />
-                  Nạp file danh mục
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await downloadCategoryTemplateFile();
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "Không thể tải file mẫu danh mục.");
+                      }
+                    }}
+                  >
+                    <Download className="size-4" />
+                    Tải mẫu XLSX
+                  </Button>
+                  <Button size="sm" type="button" variant="outline" onClick={() => categoryInputRef.current?.click()}>
+                    <FileUp className="size-4" />
+                    Nạp file danh mục
+                  </Button>
+                </div>
               </div>
               <Textarea
                 id="categoriesInput"
@@ -201,7 +223,7 @@ export function SeoAuditRunForm({
                   }
                 }}
               />
-              <p className="text-sm text-muted-foreground">Mỗi dòng dùng `Tên danh mục` - `https://url-danh-muc`.</p>
+              <p className="text-sm text-muted-foreground">Mẫu Excel danh mục gồm 2 cột: `Tên danh mục` và `URL danh mục`. File text vẫn dùng `Tên danh mục` - `https://url-danh-muc`.</p>
               {form.formState.errors.categoriesInput ? (
                 <p className="text-sm text-destructive">{form.formState.errors.categoriesInput.message}</p>
               ) : null}
@@ -211,10 +233,27 @@ export function SeoAuditRunForm({
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="checklistText">Checklist AuditSEO</Label>
-              <Button size="sm" type="button" variant="outline" onClick={() => checklistInputRef.current?.click()}>
-                <FileUp className="size-4" />
-                Nạp checklist
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await downloadChecklistTemplateFile();
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Không thể tải file mẫu checklist.");
+                    }
+                  }}
+                >
+                  <Download className="size-4" />
+                  Tải mẫu XLSX
+                </Button>
+                <Button size="sm" type="button" variant="outline" onClick={() => checklistInputRef.current?.click()}>
+                  <FileUp className="size-4" />
+                  Nạp checklist
+                </Button>
+              </div>
             </div>
             <Textarea
               id="checklistText"
@@ -242,6 +281,7 @@ export function SeoAuditRunForm({
                 }
               }}
             />
+            <p className="text-sm text-muted-foreground">Mẫu Excel checklist dùng 1 cột `Nội dung checklist`. Khi import từ Excel, hệ thống đọc cột đầu tiên.</p>
           </div>
 
           {showSourceSummary ? (

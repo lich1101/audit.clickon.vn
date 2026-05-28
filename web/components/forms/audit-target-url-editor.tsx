@@ -1,6 +1,6 @@
 "use client";
 
-import { FileUp, Plus, Trash2 } from "lucide-react";
+import { Download, FileUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { parseUrlFile } from "@/lib/audit-files";
+import { downloadUrlTemplateFile, parseUrlFile } from "@/lib/audit-files";
 import { cn } from "@/lib/utils";
 
 function uniqueUrls(urls: string[]) {
@@ -145,6 +145,21 @@ export function AuditTargetUrlEditor({
             <FileUp className="size-4" />
             Nạp file
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              try {
+                await downloadUrlTemplateFile();
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Không thể tải file mẫu URL.");
+              }
+            }}
+          >
+            <Download className="size-4" />
+            Tải mẫu XLSX
+          </Button>
           <Button type="button" size="sm" variant="outline" onClick={() => setBulkOpen((current) => !current)}>
             Dán hàng loạt
           </Button>
@@ -185,6 +200,7 @@ export function AuditTargetUrlEditor({
           }
         }}
       />
+      <p className="text-sm text-muted-foreground">File mẫu URL dùng 1 cột `URL bài viết`. Khi import từ Excel, hệ thống chỉ đọc cột đầu tiên.</p>
 
       {bulkOpen ? (
         <div className="rounded-xl border border-border/70 bg-secondary/25 p-3">

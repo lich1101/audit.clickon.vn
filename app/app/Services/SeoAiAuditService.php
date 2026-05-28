@@ -447,6 +447,7 @@ TEXT;
         ?string $formatterProvider = null,
         ?string $formatterModel = null,
     ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
         $categoryPayload = array_map(
             fn (array $category): array => [
                 'name' => $category['name'] ?? null,

@@ -46,6 +46,10 @@ class StoreAuditRunRequest extends FormRequest
         if (is_string($startFromStep)) {
             $normalized = strtolower(trim($startFromStep));
 
+            if (in_array($normalized, ['step1', '1'], true)) {
+                $this->merge(['startFromStep' => 1]);
+            }
+
             if (in_array($normalized, ['step2', '2'], true)) {
                 $this->merge(['startFromStep' => 2]);
             }
@@ -57,6 +61,10 @@ class StoreAuditRunRequest extends FormRequest
 
         if (is_string($stopAfterStep)) {
             $normalized = strtolower(trim($stopAfterStep));
+
+            if (in_array($normalized, ['step1', 'step1_only', '1'], true)) {
+                $this->merge(['stopAfterStep' => 1]);
+            }
 
             if (in_array($normalized, ['step2', 'step2_only', '2'], true)) {
                 $this->merge(['stopAfterStep' => 2]);
@@ -78,10 +86,10 @@ class StoreAuditRunRequest extends FormRequest
             'action' => ['nullable', 'string', 'in:'.implode(',', AuditRun::WORKFLOWS)],
             'callbackUrl' => ['nullable', 'string', 'max:2048'],
             'callback_url' => ['nullable', 'string', 'max:2048'],
-            'startFromStep' => ['nullable', 'integer', 'in:2,3'],
-            'start_from_step' => ['nullable', 'integer', 'in:2,3'],
-            'stopAfterStep' => ['nullable', 'integer', 'in:2,3'],
-            'stop_after_step' => ['nullable', 'integer', 'in:2,3'],
+            'startFromStep' => ['nullable', 'integer', 'in:1,2,3'],
+            'start_from_step' => ['nullable', 'integer', 'in:1,2,3'],
+            'stopAfterStep' => ['nullable', 'integer', 'in:1,2,3'],
+            'stop_after_step' => ['nullable', 'integer', 'in:1,2,3'],
             'targetUrls' => ['required', 'array', 'min:1', 'max:'.self::MAX_TARGET_URLS],
             'targetUrls.*' => ['required', 'string', 'max:2048'],
             'categories' => ['nullable', 'array', 'max:200'],
@@ -104,7 +112,7 @@ class StoreAuditRunRequest extends FormRequest
                 $validator->errors()->add('callbackUrl', 'Callback URL không hợp lệ.');
             }
 
-            $startFromStep = (int) ($this->input('startFromStep') ?? 2);
+            $startFromStep = (int) ($this->input('startFromStep') ?? 1);
             $stopAfterStep = $this->input('stopAfterStep');
 
             if ($stopAfterStep !== null && (int) $stopAfterStep < $startFromStep) {

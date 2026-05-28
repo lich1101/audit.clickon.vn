@@ -8,7 +8,7 @@ import { AiModelSelect } from "@/components/forms/ai-model-select";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -264,7 +264,6 @@ export default function AdminAuditSettingsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit Settings"
-        description="Chỉ admin được cấu hình provider/model AI và thông số vận hành batch audit. Người dùng không thể thay đổi các giá trị này."
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Audit Settings" }
@@ -274,9 +273,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Chế độ bước 3 toàn hệ thống</CardTitle>
-          <CardDescription>
-            Admin chọn cứng bước 3 dùng flow chuẩn hay flow Deep Research. Người dùng ở màn hình audit chỉ chạy theo cấu hình này, không được tự chọn nữa.
-          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -306,9 +302,6 @@ export default function AdminAuditSettingsPage() {
       <Card className={checkReport ? (checkReport.ready ? "border-emerald-500/40" : "border-destructive/40") : undefined}>
         <CardHeader>
           <CardTitle>Kiểm tra cấu hình runtime</CardTitle>
-          <CardDescription>
-            Kiểm tra mode bước 3 hiện tại có đủ prompt, model và API key để chạy hay chưa. Nút này không gọi AI thật, chỉ rà soát cấu hình đang lưu và env runtime của backend.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -320,9 +313,7 @@ export default function AdminAuditSettingsPage() {
               <p className={checkReport.ready ? "text-sm text-emerald-600" : "text-sm text-destructive"}>
                 {checkReport.ready ? "Cấu hình hiện tại đã sẵn sàng chạy." : "Cấu hình hiện tại còn thiếu hoặc có cảnh báo cần xem lại."}
               </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">Nút này kiểm tra ngay bộ cấu hình đang nằm trên form hiện tại, không cần lưu trước để biết còn thiếu gì.</p>
-            )}
+            ) : null}
           </div>
 
           {checkReport ? (
@@ -382,7 +373,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Provider và model mặc định</CardTitle>
-          <CardDescription>Provider dùng chung cho bước 2 và 3. Model ở đây là fallback nếu model riêng từng bước để trống.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -422,9 +412,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Model chính riêng cho bước 2 và bước 3</CardTitle>
-          <CardDescription>
-            Mỗi bước có provider và model riêng. Bước 2 dùng cho mọi run. Bước 3 trong card này chỉ được dùng khi chế độ bước 3 toàn hệ thống đang là bước 3 chuẩn.
-          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-2">
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
@@ -510,9 +497,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Model ép JSON riêng cho bước 2.5 và 3.5</CardTitle>
-          <CardDescription>
-            Khi bước 2/3 trả raw text hoặc báo cáo Markdown, hệ thống gọi model formatter để chuyển về JSON đúng schema. Formatter chỉ dùng OpenAI/Gemini thường, không dùng Deep Research.
-          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-2">
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
@@ -592,9 +576,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Flow audit_deep_research: giữ bước 2 cũ, thay bước 3</CardTitle>
-          <CardDescription>
-            Card này chỉ áp dụng khi chế độ bước 3 toàn hệ thống đang bật Deep Research. Flow này vẫn chạy bước 2 như chuẩn cũ để lấy keyword + danh mục. Sau đó bước 3 được thay bằng 3A research, 3B reasoning audit, 3C JSON formatter; admin được chọn provider/model thật cho từng bước.
-          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-3">
           <div className="grid gap-4 rounded-2xl border border-border bg-secondary/30 p-4">
@@ -740,9 +721,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Kích thước batch và giới hạn đồng thời</CardTitle>
-          <CardDescription>
-            Hệ thống tự chia batch theo số URL đã chọn. Trường đồng thời chỉ là giới hạn tối đa số batch được phép chạy cùng lúc, không phải tổng số batch. Bước 3: URL / batch chỉ áp dụng cho bước 3 chuẩn; Deep Research: URL / batch chỉ áp dụng khi bật bước 3 Deep Research.
-          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
           <div className="flex flex-col gap-2">
@@ -856,9 +834,6 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Bảng giá credit theo model (token)</CardTitle>
-          <CardDescription>
-            Credit vẫn trừ theo token như hiện tại. USD ở đây dùng để ước tính chi phí thật cho từng model khi provider không trả trực tiếp cost theo call. Để trống cột USD nếu chưa có giá chính xác.
-          </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full min-w-[1320px] text-sm">

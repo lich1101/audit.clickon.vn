@@ -14,6 +14,8 @@ class AuditRunItem extends Model
         'target_url',
         'status',
         'extraction_source',
+        'content_source',
+        'content_error',
         'page_title',
         'meta_description',
         'canonical_url',

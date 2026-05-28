@@ -141,6 +141,7 @@ TEXT;
         ?string $formatterModel = null,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        array $batchPages = [],
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
         $result = $this->analyzeBatchKeywordAndCategory(
@@ -152,6 +153,7 @@ TEXT;
             $persistStep,
             $formatterProvider,
             $formatterModel,
+            $batchPages,
         );
 
         return [
@@ -258,6 +260,7 @@ TEXT;
         ?string $persistStep = null,
         ?string $formatterProvider = null,
         ?string $formatterModel = null,
+        array $batchPages = [],
     ): array
     {
         $categoryPayload = array_map(
@@ -267,21 +270,40 @@ TEXT;
             ],
             $categories
         );
+        $contentAvailableUrls = array_values(array_map(
+            fn (array $item): string => (string) ($item['targetUrl'] ?? ''),
+            array_filter($batchPages, function (mixed $item): bool {
+                return is_array($item)
+                    && is_array($item['page'] ?? null)
+                    && (
+                        is_string($item['page']['title'] ?? null)
+                        || is_string($item['page']['metaDescription'] ?? null)
+                        || is_string($item['page']['contentExcerpt'] ?? null)
+                    );
+            })
+        ));
 
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_KEYWORD_CATEGORY_MAPPING, [
             'url' => '',
             'target_urls_json' => $targetUrls,
             'target_urls_text' => implode("\n", $targetUrls),
+            'batch_pages_json' => $batchPages,
             'categories_json' => $categoryPayload,
             'category_contexts_json' => $categoryPayload,
-            'page_json' => ['mode' => 'url_only_batch', 'targetUrls' => $targetUrls],
+            'page_json' => [
+                'mode' => 'url_with_optional_content_batch',
+                'targetUrls' => $targetUrls,
+                'contentAvailableUrls' => $contentAvailableUrls,
+            ],
             'article_content' => '',
         ]);
+        $encodedBatchPages = json_encode($batchPages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 
         $batchContract = implode("\n", [
             '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
-            'Mode: URL-only chunk batch. Process all URLs provided in this chunk in one response.',
-            'Do not claim that page HTML/content/title/meta/headings were crawled.',
+            'Mode: batch keyword/category mapping with optional step-1 page data. Process all URLs provided in this chunk in one response.',
+            'Use step-1 page data (title/meta/headings/contentExcerpt/source) when it is present for a URL.',
+            'If a URL does not have step-1 page data, do not invent crawl data; fall back to URL slug and category context only.',
             'If allowed categories are provided, choose the best matching categoryName/categoryUrl from that list for each URL. Return empty category fields only when the URL is completely outside every allowed category.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string"}]}',
@@ -296,6 +318,10 @@ TEXT;
             'Allowed categories JSON:',
             json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
         ]);
+
+        if ($batchPages !== [] && ! str_contains($prompts['user'], (string) $encodedBatchPages)) {
+            $prompts['user'] .= "\n\nStep 1 page data JSON (optional per URL):\n".$encodedBatchPages;
+        }
 
         $rawResponse = $this->requestAiRaw(
             provider: $provider,
@@ -326,6 +352,7 @@ TEXT;
                 formatterModel: $formatterModel,
                 auditRunId: $auditRunId,
                 persistStep: $this->formatterStepKey($persistStep ?? 'batch_keyword_category_mapping', 'keyword_category_json_formatter'),
+                batchPages: $batchPages,
             );
             $data = $formatterResult['data'];
             $this->assertBatchItemsData($data, $targetUrls, 'Bước 2.5');
@@ -865,6 +892,7 @@ TEXT;
         ?string $formatterModel,
         ?int $auditRunId,
         string $persistStep,
+        array $batchPages = [],
     ): array {
         $provider = $this->jsonFormatterProvider($formatterProvider);
         $model = $formatterModel ?: $this->defaultJsonFormatterModel($provider);
@@ -874,9 +902,15 @@ TEXT;
             'raw_ai_output' => $rawOutput,
             'target_urls_json' => $targetUrls,
             'target_urls_text' => implode("\n", $targetUrls),
+            'batch_pages_json' => $batchPages,
             'categories_json' => $categories,
             'expected_schema_json' => $schema,
         ]);
+        $encodedBatchPages = json_encode($batchPages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+
+        if ($batchPages !== [] && ! str_contains($prompts['user'], (string) $encodedBatchPages)) {
+            $prompts['user'] .= "\n\nStep 1 page data JSON (optional per URL):\n".$encodedBatchPages;
+        }
 
         $response = $this->requestJson(
             provider: $provider,

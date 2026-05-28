@@ -197,6 +197,11 @@ class AuditRunController extends Controller
                     count($skippedTargetUrls),
                 )
                 : sprintf('Đã đưa %d URL vào hàng đợi bước 3.', count($queuedTargetUrls));
+        } elseif ($stopAfterStep === AuditRunService::STOP_AFTER_STEP_1) {
+            $message = sprintf(
+                'Đã đưa %d URL vào hàng đợi lấy nội dung bước 1 bằng Jina/HTML. Run sẽ dừng sau khi hoàn tất bước 1.',
+                count($queuedTargetUrls),
+            );
         } elseif ($stopAfterStep === AuditRunService::STOP_AFTER_STEP_2) {
             $message = sprintf(
                 'Đã đưa %d URL vào hàng đợi chạy bước 2 và formatter 2.5. Run sẽ dừng sau khi hoàn tất bước 2.',

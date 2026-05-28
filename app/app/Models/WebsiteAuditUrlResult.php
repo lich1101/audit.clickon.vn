@@ -15,6 +15,13 @@ class WebsiteAuditUrlResult extends Model
         'latest_audit_run_item_id',
         'status',
         'page_title',
+        'meta_description',
+        'canonical_url',
+        'extracted_headings',
+        'extracted_metrics',
+        'content_excerpt',
+        'content_source',
+        'content_error',
         'primary_keyword',
         'category_name',
         'category_url',
@@ -33,6 +40,8 @@ class WebsiteAuditUrlResult extends Model
     {
         return [
             'audit_score' => 'integer',
+            'extracted_headings' => 'array',
+            'extracted_metrics' => 'array',
             'audited_at' => 'datetime',
         ];
     }

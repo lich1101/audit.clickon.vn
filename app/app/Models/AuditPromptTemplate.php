@@ -52,7 +52,7 @@ class AuditPromptTemplate extends Model
                 'developer_prompt' => implode("\n", [
                     'Bạn là chuyên gia SEO Google và kiến trúc silo website có 20 năm kinh nghiệm.',
                     'Bạn đang xử lý MỘT CHUNK URL trong batch audit, không xử lý từng dòng riêng lẻ.',
-                    'Đầu vào chỉ có URL bài viết và danh sách danh mục/URL danh mục. Không giả vờ đã crawl nội dung, title, meta hoặc heading.',
+                    'Đầu vào luôn có URL bài viết và danh sách danh mục/URL danh mục. Một số URL có thể kèm thêm dữ liệu bước 1 như title, meta, heading, content excerpt; nếu field nào trống thì coi như chưa có dữ liệu đó.',
                     'Nhiệm vụ: với mỗi URL, suy luận thận trọng 1 từ khóa SEO chính từ slug/ngữ cảnh URL và chọn đúng 1 danh mục phù hợp nhất từ danh sách được cung cấp.',
                     'Nếu danh sách danh mục không rỗng, phải chọn categoryName/categoryUrl phù hợp nhất trong danh sách cho mỗi URL. Chỉ trả chuỗi rỗng khi URL nằm ngoài hoàn toàn mọi chủ đề danh mục.',
                     'Bắt buộc trả đủ một item cho mọi URL đầu vào, giữ nguyên targetUrl đúng như input (đúng từng ký tự, không đổi http/https hay dấu /).',
@@ -63,6 +63,8 @@ class AuditPromptTemplate extends Model
                 'user_prompt' => implode("\n\n", [
                     'Danh sách URL mục tiêu cần xử lý:',
                     '{{target_urls_json}}',
+                    'Dữ liệu bước 1 theo từng URL (nếu có):',
+                    '{{batch_pages_json}}',
                     'Danh sách danh mục được phép chọn:',
                     '{{categories_json}}',
                     'Yêu cầu:',
@@ -173,6 +175,8 @@ class AuditPromptTemplate extends Model
                     '{{raw_ai_output}}',
                     'Danh sách URL mục tiêu bắt buộc có trong JSON:',
                     '{{target_urls_json}}',
+                    'Dữ liệu bước 1 theo từng URL (nếu có):',
+                    '{{batch_pages_json}}',
                     'Danh sách danh mục được phép chọn:',
                     '{{categories_json}}',
                     'Schema JSON bắt buộc:',

@@ -11,7 +11,7 @@ import { LoadingState } from "@/components/dashboard/loading-state";
 import { ProgressBar } from "@/components/dashboard/progress-bar";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
@@ -27,46 +27,26 @@ function buildDeepResearchFlowLabel(run: AuditRun) {
   return `Flow audit_deep_research · 3A ${researchProvider} · 3B ${reasoningProvider} · 3C ${formatterProvider}`;
 }
 
+function buildStandardFlowLabel(run: AuditRun) {
+  const base = `B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`;
+
+  if (run.stopAfterStep === 1) {
+    return `Chỉ bước 1 · ${base}`;
+  }
+
+  if (run.stopAfterStep === 2) {
+    return `Chỉ bước 2 · ${base}`;
+  }
+
+  return base;
+}
+
 function formatUsd(value?: number | null) {
   if (value == null || Number.isNaN(value)) {
     return "—";
   }
 
   return `$${value.toFixed(6)}`;
-}
-
-function buildUsageDescription(run: AuditRun) {
-  const usageSummary = run.usageSummary;
-
-  if (! usageSummary) {
-    return "";
-  }
-
-  if (usageSummary.costVisibility === "reported" && usageSummary.estimateVisibility === "estimated") {
-    return "Tất cả bước trong run này đều có USD thực tế từ provider và cũng có USD ước tính từ bảng giá model để đối chiếu.";
-  }
-
-  if (usageSummary.costVisibility === "partial" && usageSummary.estimateVisibility === "estimated") {
-    return "Một phần bước có USD thực tế từ provider; các bước còn lại đã được ước tính bằng bảng giá model trong admin.";
-  }
-
-  if (usageSummary.costVisibility === "tokens_only" && usageSummary.estimateVisibility === "estimated") {
-    return "Provider không trả USD trực tiếp cho run này, nhưng hệ thống đã tính được USD ước tính từ bảng giá model.";
-  }
-
-  if (usageSummary.costVisibility === "tokens_only" && usageSummary.estimateVisibility === "partial") {
-    return "Run này mới tính được USD ước tính cho một phần bước; phần còn lại vẫn chỉ theo dõi bằng token/credit do thiếu đơn giá model.";
-  }
-
-  if (usageSummary.costVisibility === "partial") {
-    return "Chỉ một phần bước có USD thực tế từ provider; các bước còn lại hiện theo dõi bằng token và credit.";
-  }
-
-  if (usageSummary.costVisibility === "reported") {
-    return "Tất cả bước trong run này đều có số tiền USD do provider trả trực tiếp.";
-  }
-
-  return "Run này hiện theo dõi chắc chắn bằng token và credit; hãy cấu hình thêm đơn giá USD cho model nếu muốn xem chi phí ước tính.";
 }
 
 export default function AuditRunDetailPage({
@@ -226,7 +206,6 @@ export default function AuditRunDetailPage({
     <div className="flex flex-col gap-6">
       <PageHeader
         title={`Run #${run.publicId.slice(-8)}`}
-        description="Chi tiết audit run — dữ liệu chính từ MySQL, Firebase chỉ bắn tín hiệu cập nhật khi đang chạy."
         breadcrumbs={[
           { label: "Websites", href: "/websites" },
           { label: website.name, href: `/websites/${website.id}` },
@@ -255,12 +234,8 @@ export default function AuditRunDetailPage({
           <p className="text-sm text-muted-foreground">
             {run.workflow === "audit_deep_research"
               ? `Tạo ${formatDate(run.createdAt)} · ${buildDeepResearchFlowLabel(run)}`
-              : `Tạo ${formatDate(run.createdAt)} · B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
+              : `Tạo ${formatDate(run.createdAt)} · ${buildStandardFlowLabel(run)}`}
           </p>
-          {run.stopAfterStep === 2 ? (
-            <p className="text-xs text-muted-foreground">Run này chỉ chạy bước 2 và formatter 2.5, không chuyển sang bước 3.</p>
-          ) : null}
-          {isActiveAuditRun(run.status) ? <p className="text-xs text-muted-foreground">Bảng chi tiết đang tự cập nhật mỗi 3 giây trong lúc run còn chạy.</p> : null}
         </CardContent>
       </Card>
 
@@ -268,7 +243,6 @@ export default function AuditRunDetailPage({
         <Card>
           <CardHeader>
             <CardTitle>Token / cost theo bước</CardTitle>
-            <CardDescription>{buildUsageDescription(run)}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-5">

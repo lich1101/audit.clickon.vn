@@ -87,7 +87,14 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
         }
       : null,
     run: response.data.run ? normalizeAuditRun(response.data.run) : null,
-    urlResults: Array.isArray(response.data.urlResults) ? response.data.urlResults : [],
+    urlResults: Array.isArray(response.data.urlResults)
+      ? response.data.urlResults.map((result) => ({
+          ...result,
+          auditRecommendations: Array.isArray(result.auditRecommendations) ? result.auditRecommendations : [],
+          headings: result.headings ?? {},
+          metrics: result.metrics ?? {}
+        }))
+      : [],
     systemAi: {
       ...defaultSystemAi,
       ...systemAi,
@@ -134,7 +141,7 @@ export async function createAuditRun(input: {
       websiteName: input.websiteName,
       websiteUrl: input.websiteUrl,
       callbackUrl: input.callbackUrl?.trim() || undefined,
-      startFromStep: input.startFromStep ?? 2,
+      startFromStep: input.startFromStep ?? 1,
       stopAfterStep: input.stopAfterStep ?? undefined,
       targetUrls,
       categories,
@@ -159,6 +166,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     ...run,
     workflow: run.workflow ?? "standard",
     callbackUrl: run.callbackUrl ?? null,
+    startFromStep: run.startFromStep ?? 1,
     stopAfterStep: run.stopAfterStep ?? null,
     targetUrls: Array.isArray(run.targetUrls) ? run.targetUrls : [],
     categories: Array.isArray(run.categories) ? run.categories : [],

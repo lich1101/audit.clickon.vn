@@ -1,7 +1,7 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreditBadge } from "@/components/dashboard/credit-badge";
 import { formatCurrency } from "@/lib/utils";
 import type { Plan } from "@/types";
@@ -21,7 +21,6 @@ export function PlanCard({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1.5">
             <CardTitle>{plan.name}</CardTitle>
-            <CardDescription>Phù hợp cho luồng audit website cần cấp credit theo batch.</CardDescription>
           </div>
           <CreditBadge credits={plan.credits} />
         </div>

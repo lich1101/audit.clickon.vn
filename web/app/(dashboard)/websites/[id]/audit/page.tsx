@@ -52,6 +52,30 @@ function hasStep2SeedData(row?: {
   return Boolean(row?.primaryKeyword?.trim() && row.categoryName?.trim() && row.categoryUrl?.trim());
 }
 
+function hasStep1SeedData(row?: {
+  pageTitle?: string | null;
+  metaDescription?: string | null;
+  contentExcerpt?: string | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+} | null) {
+  return Boolean(
+    row?.pageTitle?.trim() ||
+      row?.metaDescription?.trim() ||
+      row?.contentExcerpt?.trim() ||
+      row?.contentSource?.trim() ||
+      row?.contentError?.trim()
+  );
+}
+
+function hasStep3SeedData(row?: {
+  auditScore?: number | null;
+  auditRecommendations?: string[];
+  contentRevisionDirection?: string | null;
+} | null) {
+  return typeof row?.auditScore === "number" || Boolean(row?.auditRecommendations?.length || row?.contentRevisionDirection?.trim());
+}
+
 function preferFilledString(...values: Array<string | null | undefined>) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
@@ -87,7 +111,14 @@ function mergeAuditWorkbenchRow(
     ...current,
     status: current?.status ?? persisted?.status,
     extractionSource: current?.extractionSource ?? null,
+    contentSource: preferFilledString(current?.contentSource, persisted?.contentSource),
+    contentError: preferFilledString(current?.contentError, persisted?.contentError),
+    readerUrl: preferFilledString(current?.readerUrl, persisted?.readerUrl),
     pageTitle: preferFilledString(current?.pageTitle, persisted?.pageTitle),
+    metaDescription: preferFilledString(current?.metaDescription, persisted?.metaDescription),
+    canonicalUrl: preferFilledString(current?.canonicalUrl, persisted?.canonicalUrl),
+    headings: current?.headings && Object.keys(current.headings).length > 0 ? current.headings : persisted?.headings,
+    metrics: current?.metrics && Object.keys(current.metrics).length > 0 ? current.metrics : persisted?.metrics,
     primaryKeyword: preferFilledString(current?.primaryKeyword, persisted?.primaryKeyword),
     categoryName: preferFilledString(current?.categoryName, persisted?.categoryName),
     categoryUrl: preferFilledString(current?.categoryUrl, persisted?.categoryUrl),
@@ -95,6 +126,7 @@ function mergeAuditWorkbenchRow(
     auditScore: current?.auditScore ?? persisted?.auditScore ?? null,
     auditRecommendations: preferStringArray(current?.auditRecommendations, persisted?.auditRecommendations),
     contentRevisionDirection: preferFilledString(current?.contentRevisionDirection, persisted?.contentRevisionDirection),
+    contentExcerpt: preferFilledString(current?.contentExcerpt, persisted?.contentExcerpt),
     errorMessage,
   };
 }
@@ -316,6 +348,36 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     () => selectedUrls.filter((url) => hasStep2SeedData(itemsByUrl[url])),
     [itemsByUrl, selectedUrls]
   );
+  const stepCounts = useMemo(() => {
+    let step1Ready = 0;
+    let step2Ready = 0;
+    let step3Ready = 0;
+
+    for (const url of urlList) {
+      const row = itemsByUrl[url];
+
+      if (hasStep1SeedData(row)) {
+        step1Ready += 1;
+      }
+
+      if (hasStep2SeedData(row)) {
+        step2Ready += 1;
+      }
+
+      if (hasStep3SeedData(row)) {
+        step3Ready += 1;
+      }
+    }
+
+    return {
+      step1Ready,
+      step1Missing: Math.max(0, urlList.length - step1Ready),
+      step2Ready,
+      step2Missing: Math.max(0, urlList.length - step2Ready),
+      step3Ready,
+      step3Missing: Math.max(0, urlList.length - step3Ready)
+    };
+  }, [itemsByUrl, urlList]);
 
   const progressPercent = progressFor(run);
   const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
@@ -327,29 +389,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     (item) => item.status === "queued" || (item.status === "analyzing" && item.extractionSource === "url_only_batch_step2_done")
   ).length;
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
-  const step2BatchSize = Math.max(1, Number(systemAi.step2BatchSize ?? 60));
-  const step3BatchSize = Math.max(1, Number(systemAi.step3BatchSize ?? 30));
-  const deepResearchBatchSize = Math.max(1, Number(systemAi.deepResearchBatchSize ?? 5));
-  const step2Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step2BatchSize) : 0;
-  const step3Chunks = selectedUrls.length ? Math.ceil(selectedUrls.length / step3BatchSize) : 0;
-  const deepResearchChunks = selectedUrls.length ? Math.ceil(selectedUrls.length / deepResearchBatchSize) : 0;
-  const step3ReadyChunks = step3ReadySelectedUrls.length ? Math.ceil(step3ReadySelectedUrls.length / step3BatchSize) : 0;
-  const deepResearchReadyChunks = step3ReadySelectedUrls.length ? Math.ceil(step3ReadySelectedUrls.length / deepResearchBatchSize) : 0;
-  const step2Provider = systemAi.step2AiProvider ?? systemAi.aiProvider;
-  const step3Provider = systemAi.step3AiProvider ?? systemAi.aiProvider;
   const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
-  const step2FormatterChunks = step2Provider === "gemini_deep_research" ? step2Chunks : 0;
-  const formatterChunks = step2FormatterChunks + (step3Provider === "gemini_deep_research" ? step3Chunks : 0);
-  const step3OnlyFormatterChunks = step3Provider === "gemini_deep_research" ? step3ReadyChunks : 0;
-  const estimatedAiCalls = configuredWorkflow === "audit_deep_research"
-    ? step2Chunks + step2FormatterChunks + deepResearchChunks * 3
-    : step2Chunks + step3Chunks + formatterChunks;
-  const estimatedStep2OnlyAiCalls = step2Chunks + step2FormatterChunks;
-  const estimatedStep3OnlyAiCalls = configuredWorkflow === "audit_deep_research"
-    ? deepResearchReadyChunks * 3
-    : step3ReadyChunks + step3OnlyFormatterChunks;
   const currentCredits = profile?.credits ?? 0;
-  const hasEnoughCredits = currentCredits > 0;
 
   async function persistUrlList(nextUrls: string[]) {
     if (!audit || !website || !profile) {
@@ -431,7 +472,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     };
   }, []);
 
-  async function handleRun(startFromStep: AuditRunStartStep = 2, stopAfterStep: AuditRunStopAfterStep = null) {
+  async function handleRun(startFromStep: AuditRunStartStep = 1, stopAfterStep: AuditRunStopAfterStep = null) {
     if (!selectedUrls.length) {
       toast.error("Chọn ít nhất một URL để chạy audit.");
       return;
@@ -537,7 +578,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     <div className="flex flex-col gap-5">
       <PageHeader
         title={`Audit: ${website.name}`}
-        description={`${website.url} · thao tác URL, chạy audit và xem kết quả trên cùng một bảng.`}
+        description={website.url}
         breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Websites", href: "/websites" },
@@ -554,6 +595,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
               {workflowLabels[configuredWorkflow]}
             </span>
+            {run?.stopAfterStep === 1 ? (
+              <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
+                Chỉ chạy bước 1
+              </span>
+            ) : null}
             {run?.stopAfterStep === 2 ? (
               <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
                 Chỉ chạy bước 2
@@ -566,31 +612,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{urlList.length} URL</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{audit?.categories.length ?? 0} danh mục</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{currentCredits} credit</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2 {stepCounts.step2Ready}/{urlList.length}</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">B3 {stepCounts.step3Ready}/{urlList.length}</span>
             {run ? <span className="rounded-full bg-secondary/50 px-2.5 py-1">Run #{run.publicId.slice(-8)}</span> : null}
           </div>
-          {isRunActive ? <p className="text-xs text-muted-foreground">Tự cập nhật trạng thái mỗi 3 giây. URL chỉ khóa chỉnh sửa trong lúc run chạy.</p> : null}
-          {selectedUrls.length ? (
-            <p className={hasEnoughCredits ? "text-xs text-muted-foreground" : "text-xs font-medium text-destructive"}>
-              {configuredWorkflow === "audit_deep_research"
-                ? `Đã chọn ${selectedUrls.length} URL · B3 sẵn sàng ${step3ReadySelectedUrls.length} URL · tối đa ${estimatedAiCalls} AI call (${deepResearchChunks} batch deep research x ${deepResearchBatchSize}).`
-                : `Đã chọn ${selectedUrls.length} URL · B3 sẵn sàng ${step3ReadySelectedUrls.length} URL · tối đa ${estimatedAiCalls} AI call (${step3Chunks} batch bước 3 x ${step3BatchSize}${formatterChunks ? ` + ${formatterChunks} batch formatter` : ""}).`}
-            </p>
-          ) : null}
-          {selectedUrls.length ? (
-            <p className="text-xs text-muted-foreground">
-              Chỉ chạy bước 2: {selectedUrls.length} URL · khoảng {estimatedStep2OnlyAiCalls} AI call ({step2Chunks} batch bước 2{step2FormatterChunks ? ` + ${step2FormatterChunks} batch formatter 2.5` : ""}).
-            </p>
-          ) : null}
-          {selectedUrls.length && step3ReadySelectedUrls.length > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Chạy từ bước 3: {step3ReadySelectedUrls.length} URL đủ dữ liệu bước 2 · khoảng {estimatedStep3OnlyAiCalls} AI call.
-            </p>
-          ) : null}
-          {selectedUrls.length && step3ReadySelectedUrls.length !== selectedUrls.length ? (
-            <p className="text-xs text-muted-foreground">
-              Còn {selectedUrls.length - step3ReadySelectedUrls.length} URL chưa đủ keyword + danh mục từ bước 2.
-            </p>
-          ) : null}
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span>Thiếu B1: {stepCounts.step1Missing}</span>
+            <span>Thiếu B2: {stepCounts.step2Missing}</span>
+            <span>Thiếu B3: {stepCounts.step3Missing}</span>
+          </div>
           {run ? (
             <div className="space-y-1.5">
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
@@ -602,9 +633,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void handleRun(2)} disabled={running || isRunActive || selectedUrls.length === 0}>
+          <Button type="button" onClick={() => void handleRun(1)} disabled={running || isRunActive || selectedUrls.length === 0}>
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run full (${selectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void handleRun(1, 1)}
+            disabled={running || isRunActive || selectedUrls.length === 0}
+          >
+            <Play className="size-4" />
+            {running ? "Đang khởi chạy..." : `Run bước 1 (${selectedUrls.length})`}
           </Button>
           <Button
             type="button"

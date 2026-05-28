@@ -24,8 +24,8 @@ export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" |
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research" | "perplexity";
 export type AuditWorkflow = "standard" | "audit_deep_research";
-export type AuditRunStartStep = 2 | 3;
-export type AuditRunStopAfterStep = 2 | 3 | null;
+export type AuditRunStartStep = 1 | 2 | 3;
+export type AuditRunStopAfterStep = 1 | 2 | 3 | null;
 export type DeepResearchResearchProvider = "perplexity" | "gemini_deep_research";
 export type DeepResearchReasoningProvider = "openai" | "gemini";
 
@@ -59,6 +59,18 @@ export type WebsiteAuditUrlResult = {
   targetUrl: string;
   status: AuditRunItemStatus;
   pageTitle?: string | null;
+  metaDescription?: string | null;
+  canonicalUrl?: string | null;
+  headings?: {
+    h1?: string[];
+    h2?: string[];
+    h3?: string[];
+  };
+  metrics?: Record<string, number | boolean | string | null>;
+  contentExcerpt?: string | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+  readerUrl?: string | null;
   primaryKeyword?: string | null;
   categoryName?: string | null;
   categoryUrl?: string | null;
@@ -157,11 +169,18 @@ export type AuditRunItem = {
     | "html"
     | "url_only"
     | "url_only_batch"
+    | "url_only_batch_step1_running"
+    | "url_only_batch_step1_done"
+    | "url_only_batch_step1_only_completed"
     | "url_only_batch_step2_running"
     | "url_only_batch_step2_done"
+    | "url_only_batch_step2_only_completed"
     | "url_only_batch_step3_running"
     | string
     | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+  readerUrl?: string | null;
   pageTitle?: string | null;
   metaDescription?: string | null;
   canonicalUrl?: string | null;
@@ -263,6 +282,7 @@ export type AuditRun = {
   websiteUrl?: string | null;
   workflow?: AuditWorkflow;
   callbackUrl?: string | null;
+  startFromStep?: AuditRunStartStep | null;
   stopAfterStep?: AuditRunStopAfterStep;
   userId: string;
   userEmail?: string | null;

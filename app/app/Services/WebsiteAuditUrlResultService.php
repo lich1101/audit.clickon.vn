@@ -51,6 +51,13 @@ class WebsiteAuditUrlResultService
             'latest_audit_run_item_id' => $item->id,
             'status' => $status,
             'page_title' => $this->preferNewText($item->page_title, $existing?->page_title),
+            'meta_description' => $this->preferNewText($item->meta_description, $existing?->meta_description),
+            'canonical_url' => $this->preferNewText($item->canonical_url, $existing?->canonical_url),
+            'extracted_headings' => $this->preferNewArray($item->extracted_headings, $existing?->extracted_headings),
+            'extracted_metrics' => $this->preferNewArray($item->extracted_metrics, $existing?->extracted_metrics),
+            'content_excerpt' => $this->preferNewText($item->content_excerpt, $existing?->content_excerpt),
+            'content_source' => $this->preferNewText($item->content_source, $existing?->content_source),
+            'content_error' => $this->preferNewText($item->content_error, $existing?->content_error),
             'primary_keyword' => $this->preferNewText($item->primary_keyword, $existing?->primary_keyword),
             'category_name' => $this->preferNewText($item->category_name, $existing?->category_name),
             'category_url' => $this->preferNewText($item->category_url, $existing?->category_url),
@@ -95,6 +102,14 @@ class WebsiteAuditUrlResultService
             'targetUrl' => $result->target_url,
             'status' => $result->status,
             'pageTitle' => $result->page_title,
+            'metaDescription' => $result->meta_description,
+            'canonicalUrl' => $result->canonical_url,
+            'headings' => $result->extracted_headings ?? [],
+            'metrics' => $result->extracted_metrics ?? [],
+            'contentExcerpt' => $result->content_excerpt ? mb_substr($result->content_excerpt, 0, 1200) : null,
+            'contentSource' => $result->content_source,
+            'contentError' => $result->content_error,
+            'readerUrl' => $this->readerUrlFor($result->target_url),
             'primaryKeyword' => $result->primary_keyword,
             'categoryName' => $result->category_name,
             'categoryUrl' => $result->category_url,
@@ -126,8 +141,22 @@ class WebsiteAuditUrlResultService
         return $this->filledText($value) ? $value : $fallback;
     }
 
+    private function preferNewArray(mixed $value, mixed $fallback): mixed
+    {
+        if (is_array($value) && $value !== []) {
+            return $value;
+        }
+
+        return is_array($fallback) ? $fallback : $value;
+    }
+
     private function filledText(mixed $value): bool
     {
         return is_string($value) && trim($value) !== '';
+    }
+
+    private function readerUrlFor(string $targetUrl): string
+    {
+        return rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$targetUrl;
     }
 }

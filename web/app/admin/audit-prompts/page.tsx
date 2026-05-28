@@ -20,7 +20,7 @@ const variables = [
   { token: "{{url}}", description: "URL mục tiêu hiện tại khi flow chạy theo từng item." },
   { token: "{{target_urls_json}}", description: "Danh sách URL trong chunk AI hiện tại, dạng JSON array." },
   { token: "{{target_urls_text}}", description: "Danh sách URL trong chunk AI hiện tại, mỗi URL một dòng." },
-  { token: "{{batch_pages_json}}", description: "Danh sách item trong chunk deep research step 3: targetUrl, page payload, article content và keyword/danh mục đã có từ bước 2." },
+  { token: "{{batch_pages_json}}", description: "Danh sách item trong chunk hiện tại: targetUrl và page payload từ bước 1 nếu có. Bước 2 có thể dùng để suy luận keyword/danh mục; deep research step 3 dùng bản giàu dữ liệu hơn." },
   { token: "{{categories_json}}", description: "Danh sách tên danh mục và URL danh mục được phép chọn." },
   { token: "{{category_contexts_json}}", description: "Ngữ cảnh danh mục đã crawl: title, meta, excerpt." },
   { token: "{{keyword_category_results_json}}", description: "Kết quả batch bước 2: URL, keyword chính, danh mục, URL danh mục." },
@@ -261,7 +261,7 @@ export default function AdminAuditPromptsPage() {
       new Map([
         ["primary_keyword", "Legacy: không dùng trong batch flow hiện tại."],
         ["category_mapping", "Legacy: không dùng trong batch flow hiện tại."],
-        ["keyword_category_mapping", "Bước 2 chạy theo chunk: dùng URL + danh mục để trả keyword chính và danh mục cho từng dòng trong chunk."],
+        ["keyword_category_mapping", "Bước 2 chạy theo chunk: dùng URL + danh mục, và nếu có thì dùng thêm dữ liệu bước 1 (title/meta/content excerpt) để trả keyword chính và danh mục cho từng dòng trong chunk."],
         ["keyword_category_json_formatter", "Bước 2.5 chạy khi output bước 2 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
         ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."],
         ["onpage_audit_json_formatter", "Bước 3.5 chạy khi output bước 3 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],

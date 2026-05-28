@@ -23,6 +23,20 @@ function buildDeepResearchFlowLabel(run: AuditRun) {
   return `Flow audit_deep_research · 3A ${researchProvider} · 3B ${reasoningProvider} · 3C ${formatterProvider}`;
 }
 
+function buildStandardFlowLabel(run: AuditRun) {
+  const base = `B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`;
+
+  if (run.stopAfterStep === 1) {
+    return `Chỉ bước 1 · ${base}`;
+  }
+
+  if (run.stopAfterStep === 2) {
+    return `Chỉ bước 2 · ${base}`;
+  }
+
+  return base;
+}
+
 export function AuditRunsTable({
   websiteId,
   runs,
@@ -71,7 +85,7 @@ export function AuditRunsTable({
               <p className="text-xs text-muted-foreground">
                 {run.workflow === "audit_deep_research"
                   ? buildDeepResearchFlowLabel(run)
-                  : `B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
+                  : buildStandardFlowLabel(run)}
               </p>
             </div>
           )

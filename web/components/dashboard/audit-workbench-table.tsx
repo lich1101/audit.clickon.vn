@@ -15,7 +15,18 @@ import type { AuditRunItemStatus } from "@/types";
 export type AuditWorkbenchRow = {
   status?: AuditRunItemStatus;
   extractionSource?: string | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+  readerUrl?: string | null;
   pageTitle?: string | null;
+  metaDescription?: string | null;
+  canonicalUrl?: string | null;
+  headings?: {
+    h1?: string[];
+    h2?: string[];
+    h3?: string[];
+  };
+  metrics?: Record<string, number | boolean | string | null>;
   primaryKeyword?: string | null;
   categoryName?: string | null;
   categoryUrl?: string | null;
@@ -23,6 +34,7 @@ export type AuditWorkbenchRow = {
   auditScore?: number | null;
   auditRecommendations?: string[];
   contentRevisionDirection?: string | null;
+  contentExcerpt?: string | null;
   errorMessage?: string | null;
 };
 
@@ -35,6 +47,56 @@ function ScoreCell({ score }: { score?: number | null }) {
     score >= 80 ? "text-emerald-600 dark:text-emerald-300" : score >= 60 ? "text-amber-600 dark:text-amber-300" : "text-red-600 dark:text-red-300";
 
   return <span className={`font-semibold ${tone}`}>{score}</span>;
+}
+
+function stageLabelForSource(source?: string | null) {
+  if (source === "url_only_batch_step1_running") {
+    return "Bước 1: lấy nội dung";
+  }
+
+  if (source === "url_only_batch_step1_done") {
+    return "Chờ bước 2";
+  }
+
+  if (source === "url_only_batch_step1_only_completed") {
+    return "Hoàn tất bước 1";
+  }
+
+  if (source === "url_only_batch_step2_running") {
+    return "Bước 2: keyword + danh mục";
+  }
+
+  if (source === "url_only_batch_step2_done") {
+    return "Chờ bước 3";
+  }
+
+  if (source === "url_only_batch_step3_running") {
+    return "Bước 3: audit onpage";
+  }
+
+  if (source === "audit_deep_research_running" || source === "audit_deep_research") {
+    return "Bước 3: deep research";
+  }
+
+  return null;
+}
+
+function hasStep1Data(row?: AuditWorkbenchRow | null) {
+  return Boolean(
+    row?.pageTitle?.trim() ||
+      row?.metaDescription?.trim() ||
+      row?.contentExcerpt?.trim() ||
+      row?.contentSource?.trim() ||
+      row?.contentError?.trim()
+  );
+}
+
+function hasStep2Data(row?: AuditWorkbenchRow | null) {
+  return Boolean(row?.primaryKeyword?.trim() && row?.categoryName?.trim() && row?.categoryUrl?.trim());
+}
+
+function hasStep3Data(row?: AuditWorkbenchRow | null) {
+  return typeof row?.auditScore === "number" || Boolean(row?.auditRecommendations?.length || row?.contentRevisionDirection?.trim());
 }
 
 export function AuditWorkbenchTable({
@@ -72,8 +134,12 @@ export function AuditWorkbenchTable({
     const completed: string[] = [];
     const failed: string[] = [];
     const active: string[] = [];
+    const step1Ready: string[] = [];
+    const step1Missing: string[] = [];
     const step2Ready: string[] = [];
     const step2Missing: string[] = [];
+    const step3Ready: string[] = [];
+    const step3Missing: string[] = [];
 
     for (const url of urls) {
       const item = itemsByUrl[url];
@@ -90,14 +156,26 @@ export function AuditWorkbenchTable({
         active.push(url);
       }
 
-      if (item?.primaryKeyword?.trim() && item?.categoryName?.trim() && item?.categoryUrl?.trim()) {
+      if (hasStep1Data(item)) {
+        step1Ready.push(url);
+      } else {
+        step1Missing.push(url);
+      }
+
+      if (hasStep2Data(item)) {
         step2Ready.push(url);
       } else {
         step2Missing.push(url);
       }
+
+      if (hasStep3Data(item)) {
+        step3Ready.push(url);
+      } else {
+        step3Missing.push(url);
+      }
     }
 
-    return { completed, failed, active, step2Ready, step2Missing };
+    return { completed, failed, active, step1Ready, step1Missing, step2Ready, step2Missing, step3Ready, step3Missing };
   }, [itemsByUrl, urls]);
 
   useEffect(() => {
@@ -251,7 +329,6 @@ export function AuditWorkbenchTable({
           <div className="flex items-center gap-2 text-sm">
             <ListChecks className="size-4 text-primary" />
             <span className="font-medium">{selectedUrls.length}/{urls.length} URL đã chọn</span>
-            {!canManageUrls ? <span className="text-xs text-muted-foreground">Danh sách URL đang khóa chỉnh sửa, nhưng vẫn có thể chọn nhanh.</span> : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(urls)} disabled={!canSelectUrls || urls.length === 0}>
@@ -292,11 +369,23 @@ export function AuditWorkbenchTable({
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.completed)} disabled={!canSelectUrls || quickGroups.completed.length === 0}>
               Hoàn tất ({quickGroups.completed.length})
             </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step1Ready)} disabled={!canSelectUrls || quickGroups.step1Ready.length === 0}>
+              Có dữ liệu B1 ({quickGroups.step1Ready.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step1Missing)} disabled={!canSelectUrls || quickGroups.step1Missing.length === 0}>
+              Thiếu dữ liệu B1 ({quickGroups.step1Missing.length})
+            </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Ready)} disabled={!canSelectUrls || quickGroups.step2Ready.length === 0}>
               Có dữ liệu B2 ({quickGroups.step2Ready.length})
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Missing)} disabled={!canSelectUrls || quickGroups.step2Missing.length === 0}>
               Thiếu dữ liệu B2 ({quickGroups.step2Missing.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step3Ready)} disabled={!canSelectUrls || quickGroups.step3Ready.length === 0}>
+              Có dữ liệu B3 ({quickGroups.step3Ready.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step3Missing)} disabled={!canSelectUrls || quickGroups.step3Missing.length === 0}>
+              Thiếu dữ liệu B3 ({quickGroups.step3Missing.length})
             </Button>
           </div>
         </div>
@@ -311,6 +400,8 @@ export function AuditWorkbenchTable({
               </TableHead>
               <TableHead className="w-12">#</TableHead>
               <TableHead className="min-w-[280px]">URL mục tiêu</TableHead>
+              <TableHead className="min-w-[260px]">B1: dữ liệu</TableHead>
+              <TableHead className="min-w-[320px]">B1: nội dung</TableHead>
               <TableHead className="min-w-[120px]">Trạng thái</TableHead>
               <TableHead className="min-w-[160px]">Từ khóa chính</TableHead>
               <TableHead className="min-w-[200px]">Danh mục</TableHead>
@@ -323,7 +414,7 @@ export function AuditWorkbenchTable({
           <TableBody>
             {urls.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
                   Chưa có URL. Thêm dòng mới ở cuối bảng hoặc mở Cấu hình audit.
                 </TableCell>
               </TableRow>
@@ -331,18 +422,7 @@ export function AuditWorkbenchTable({
               urls.map((url, index) => {
                 const item = itemsByUrl[url];
                 const status = item?.status;
-                const stageLabel =
-                  item?.extractionSource === "url_only_batch_step2_running"
-                    ? "Bước 2: keyword + danh mục"
-                    : item?.extractionSource === "url_only_batch_step2_done"
-                      ? "Chờ bước 3"
-                      : item?.extractionSource === "url_only_batch_step3_running"
-                        ? "Bước 3: audit onpage"
-                        : item?.extractionSource === "audit_deep_research_running"
-                          ? "Bước 3: deep research"
-                          : item?.extractionSource === "audit_deep_research"
-                            ? "Bước 3: deep research"
-                        : null;
+                const stageLabel = stageLabelForSource(item?.extractionSource);
 
                 return (
                   <TableRow key={url} className={selectedSet.has(url) ? "bg-primary/5" : undefined}>
@@ -382,7 +462,33 @@ export function AuditWorkbenchTable({
                       ) : (
                         <p className="break-all text-sm font-medium">{url}</p>
                       )}
-                      {item?.pageTitle ? <p className="mt-1 text-xs text-muted-foreground">{item.pageTitle}</p> : null}
+                    </TableCell>
+                    <TableCell>
+                      {item?.pageTitle || item?.metaDescription || item?.contentSource ? (
+                        <div className="space-y-1">
+                          {item?.pageTitle ? <p className="text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
+                          {item?.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {item?.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
+                            {item?.readerUrl ? (
+                              <a className="underline underline-offset-2" href={item.readerUrl} rel="noreferrer" target="_blank">
+                                Reader
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {item?.contentExcerpt ? (
+                        <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                      ) : item?.contentError ? (
+                        <p className="whitespace-pre-wrap break-words text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Chưa có nội dung</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {!status ? (
@@ -455,7 +561,7 @@ export function AuditWorkbenchTable({
               })
             )}
             <TableRow>
-              <TableCell colSpan={10}>
+              <TableCell colSpan={12}>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     placeholder="https://example.com/bai-viet-moi"

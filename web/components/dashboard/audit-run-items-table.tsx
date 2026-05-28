@@ -38,12 +38,27 @@ function filterItem(item: AuditRunItem, search: string) {
     item.categoryName ?? "",
     item.categoryUrl ?? "",
     item.pageTitle ?? "",
+    item.contentSource ?? "",
+    item.contentExcerpt ?? "",
+    item.contentError ?? "",
     item.errorMessage ?? "",
     item.status
   ].some((value) => value.toLowerCase().includes(search));
 }
 
 function stageLabel(source?: string | null) {
+  if (source === "url_only_batch_step1_running") {
+    return "Bước 1: lấy nội dung";
+  }
+
+  if (source === "url_only_batch_step1_done") {
+    return "Chờ bước 2";
+  }
+
+  if (source === "url_only_batch_step1_only_completed") {
+    return "Hoàn tất bước 1";
+  }
+
   if (source === "url_only_batch_step2_running") {
     return "Bước 2: keyword + danh mục";
   }
@@ -81,12 +96,7 @@ export function AuditRunItemsTable({
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <CardTitle>Kết quả chi tiết theo URL</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Theo dõi trạng thái từng URL; khi audit đang chạy, Firebase chỉ bắn tín hiệu để refetch dữ liệu từ MySQL.
-          </p>
-        </div>
+        <CardTitle>Kết quả chi tiết theo URL</CardTitle>
         <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
           <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -105,6 +115,8 @@ export function AuditRunItemsTable({
               <TableRow>
                 <TableHead>#</TableHead>
                 <TableHead>URL mục tiêu</TableHead>
+                <TableHead>B1: dữ liệu</TableHead>
+                <TableHead>B1: nội dung</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead>Từ khóa chính</TableHead>
                 <TableHead>Danh mục</TableHead>
@@ -120,11 +132,33 @@ export function AuditRunItemsTable({
                   <TableCell className="min-w-[280px]">
                     <div className="space-y-2">
                       <p className="font-medium break-all">{item.targetUrl}</p>
-                      {item.pageTitle ? <p className="text-xs text-muted-foreground">{item.pageTitle}</p> : null}
                       {item.extractionSource ? (
                         <p className="text-xs text-muted-foreground">Nguồn dữ liệu: {stageLabel(item.extractionSource)}</p>
                       ) : null}
                     </div>
+                  </TableCell>
+                  <TableCell className="min-w-[240px]">
+                    <div className="space-y-1">
+                      {item.pageTitle ? <p className="text-sm font-medium">{item.pageTitle}</p> : <p className="text-sm text-muted-foreground">Chưa có title</p>}
+                      {item.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {item.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
+                        {item.readerUrl ? (
+                          <a className="underline underline-offset-2" href={item.readerUrl} rel="noreferrer" target="_blank">
+                            Reader
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[320px]">
+                    {item.contentExcerpt ? (
+                      <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                    ) : item.contentError ? (
+                      <p className="text-sm text-amber-600 dark:text-amber-300">{item.contentError}</p>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Chưa có nội dung</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="space-y-2">

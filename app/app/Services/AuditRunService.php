@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditDeepResearchBatchJob;
 use App\Jobs\ProcessAuditRunItemJob;
+use App\Jobs\ProcessAuditRunStep1BatchJob;
 use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
@@ -18,10 +19,15 @@ use RuntimeException;
 
 class AuditRunService
 {
+    public const START_FROM_STEP_1 = 1;
     public const START_FROM_STEP_2 = 2;
     public const START_FROM_STEP_3 = 3;
+    public const STOP_AFTER_STEP_1 = 1;
     public const STOP_AFTER_STEP_2 = 2;
 
+    private const SOURCE_STEP1_RUNNING = 'url_only_batch_step1_running';
+    private const SOURCE_STEP1_DONE = 'url_only_batch_step1_done';
+    private const SOURCE_STEP1_ONLY_COMPLETED = 'url_only_batch_step1_only_completed';
     private const SOURCE_STEP2_RUNNING = 'url_only_batch_step2_running';
     private const SOURCE_STEP2_DONE = 'url_only_batch_step2_done';
     private const SOURCE_STEP2_ONLY_COMPLETED = 'url_only_batch_step2_only_completed';
@@ -87,6 +93,7 @@ class AuditRunService
         $stopAfterStep = $this->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
         $queuedTargetUrls = $requestedTargetUrls;
         $step3SeedResults = collect();
+        $step1SeedResults = collect();
 
         if ($startFromStep === self::START_FROM_STEP_3) {
             $step3SeedResults = $this->loadStep3SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
@@ -95,6 +102,8 @@ class AuditRunService
             if ($queuedTargetUrls === []) {
                 throw new RuntimeException('Không có URL nào đủ dữ liệu bước 2 để chạy từ bước 3. Hãy chạy lại từ bước 2 hoặc chọn các URL đã có keyword + danh mục.');
             }
+        } elseif ($startFromStep === self::START_FROM_STEP_2) {
+            $step1SeedResults = $this->loadStep1SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
         }
 
         if ($this->creditService->getBalance($userUid) <= 0) {
@@ -110,7 +119,7 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step3SeedResults, $startFromStep, $stopAfterStep): AuditRun {
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step1SeedResults, $step3SeedResults, $startFromStep, $stopAfterStep): AuditRun {
             $targetUrls = $queuedTargetUrls;
             $categories = $payload['categories'] ?? [];
 
@@ -124,6 +133,7 @@ class AuditRunService
                 'status' => 'queued',
                 'workflow' => $workflow,
                 'callback_url' => isset($payload['callbackUrl']) ? trim((string) $payload['callbackUrl']) ?: null : null,
+                'start_from_step' => $startFromStep,
                 'stop_after_step' => $stopAfterStep,
                 'target_urls' => $targetUrls,
                 'categories' => $categories,
@@ -151,15 +161,29 @@ class AuditRunService
             ]);
 
             foreach ($targetUrls as $index => $url) {
-                $seedResult = $step3SeedResults->firstWhere('target_url', $url);
+                $step1Seed = $step1SeedResults->firstWhere('target_url', $url);
+                $step3Seed = $step3SeedResults->firstWhere('target_url', $url);
+                $seedResult = $step3Seed ?: $step1Seed;
+                $initialSource = match ($startFromStep) {
+                    self::START_FROM_STEP_3 => self::SOURCE_STEP2_DONE,
+                    self::START_FROM_STEP_2 => ($step1Seed ? self::SOURCE_STEP1_DONE : null),
+                    default => null,
+                };
 
                 $run->items()->create([
                     'public_id' => (string) Str::ulid(),
                     'position' => $index + 1,
                     'target_url' => $url,
                     'status' => $startFromStep === self::START_FROM_STEP_3 ? 'analyzing' : 'queued',
-                    'extraction_source' => $startFromStep === self::START_FROM_STEP_3 ? self::SOURCE_STEP2_DONE : null,
+                    'extraction_source' => $initialSource,
+                    'content_source' => $seedResult?->content_source,
+                    'content_error' => $seedResult?->content_error,
                     'page_title' => $seedResult?->page_title,
+                    'meta_description' => $seedResult?->meta_description,
+                    'canonical_url' => $seedResult?->canonical_url,
+                    'extracted_headings' => $seedResult?->extracted_headings,
+                    'extracted_metrics' => $seedResult?->extracted_metrics,
+                    'content_excerpt' => $seedResult?->content_excerpt,
                     'primary_keyword' => $seedResult?->primary_keyword,
                     'category_name' => $seedResult?->category_name,
                     'category_url' => $seedResult?->category_url,
@@ -187,12 +211,12 @@ class AuditRunService
     {
         $step = (int) $value;
 
-        return in_array($step, [self::START_FROM_STEP_2, self::START_FROM_STEP_3], true)
+        return in_array($step, [self::START_FROM_STEP_1, self::START_FROM_STEP_2, self::START_FROM_STEP_3], true)
             ? $step
-            : self::START_FROM_STEP_2;
+            : self::START_FROM_STEP_1;
     }
 
-    public function normalizeStopAfterStep(mixed $value, int $startFromStep = self::START_FROM_STEP_2): ?int
+    public function normalizeStopAfterStep(mixed $value, int $startFromStep = self::START_FROM_STEP_1): ?int
     {
         if ($value === null || $value === '') {
             return null;
@@ -200,7 +224,7 @@ class AuditRunService
 
         $step = (int) $value;
 
-        if (! in_array($step, [self::STOP_AFTER_STEP_2, self::START_FROM_STEP_3], true)) {
+        if (! in_array($step, [self::STOP_AFTER_STEP_1, self::STOP_AFTER_STEP_2, self::START_FROM_STEP_3], true)) {
             return null;
         }
 
@@ -230,6 +254,29 @@ class AuditRunService
             ->values();
     }
 
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @return \Illuminate\Support\Collection<int, WebsiteAuditUrlResult>
+     */
+    public function loadStep1SeedResults(string $websiteId, array $targetUrls): \Illuminate\Support\Collection
+    {
+        if ($targetUrls === []) {
+            return collect();
+        }
+
+        $resultsByUrl = WebsiteAuditUrlResult::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('target_url', $targetUrls)
+            ->get()
+            ->filter(fn (WebsiteAuditUrlResult $result): bool => $this->hasStep1SeedData($result))
+            ->keyBy('target_url');
+
+        return collect($targetUrls)
+            ->map(fn (string $url): ?WebsiteAuditUrlResult => $resultsByUrl->get($url))
+            ->filter(fn (?WebsiteAuditUrlResult $result): bool => $result instanceof WebsiteAuditUrlResult)
+            ->values();
+    }
+
     public function hasStep2SeedData(WebsiteAuditUrlResult $result): bool
     {
         return $this->filledText($result->primary_keyword)
@@ -237,9 +284,58 @@ class AuditRunService
             && $this->filledText($result->category_url);
     }
 
+    public function hasStep1SeedData(WebsiteAuditUrlResult $result): bool
+    {
+        return $this->filledText($result->page_title)
+            || $this->filledText($result->meta_description)
+            || $this->filledText($result->content_excerpt)
+            || $this->filledText($result->content_source)
+            || $this->filledText($result->content_error);
+    }
+
     private function filledText(mixed $value): bool
     {
         return is_string($value) && trim($value) !== '';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function step2BatchPagePayload(AuditRunItem $item): array
+    {
+        $hasStep1Data = $this->filledText($item->page_title)
+            || $this->filledText($item->meta_description)
+            || $this->filledText($item->content_excerpt)
+            || $this->filledText($item->content_source)
+            || $this->filledText($item->content_error);
+
+        $payload = [
+            'targetUrl' => $item->target_url,
+        ];
+
+        if (! $hasStep1Data) {
+            return $payload;
+        }
+
+        $payload['page'] = [
+            'url' => $item->target_url,
+            'title' => $item->page_title,
+            'metaDescription' => $item->meta_description,
+            'canonicalUrl' => $item->canonical_url,
+            'headings' => $item->extracted_headings ?? [],
+            'metrics' => $item->extracted_metrics ?? [],
+            'contentExcerpt' => $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 3000) : null,
+            'source' => $item->content_source,
+            'extractionError' => $item->content_error,
+        ];
+        $payload['articleContent'] = $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 3000) : null;
+
+        return $payload;
+    }
+
+    private function readerUrlFor(string $targetUrl): string
+    {
+        return rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$targetUrl;
     }
 
     public function minimumCreditsPerUrl(string $provider, ?string $model): int
@@ -325,6 +421,12 @@ class AuditRunService
             return;
         }
 
+        if ((int) ($run->start_from_step ?? self::START_FROM_STEP_1) === self::START_FROM_STEP_1) {
+            $this->dispatchStep1Batches($run);
+
+            return;
+        }
+
         $this->dispatchStep2Batches($run);
     }
 
@@ -343,7 +445,96 @@ class AuditRunService
         }
 
         $this->prepareCategoryContexts($run);
+
+        if ((int) ($run->start_from_step ?? self::START_FROM_STEP_1) === self::START_FROM_STEP_1) {
+            $this->dispatchStep1Batches($run);
+
+            return;
+        }
+
         $this->dispatchStep2Batches($run);
+    }
+
+    public function dispatchStep1Batches(AuditRun $run): void
+    {
+        $state = DB::transaction(function () use ($run): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return ['chunks' => [], 'step1Complete' => false];
+            }
+
+            $settings = $this->auditSettingsService->getAuditSettings();
+            $batchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
+            $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
+            $activeItems = $freshRun->items()
+                ->where('status', 'fetching')
+                ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+                ->count();
+            $activeBatches = (int) ceil($activeItems / $batchSize);
+            $slots = max(0, $maxParallel - $activeBatches);
+
+            if ($slots === 0) {
+                return ['chunks' => [], 'step1Complete' => false];
+            }
+
+            $pendingItems = $freshRun->items()
+                ->where('status', 'queued')
+                ->whereNull('extraction_source')
+                ->orderBy('position')
+                ->limit($slots * $batchSize)
+                ->get(['id']);
+
+            $chunks = $pendingItems
+                ->pluck('id')
+                ->chunk($batchSize)
+                ->map(fn ($chunk): array => $chunk->values()->all())
+                ->values()
+                ->all();
+
+            foreach ($chunks as $chunk) {
+                $freshRun->items()
+                    ->whereIn('id', $chunk)
+                    ->update([
+                        'status' => 'fetching',
+                        'extraction_source' => self::SOURCE_STEP1_RUNNING,
+                        'error_message' => null,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            $hasQueued = $freshRun->items()
+                ->where('status', 'queued')
+                ->whereNull('extraction_source')
+                ->exists();
+            $hasRunning = $freshRun->items()
+                ->where('status', 'fetching')
+                ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+                ->exists();
+
+            return [
+                'chunks' => $chunks,
+                'step1Complete' => ! $hasQueued && ! $hasRunning,
+            ];
+        });
+
+        if (count($state['chunks']) > 0) {
+            $this->syncRunIfEnabled($run->fresh());
+        }
+
+        foreach ($state['chunks'] as $chunk) {
+            ProcessAuditRunStep1BatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['step1Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_1)) {
+            $this->finalizeStep1OnlyRun($run);
+
+            return;
+        }
+
+        if ($state['step1Complete']) {
+            $this->dispatchStep2Batches($run);
+        }
     }
 
     public function dispatchStep2Batches(AuditRun $run): void
@@ -603,6 +794,55 @@ class AuditRunService
     /**
      * @param  array<int, int>  $itemIds
      */
+    public function processStep1Batch(AuditRun $run, array $itemIds): void
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($this->isRunCancelled($run->fresh())) {
+                return;
+            }
+
+            $page = $this->contentExtractionService->extractOrFallback($item->target_url);
+
+            $item->forceFill([
+                'status' => 'queued',
+                'extraction_source' => self::SOURCE_STEP1_DONE,
+                'content_source' => $page['source'] ?? null,
+                'content_error' => $page['extractionError'] ?? null,
+                'page_title' => $page['title'] ?? null,
+                'meta_description' => $page['metaDescription'] ?? null,
+                'canonical_url' => $page['canonicalUrl'] ?? null,
+                'extracted_headings' => $page['headings'] ?? [],
+                'extracted_metrics' => $page['metrics'] ?? [],
+                'content_excerpt' => $page['content'] ?? null,
+                'error_message' => null,
+                'completed_at' => null,
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
+
+        $this->dispatchStep1Batches($run);
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
     public function processStep2Batch(AuditRun $run, array $itemIds): void
     {
         $run = $run->fresh();
@@ -620,6 +860,10 @@ class AuditRunService
             return;
         }
 
+        $batchPages = $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+            ->values()
+            ->all();
+
         $analysis = $this->seoAiAuditService->analyzeBatchKeywordCategoryUrlOnly(
             targetUrls: $items->pluck('target_url')->values()->all(),
             categories: $run->categories ?? [],
@@ -629,6 +873,7 @@ class AuditRunService
             formatterModel: $run->step2_formatter_model,
             auditRunId: $run->id,
             persistStep: $this->chunkStepKey('batch_keyword_category_mapping', $items),
+            batchPages: $batchPages,
         );
 
         if ($this->isRunCancelled($run->fresh())) {
@@ -998,6 +1243,35 @@ class AuditRunService
         }
 
         $this->refreshRunProgress($run);
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function recoverStep1BatchItemIdsWithoutContent(AuditRun $run, array $itemIds, string $message): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        $run->items()
+            ->whereIn('id', $itemIds)
+            ->where('status', 'fetching')
+            ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+            ->update([
+                'status' => 'queued',
+                'extraction_source' => self::SOURCE_STEP1_DONE,
+                'content_source' => DB::raw("COALESCE(content_source, 'url_only')"),
+                'content_error' => $message,
+                'error_message' => null,
+                'completed_at' => null,
+                'updated_at' => now(),
+            ]);
+
+        foreach ($run->items()->whereIn('id', $itemIds)->get() as $item) {
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
     }
 
     /**
@@ -1956,6 +2230,38 @@ class AuditRunService
         return (int) ($run->stop_after_step ?? 0) === $step;
     }
 
+    private function finalizeStep1OnlyRun(AuditRun $run): void
+    {
+        DB::transaction(function () use ($run): void {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
+            $freshRun->items()
+                ->where('status', 'queued')
+                ->where('extraction_source', self::SOURCE_STEP1_DONE)
+                ->update([
+                    'status' => 'completed',
+                    'extraction_source' => self::SOURCE_STEP1_ONLY_COMPLETED,
+                    'completed_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        });
+
+        $freshRun = $run->fresh('items');
+
+        foreach ($freshRun?->items ?? [] as $item) {
+            if ($item->extraction_source === self::SOURCE_STEP1_ONLY_COMPLETED) {
+                $this->syncItemIfEnabled($item);
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+            }
+        }
+
+        $this->refreshRunProgress($run);
+    }
+
     private function finalizeStep2OnlyRun(AuditRun $run): void
     {
         DB::transaction(function () use ($run): void {
@@ -2013,6 +2319,7 @@ class AuditRunService
             'categories' => [],
             'categoryContexts' => [],
             'checklistText' => null,
+            'startFromStep' => $run->start_from_step,
             'stopAfterStep' => $run->stop_after_step,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
@@ -2063,7 +2370,14 @@ class AuditRunService
             'targetUrl' => $item->target_url,
             'status' => $item->status,
             'extractionSource' => $item->extraction_source,
+            'contentSource' => $item->content_source,
+            'contentError' => $item->content_error,
+            'readerUrl' => $this->readerUrlFor($item->target_url),
             'pageTitle' => $item->page_title,
+            'metaDescription' => $item->meta_description,
+            'canonicalUrl' => $item->canonical_url,
+            'headings' => $item->extracted_headings ?? [],
+            'metrics' => $item->extracted_metrics ?? [],
             'primaryKeyword' => $item->primary_keyword,
             'categoryName' => $item->category_name,
             'categoryUrl' => $item->category_url,
@@ -2072,6 +2386,7 @@ class AuditRunService
             'auditFindings' => [],
             'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
             'contentRevisionDirection' => $item->content_revision_direction,
+            'contentExcerpt' => $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 1200) : null,
             'errorMessage' => $item->error_message,
             'updatedAt' => optional($item->updated_at)?->toIso8601String(),
         ];
@@ -2089,6 +2404,7 @@ class AuditRunService
             'websiteUrl' => $run->website_url,
             'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
             'callbackUrl' => $run->callback_url,
+            'startFromStep' => $run->start_from_step,
             'stopAfterStep' => $run->stop_after_step,
             'targetUrls' => $run->target_urls ?? [],
             'categories' => $run->categories ?? [],
@@ -2131,6 +2447,9 @@ class AuditRunService
                 'targetUrl' => $item->target_url,
                 'status' => $item->status,
                 'extractionSource' => $item->extraction_source,
+                'contentSource' => $item->content_source,
+                'contentError' => $item->content_error,
+                'readerUrl' => $this->readerUrlFor($item->target_url),
                 'pageTitle' => $item->page_title,
                 'metaDescription' => $item->meta_description,
                 'canonicalUrl' => $item->canonical_url,
@@ -2144,7 +2463,7 @@ class AuditRunService
                 'auditFindings' => $item->audit_findings ? preg_split('/\r\n|\r|\n/', $item->audit_findings) : [],
                 'auditRecommendations' => $item->audit_recommendations ? preg_split('/\r\n|\r|\n/', $item->audit_recommendations) : [],
                 'contentRevisionDirection' => $item->content_revision_direction,
-                'contentExcerpt' => $item->content_excerpt,
+                'contentExcerpt' => $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 2400) : null,
                 'promptSnapshots' => $this->compactPromptSnapshots($item->prompt_snapshots ?? []),
                 'errorMessage' => $item->error_message,
                 'completedAt' => optional($item->completed_at)?->toIso8601String(),

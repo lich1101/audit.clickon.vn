@@ -106,7 +106,21 @@ class WebsiteAuditUrlResultServiceTest extends TestCase
             'target_url' => 'https://example.com/post-1',
             'status' => 'completed',
             'extraction_source' => 'url_only_batch_step2_only_completed',
+            'content_source' => 'jina',
+            'content_error' => null,
             'page_title' => 'Bai moi tu step 2',
+            'meta_description' => 'Meta moi tu step 1',
+            'canonical_url' => 'https://example.com/post-1',
+            'extracted_headings' => [
+                'h1' => ['Bai moi tu step 2'],
+                'h2' => ['Heading moi'],
+                'h3' => [],
+            ],
+            'extracted_metrics' => [
+                'wordCount' => 1200,
+                'imageCount' => 2,
+            ],
+            'content_excerpt' => 'Noi dung moi tu step 1',
             'primary_keyword' => 'keyword moi tu step 2',
             'category_name' => 'Danh muc moi tu step 2',
             'category_url' => 'https://example.com/danh-muc-moi',
@@ -120,6 +134,12 @@ class WebsiteAuditUrlResultServiceTest extends TestCase
         $this->assertTrue($result->is($existing->fresh()));
         $this->assertSame('completed', $result->status);
         $this->assertSame('Bai moi tu step 2', $result->page_title);
+        $this->assertSame('Meta moi tu step 1', $result->meta_description);
+        $this->assertSame('https://example.com/post-1', $result->canonical_url);
+        $this->assertSame(['h1' => ['Bai moi tu step 2'], 'h2' => ['Heading moi'], 'h3' => []], $result->extracted_headings);
+        $this->assertSame(['wordCount' => 1200, 'imageCount' => 2], $result->extracted_metrics);
+        $this->assertSame('Noi dung moi tu step 1', $result->content_excerpt);
+        $this->assertSame('jina', $result->content_source);
         $this->assertSame('keyword moi tu step 2', $result->primary_keyword);
         $this->assertSame('Danh muc moi tu step 2', $result->category_name);
         $this->assertSame('https://example.com/danh-muc-moi', $result->category_url);

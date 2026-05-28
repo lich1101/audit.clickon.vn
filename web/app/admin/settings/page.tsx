@@ -55,22 +55,11 @@ const step3FlowModeDescriptions: Record<AuditWorkflow, string> = {
   audit_deep_research: "Khóa toàn hệ thống ở bước 3 Deep Research. User chạy audit sẽ luôn dùng bước 2 cũ + bước 3 mới 3A/3B/3C."
 };
 
-function parseNullableDecimal(value: string) {
-  const normalized = value.trim();
-
-  if (normalized === "") {
-    return null;
-  }
-
-  const parsed = Number(normalized);
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
 export default function AdminAuditSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [numericDrafts, setNumericDrafts] = useState<Record<string, string>>({});
   const [modelPricing, setModelPricing] = useState<AuditSystemSettings["modelPricing"]>([]);
   const [checkReport, setCheckReport] = useState<AuditConfigurationCheckReport | null>(null);
   const [settings, setSettings] = useState<AuditSystemSettings>({
@@ -113,6 +102,7 @@ export default function AdminAuditSettingsPage() {
           deepResearchFormatterModel: data.deepResearchFormatterModel ?? "gpt-5.5"
         });
         setModelPricing(data.modelPricing ?? []);
+        setNumericDrafts({});
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải cấu hình audit."))
       .finally(() => setLoading(false));
@@ -127,6 +117,7 @@ export default function AdminAuditSettingsPage() {
       });
       setSettings(saved);
       setModelPricing(saved.modelPricing ?? []);
+      setNumericDrafts({});
       setCheckReport(null);
       toast.success("Đã lưu cấu hình audit hệ thống.");
     } catch (error) {
@@ -153,6 +144,116 @@ export default function AdminAuditSettingsPage() {
     setModelPricing((current) =>
       (current ?? []).map((row, rowIndex) => (rowIndex === index ? { ...row, ...updates } : row))
     );
+  }
+
+  function readNumericDraft(key: string, value: number | null | undefined) {
+    return numericDrafts[key] ?? (value == null ? "" : String(value));
+  }
+
+  function writeNumericDraft(key: string, value: string) {
+    setNumericDrafts((current) => ({
+      ...current,
+      [key]: value
+    }));
+  }
+
+  function commitIntegerDraft(key: string, rawValue: string, onValid: (value: number) => void, max: number) {
+    writeNumericDraft(key, rawValue);
+
+    if (rawValue.trim() === "") {
+      return;
+    }
+
+    const parsed = Number(rawValue);
+
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+
+    onValid(Math.min(max, Math.max(0, Math.trunc(parsed))));
+  }
+
+  function normalizeIntegerDraft(key: string, currentValue: number, onValid: (value: number) => void, min: number, max: number) {
+    const rawValue = numericDrafts[key];
+
+    if (rawValue == null) {
+      return;
+    }
+
+    const parsed = Number(rawValue);
+    const normalized = Number.isFinite(parsed)
+      ? Math.min(max, Math.max(min, Math.trunc(parsed)))
+      : currentValue;
+
+    onValid(normalized);
+    writeNumericDraft(key, String(normalized));
+  }
+
+  function commitDecimalDraft(key: string, rawValue: string, onValid: (value: number) => void) {
+    writeNumericDraft(key, rawValue);
+
+    if (rawValue.trim() === "") {
+      return;
+    }
+
+    const parsed = Number(rawValue);
+
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+
+    onValid(Math.max(0, parsed));
+  }
+
+  function normalizeDecimalDraft(key: string, currentValue: number, onValid: (value: number) => void) {
+    const rawValue = numericDrafts[key];
+
+    if (rawValue == null) {
+      return;
+    }
+
+    const parsed = Number(rawValue);
+    const normalized = Number.isFinite(parsed) ? Math.max(0, parsed) : currentValue;
+
+    onValid(normalized);
+    writeNumericDraft(key, String(normalized));
+  }
+
+  function commitNullableDecimalDraft(key: string, rawValue: string, onValid: (value: number | null) => void) {
+    writeNumericDraft(key, rawValue);
+
+    if (rawValue.trim() === "") {
+      onValid(null);
+      return;
+    }
+
+    const parsed = Number(rawValue);
+
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+
+    onValid(Math.max(0, parsed));
+  }
+
+  function normalizeNullableDecimalDraft(key: string, currentValue: number | null | undefined, onValid: (value: number | null) => void) {
+    const rawValue = numericDrafts[key];
+
+    if (rawValue == null) {
+      return;
+    }
+
+    if (rawValue.trim() === "") {
+      onValid(null);
+      writeNumericDraft(key, "");
+      return;
+    }
+
+    const parsed = Number(rawValue);
+    const normalized = Number.isFinite(parsed) ? Math.max(0, parsed) : currentValue ?? null;
+
+    onValid(normalized);
+    writeNumericDraft(key, normalized == null ? "" : String(normalized));
   }
 
   if (loading) {
@@ -651,12 +752,20 @@ export default function AdminAuditSettingsPage() {
               type="number"
               min={1}
               max={300}
-              value={settings.step2BatchSize}
+              value={readNumericDraft("step2BatchSize", settings.step2BatchSize)}
               onChange={(event) =>
-                setSettings((current) => ({
-                  ...current,
-                  step2BatchSize: Math.max(1, Math.min(300, Number(event.target.value) || 60))
-                }))
+                commitIntegerDraft("step2BatchSize", event.target.value, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step2BatchSize: value
+                  })), 300)
+              }
+              onBlur={() =>
+                normalizeIntegerDraft("step2BatchSize", settings.step2BatchSize, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step2BatchSize: value
+                  })), 1, 300)
               }
             />
             <p className="text-xs text-muted-foreground">Mặc định 60 URL/lần gọi AI cho keyword và danh mục.</p>
@@ -669,12 +778,20 @@ export default function AdminAuditSettingsPage() {
               type="number"
               min={1}
               max={300}
-              value={settings.step3BatchSize}
+              value={readNumericDraft("step3BatchSize", settings.step3BatchSize)}
               onChange={(event) =>
-                setSettings((current) => ({
-                  ...current,
-                  step3BatchSize: Math.max(1, Math.min(300, Number(event.target.value) || 30))
-                }))
+                commitIntegerDraft("step3BatchSize", event.target.value, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step3BatchSize: value
+                  })), 300)
+              }
+              onBlur={() =>
+                normalizeIntegerDraft("step3BatchSize", settings.step3BatchSize, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    step3BatchSize: value
+                  })), 1, 300)
               }
             />
             <p className="text-xs text-muted-foreground">Mặc định 30 URL/lần gọi AI để giảm rủi ro JSON quá dài.</p>
@@ -687,12 +804,20 @@ export default function AdminAuditSettingsPage() {
               type="number"
               min={1}
               max={100}
-              value={settings.deepResearchBatchSize}
+              value={readNumericDraft("deepResearchBatchSize", settings.deepResearchBatchSize)}
               onChange={(event) =>
-                setSettings((current) => ({
-                  ...current,
-                  deepResearchBatchSize: Math.max(1, Math.min(100, Number(event.target.value) || 5))
-                }))
+                commitIntegerDraft("deepResearchBatchSize", event.target.value, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deepResearchBatchSize: value
+                  })), 100)
+              }
+              onBlur={() =>
+                normalizeIntegerDraft("deepResearchBatchSize", settings.deepResearchBatchSize, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deepResearchBatchSize: value
+                  })), 1, 100)
               }
             />
             <p className="text-xs text-muted-foreground">Chỉ áp dụng cho step 3 mới của flow audit_deep_research, nên thường nên để nhỏ hơn bước 3 chuẩn. Mặc định 5 URL/lần.</p>
@@ -705,12 +830,20 @@ export default function AdminAuditSettingsPage() {
               type="number"
               min={1}
               max={10}
-              value={settings.maxParallelItems}
+              value={readNumericDraft("maxParallelItems", settings.maxParallelItems)}
               onChange={(event) =>
-                setSettings((current) => ({
-                  ...current,
-                  maxParallelItems: Math.max(1, Math.min(10, Number(event.target.value) || 1))
-                }))
+                commitIntegerDraft("maxParallelItems", event.target.value, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    maxParallelItems: value
+                  })), 10)
+              }
+              onBlur={() =>
+                normalizeIntegerDraft("maxParallelItems", settings.maxParallelItems, (value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    maxParallelItems: value
+                  })), 1, 10)
               }
             />
             <p className="text-xs text-muted-foreground">
@@ -754,11 +887,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.0001"
-                      value={row.creditsPer1kInput}
+                      value={readNumericDraft(`modelPricing.${index}.creditsPer1kInput`, row.creditsPer1kInput)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          creditsPer1kInput: Math.max(0, Number(event.target.value) || 0)
-                        })
+                        commitDecimalDraft(`modelPricing.${index}.creditsPer1kInput`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            creditsPer1kInput: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeDecimalDraft(`modelPricing.${index}.creditsPer1kInput`, row.creditsPer1kInput, (value) =>
+                          updateModelPricingRow(index, {
+                            creditsPer1kInput: value
+                          }))
                       }
                     />
                   </td>
@@ -767,11 +907,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.0001"
-                      value={row.creditsPer1kOutput}
+                      value={readNumericDraft(`modelPricing.${index}.creditsPer1kOutput`, row.creditsPer1kOutput)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          creditsPer1kOutput: Math.max(0, Number(event.target.value) || 0)
-                        })
+                        commitDecimalDraft(`modelPricing.${index}.creditsPer1kOutput`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            creditsPer1kOutput: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeDecimalDraft(`modelPricing.${index}.creditsPer1kOutput`, row.creditsPer1kOutput, (value) =>
+                          updateModelPricingRow(index, {
+                            creditsPer1kOutput: value
+                          }))
                       }
                     />
                   </td>
@@ -780,11 +927,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.000001"
-                      value={row.usdPer1MInput ?? ""}
+                      value={readNumericDraft(`modelPricing.${index}.usdPer1MInput`, row.usdPer1MInput ?? null)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          usdPer1MInput: parseNullableDecimal(event.target.value)
-                        })
+                        commitNullableDecimalDraft(`modelPricing.${index}.usdPer1MInput`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MInput: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.usdPer1MInput`, row.usdPer1MInput ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MInput: value
+                          }))
                       }
                     />
                   </td>
@@ -793,11 +947,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.000001"
-                      value={row.usdPer1MOutput ?? ""}
+                      value={readNumericDraft(`modelPricing.${index}.usdPer1MOutput`, row.usdPer1MOutput ?? null)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          usdPer1MOutput: parseNullableDecimal(event.target.value)
-                        })
+                        commitNullableDecimalDraft(`modelPricing.${index}.usdPer1MOutput`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MOutput: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.usdPer1MOutput`, row.usdPer1MOutput ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MOutput: value
+                          }))
                       }
                     />
                   </td>
@@ -806,11 +967,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.000001"
-                      value={row.usdPer1MReasoning ?? ""}
+                      value={readNumericDraft(`modelPricing.${index}.usdPer1MReasoning`, row.usdPer1MReasoning ?? null)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          usdPer1MReasoning: parseNullableDecimal(event.target.value)
-                        })
+                        commitNullableDecimalDraft(`modelPricing.${index}.usdPer1MReasoning`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MReasoning: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.usdPer1MReasoning`, row.usdPer1MReasoning ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MReasoning: value
+                          }))
                       }
                     />
                   </td>
@@ -819,11 +987,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.000001"
-                      value={row.usdPer1MCitation ?? ""}
+                      value={readNumericDraft(`modelPricing.${index}.usdPer1MCitation`, row.usdPer1MCitation ?? null)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          usdPer1MCitation: parseNullableDecimal(event.target.value)
-                        })
+                        commitNullableDecimalDraft(`modelPricing.${index}.usdPer1MCitation`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MCitation: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.usdPer1MCitation`, row.usdPer1MCitation ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1MCitation: value
+                          }))
                       }
                     />
                   </td>
@@ -832,11 +1007,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="0.000001"
-                      value={row.usdPer1kSearchQueries ?? ""}
+                      value={readNumericDraft(`modelPricing.${index}.usdPer1kSearchQueries`, row.usdPer1kSearchQueries ?? null)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          usdPer1kSearchQueries: parseNullableDecimal(event.target.value)
-                        })
+                        commitNullableDecimalDraft(`modelPricing.${index}.usdPer1kSearchQueries`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1kSearchQueries: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.usdPer1kSearchQueries`, row.usdPer1kSearchQueries ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            usdPer1kSearchQueries: value
+                          }))
                       }
                     />
                   </td>
@@ -845,11 +1027,18 @@ export default function AdminAuditSettingsPage() {
                       type="number"
                       min={0}
                       step="1"
-                      value={row.minCreditsPerCall}
+                      value={readNumericDraft(`modelPricing.${index}.minCreditsPerCall`, row.minCreditsPerCall)}
                       onChange={(event) =>
-                        updateModelPricingRow(index, {
-                          minCreditsPerCall: Math.max(0, Number(event.target.value) || 0)
-                        })
+                        commitIntegerDraft(`modelPricing.${index}.minCreditsPerCall`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            minCreditsPerCall: value
+                          }), 999999)
+                      }
+                      onBlur={() =>
+                        normalizeIntegerDraft(`modelPricing.${index}.minCreditsPerCall`, row.minCreditsPerCall, (value) =>
+                          updateModelPricingRow(index, {
+                            minCreditsPerCall: value
+                          }), 0, 999999)
                       }
                     />
                   </td>

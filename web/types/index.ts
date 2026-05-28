@@ -223,6 +223,10 @@ export type AuditAiStepResponse = {
   provider?: AiProvider | string | null;
   model?: string | null;
   interactionId?: string | null;
+  remoteStatus?: string | null;
+  interactionStartedAt?: string | null;
+  lastPollAt?: string | null;
+  staleDetectedAt?: string | null;
   parseError?: string | null;
   requestPath?: string | null;
   requestBytes?: number | null;

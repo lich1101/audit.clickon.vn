@@ -75,6 +75,14 @@ class AuditRunController extends Controller
             ->with(['items' => fn ($query) => $query->orderBy('position')])
             ->first();
 
+        if ($activeRun) {
+            $this->auditRunService->watchdogActiveRun($activeRun);
+            $latestRun = AuditRun::query()
+                ->where('id', $activeRun->id)
+                ->with(['items' => fn ($query) => $query->orderBy('position')])
+                ->first();
+        }
+
         $runPayload = null;
 
         if ($latestRun) {
@@ -233,6 +241,7 @@ class AuditRunController extends Controller
             ->firstOrFail();
 
         $this->auditRunService->authorizeRead($request, $run);
+        $this->auditRunService->watchdogActiveRun($run);
 
         return response()->json([
             'data' => $this->auditRunService->serializeRun($run->fresh('items')),

@@ -34,7 +34,7 @@ chown -R 33:33 "$AUDIT_RESPONSES_DIR" 2>/dev/null || chown -R www-data:www-data 
 chmod -R ug+rwX "$AUDIT_RESPONSES_DIR" 2>/dev/null || chmod -R 775 "$AUDIT_RESPONSES_DIR" 2>/dev/null || true
 
 echo "==> Starting production containers"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d api queue web nginx
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d api queue scheduler web nginx
 
 AUTO_SEED_ADMIN="$(read_env_value "$ENV_FILE" "AUTO_SEED_ADMIN" || true)"
 ADMIN_SEED_EMAIL="$(read_env_value "$ENV_FILE" "ADMIN_SEED_EMAIL" || true)"

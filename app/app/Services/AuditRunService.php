@@ -982,6 +982,16 @@ class AuditRunService
             return;
         }
 
+        $stillOwnedByWorker = $run->items()
+            ->whereIn('id', $itemIds)
+            ->where('status', 'analyzing')
+            ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+            ->count() === count($itemIds);
+
+        if (! $stillOwnedByWorker) {
+            return;
+        }
+
         $firstItem = $items->first();
 
         if ($firstItem) {
@@ -992,6 +1002,127 @@ class AuditRunService
             }
         }
 
+        $this->applyStep3BatchAnalysis($run, $items, $analysis);
+    }
+
+    public function watchdogActiveRun(AuditRun $run): void
+    {
+        $freshRun = $run->fresh('items');
+
+        if (! $freshRun || $freshRun->cancelled_at !== null || ! in_array($freshRun->status, ['queued', 'processing'], true)) {
+            return;
+        }
+
+        $this->recoverStaleGeminiDeepResearchStep3Batches($freshRun);
+    }
+
+    /**
+     * @return array{
+     *     scanned: int,
+     *     changed: int,
+     *     recovered: int,
+     *     failedMarked: int,
+     *     unchanged: int,
+     *     runs: array<int, array{
+     *         publicId: string,
+     *         statusBefore: string|null,
+     *         statusAfter: string|null,
+     *         processedBefore: int,
+     *         processedAfter: int,
+     *         completedBefore: int,
+     *         completedAfter: int,
+     *         failedBefore: int,
+     *         failedAfter: int,
+     *         changed: bool,
+     *         recovered: bool,
+     *         failedMarked: bool
+     *     }>
+     * }
+     */
+    public function recoverStaleRuns(?int $limit = null): array
+    {
+        $effectiveLimit = $limit ?? (int) config('services.audit.stale_run_recovery_limit', 20);
+        $effectiveLimit = max(1, min(200, $effectiveLimit));
+
+        $runs = AuditRun::query()
+            ->whereNull('cancelled_at')
+            ->whereIn('status', ['queued', 'processing'])
+            ->where('step3_ai_provider', 'gemini_deep_research')
+            ->whereHas('items', function ($query): void {
+                $query
+                    ->where('status', 'analyzing')
+                    ->where('extraction_source', self::SOURCE_STEP3_RUNNING);
+            })
+            ->with(['items' => fn ($query) => $query->orderBy('position')])
+            ->orderBy('updated_at')
+            ->limit($effectiveLimit)
+            ->get();
+
+        $summary = [
+            'scanned' => 0,
+            'changed' => 0,
+            'recovered' => 0,
+            'failedMarked' => 0,
+            'unchanged' => 0,
+            'runs' => [],
+        ];
+
+        foreach ($runs as $run) {
+            $before = [
+                'status' => $run->status,
+                'processed' => (int) $run->processed_urls,
+                'completed' => (int) $run->completed_urls,
+                'failed' => (int) $run->failed_urls,
+            ];
+
+            $this->watchdogActiveRun($run);
+
+            $afterRun = $run->fresh(['items' => fn ($query) => $query->orderBy('position')]);
+            $after = [
+                'status' => $afterRun?->status,
+                'processed' => (int) ($afterRun?->processed_urls ?? 0),
+                'completed' => (int) ($afterRun?->completed_urls ?? 0),
+                'failed' => (int) ($afterRun?->failed_urls ?? 0),
+            ];
+
+            $changed = $before !== $after;
+            $recovered = $after['completed'] > $before['completed'] || $after['processed'] > $before['processed'];
+            $failedMarked = $after['failed'] > $before['failed'];
+
+            $summary['scanned']++;
+            $summary[$changed ? 'changed' : 'unchanged']++;
+            if ($recovered) {
+                $summary['recovered']++;
+            }
+            if ($failedMarked) {
+                $summary['failedMarked']++;
+            }
+
+            $summary['runs'][] = [
+                'publicId' => (string) $run->public_id,
+                'statusBefore' => $before['status'],
+                'statusAfter' => $after['status'],
+                'processedBefore' => $before['processed'],
+                'processedAfter' => $after['processed'],
+                'completedBefore' => $before['completed'],
+                'completedAfter' => $after['completed'],
+                'failedBefore' => $before['failed'],
+                'failedAfter' => $after['failed'],
+                'changed' => $changed,
+                'recovered' => $recovered,
+                'failedMarked' => $failedMarked,
+            ];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
+     * @param  array{items: array<int, array<string, mixed>>, promptSnapshot?: array<string, mixed>|null, formatterPromptSnapshot?: array<string, mixed>|null}  $analysis
+     */
+    private function applyStep3BatchAnalysis(AuditRun $run, \Illuminate\Support\Collection $items, array $analysis): void
+    {
         $resultList = collect($analysis['items'] ?? [])
             ->filter(fn (mixed $item): bool => is_array($item))
             ->values();
@@ -1047,6 +1178,142 @@ class AuditRunService
 
         $this->refreshRunProgress($run);
         $this->dispatchStep3Batches($run);
+    }
+
+    private function recoverStaleGeminiDeepResearchStep3Batches(AuditRun $run): void
+    {
+        if ($this->stepAiProvider($run, 3) !== 'gemini_deep_research') {
+            return;
+        }
+
+        $settings = $this->auditSettingsService->getAuditSettings();
+        $batchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
+        $activeItems = $run->items()
+            ->where('status', 'analyzing')
+            ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+            ->orderBy('position')
+            ->get();
+
+        if ($activeItems->isEmpty()) {
+            return;
+        }
+
+        $responses = is_array($run->ai_step_responses) ? $run->ai_step_responses : [];
+
+        foreach ($activeItems->chunk($batchSize) as $chunk) {
+            $stepKey = $this->chunkStepKey('batch_onpage_audit', $chunk);
+            $record = is_array($responses[$stepKey] ?? null) ? $responses[$stepKey] : [];
+
+            if (! $this->isStep3ChunkStale($chunk, $record)) {
+                continue;
+            }
+
+            $this->mergeRunAiStepResponse($run, $stepKey, [
+                'step' => $stepKey,
+                'stepLabel' => 'Bước 3 watchdog',
+                'status' => 'watchdog_stale_detected',
+                'provider' => $record['provider'] ?? 'gemini_deep_research',
+                'model' => $record['model'] ?? $this->stepAiModel($run, 3),
+                'interactionId' => $record['interactionId'] ?? null,
+                'staleDetectedAt' => now()->toIso8601String(),
+                'createdAt' => now()->toIso8601String(),
+            ]);
+
+            $interactionId = trim((string) ($record['interactionId'] ?? ''));
+
+            if ($interactionId === '') {
+                $this->markBatchItemIdsFailed(
+                    $run,
+                    $chunk->pluck('id')->values()->all(),
+                    'Bước 3 bị kẹt quá lâu và không có interaction id của Gemini Deep Research. Worker có thể đã chết trước khi lưu trạng thái. Hãy chạy lại batch từ bước 3.'
+                );
+                $this->dispatchStep3Batches($run);
+
+                continue;
+            }
+
+            try {
+                $inspection = $this->seoAiAuditService->inspectGeminiDeepResearchInteraction(
+                    interactionId: $interactionId,
+                    auditRunId: $run->id,
+                    persistStep: $stepKey,
+                    model: $this->stepAiModel($run, 3),
+                );
+                $remoteStatus = Str::lower((string) ($inspection['status'] ?? 'unknown'));
+            } catch (\Throwable $exception) {
+                $this->markBatchItemIdsFailed(
+                    $run,
+                    $chunk->pluck('id')->values()->all(),
+                    'Không thể kiểm tra lại trạng thái Gemini Deep Research bị kẹt: '.$exception->getMessage()
+                );
+                $this->dispatchStep3Batches($run);
+
+                continue;
+            }
+
+            if ($remoteStatus === 'completed' && is_string($inspection['rawText'] ?? null) && trim((string) $inspection['rawText']) !== '') {
+                $keywordCategoryItems = $chunk->map(fn (AuditRunItem $item): array => [
+                    'targetUrl' => $item->target_url,
+                    'primaryKeyword' => $item->primary_keyword,
+                    'categoryName' => $item->category_name,
+                    'categoryUrl' => $item->category_url,
+                    'categoryMatchReason' => $item->category_match_reason,
+                ])->values()->all();
+
+                try {
+                    $analysis = $this->seoAiAuditService->resumeBatchOnpageUrlOnlyFromRaw(
+                        targetUrls: $chunk->pluck('target_url')->values()->all(),
+                        categories: $run->categories ?? [],
+                        checklistText: $run->checklist_text,
+                        keywordCategoryItems: $keywordCategoryItems,
+                        provider: 'gemini_deep_research',
+                        model: $this->stepAiModel($run, 3),
+                        rawText: (string) $inspection['rawText'],
+                        usage: is_array($inspection['usage'] ?? null) ? $inspection['usage'] : [],
+                        formatterProvider: $run->step3_formatter_provider,
+                        formatterModel: $run->step3_formatter_model,
+                        auditRunId: $run->id,
+                        persistStep: $stepKey,
+                        interactionId: $interactionId,
+                    );
+                } catch (\Throwable $exception) {
+                    $this->markBatchItemIdsFailed(
+                        $run,
+                        $chunk->pluck('id')->values()->all(),
+                        'Gemini Deep Research đã hoàn tất từ xa nhưng không dựng lại được kết quả batch: '.$exception->getMessage()
+                    );
+                    $this->dispatchStep3Batches($run);
+
+                    continue;
+                }
+
+                $firstItem = $chunk->first();
+
+                if ($firstItem) {
+                    foreach ($analysis['usageEvents'] ?? [] as $usage) {
+                        if (is_array($usage)) {
+                            $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_onpage_audit'), $usage);
+                        }
+                    }
+                }
+
+                $this->applyStep3BatchAnalysis($run, $chunk, $analysis);
+
+                continue;
+            }
+
+            if (in_array($remoteStatus, ['failed', 'cancelled'], true)) {
+                $message = 'Gemini Deep Research '.($inspection['status'] ?? 'failed').': '.((string) ($inspection['errorMessage'] ?? 'Unknown error.'));
+                $this->markBatchItemIdsFailed($run, $chunk->pluck('id')->values()->all(), $message);
+                $this->dispatchStep3Batches($run);
+
+                continue;
+            }
+
+            $run->items()
+                ->whereIn('id', $chunk->pluck('id')->values()->all())
+                ->update(['updated_at' => now()]);
+        }
     }
 
     public function processBatchUrlOnly(AuditRun $run): void
@@ -1700,6 +1967,75 @@ class AuditRunService
         if ($freshRun) {
             $freshRun->forceFill(['ai_step_responses' => $responses])->save();
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function mergeRunAiStepResponse(AuditRun $run, string $step, array $record): void
+    {
+        $freshRun = $run->fresh();
+
+        if (! $freshRun) {
+            return;
+        }
+
+        $responses = is_array($freshRun->ai_step_responses) ? $freshRun->ai_step_responses : [];
+        $existing = is_array($responses[$step] ?? null) ? $responses[$step] : [];
+        $responses[$step] = array_merge($existing, $record);
+        $freshRun->forceFill(['ai_step_responses' => $responses])->save();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $chunk
+     * @param  array<string, mixed>  $record
+     */
+    private function isStep3ChunkStale(\Illuminate\Support\Collection $chunk, array $record): bool
+    {
+        $heartbeatUnix = $this->step3HeartbeatUnix($record);
+        $staleSeconds = $this->step3WatchdogStaleSeconds();
+
+        if ($heartbeatUnix !== null) {
+            return (time() - $heartbeatUnix) >= $staleSeconds;
+        }
+
+        $lastUpdatedUnix = $chunk
+            ->map(fn (AuditRunItem $item): ?int => $item->updated_at?->getTimestamp())
+            ->filter(fn (?int $timestamp): bool => $timestamp !== null)
+            ->max();
+
+        if (! is_int($lastUpdatedUnix)) {
+            return false;
+        }
+
+        return (time() - $lastUpdatedUnix) >= $staleSeconds;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function step3HeartbeatUnix(array $record): ?int
+    {
+        foreach (['lastPollAt', 'interactionStartedAt', 'createdAt', 'requestCreatedAt'] as $field) {
+            $value = $record[$field] ?? null;
+
+            if (! is_string($value) || trim($value) === '') {
+                continue;
+            }
+
+            $timestamp = strtotime($value);
+
+            if ($timestamp !== false) {
+                return $timestamp;
+            }
+        }
+
+        return null;
+    }
+
+    private function step3WatchdogStaleSeconds(): int
+    {
+        return max(30, (int) config('services.audit.gemini_deep_research_watchdog_stale_seconds', 120));
     }
 
     public function isRunCancelled(AuditRun $run): bool
@@ -2706,6 +3042,10 @@ class AuditRunService
                 'provider' => $record['provider'] ?? null,
                 'model' => $record['model'] ?? null,
                 'interactionId' => $record['interactionId'] ?? null,
+                'remoteStatus' => $record['remoteStatus'] ?? null,
+                'interactionStartedAt' => $record['interactionStartedAt'] ?? null,
+                'lastPollAt' => $record['lastPollAt'] ?? null,
+                'staleDetectedAt' => $record['staleDetectedAt'] ?? null,
                 'parseError' => $record['parseError'] ?? null,
                 'requestPath' => $record['requestPath'] ?? null,
                 'requestBytes' => $record['requestBytes'] ?? null,

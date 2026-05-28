@@ -86,7 +86,7 @@ echo "==> Running database migrations"
 dc run --rm --no-deps api php artisan migrate --force
 
 echo "==> Starting production containers (không build lại song song)"
-dc up -d api queue web nginx
+dc up -d api queue scheduler web nginx
 
 if [[ "${DOCKER_PRUNE_AFTER_DEPLOY:-1}" == "1" ]]; then
   echo "==> Docker cleanup (dangling images + build cache)"

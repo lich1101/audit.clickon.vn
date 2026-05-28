@@ -500,6 +500,46 @@ TEXT;
             persistStep: $persistStep ?? 'batch_onpage_audit',
         );
 
+        $normalized = $this->normalizeBatchOnpageRawResponse(
+            provider: $provider,
+            model: $resolvedModel,
+            targetUrls: $targetUrls,
+            categoryPayload: $categoryPayload,
+            checklistText: trim($checklistText ?: self::defaultChecklist()),
+            keywordCategoryItems: $keywordCategoryItems,
+            rawResponse: $rawResponse,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+            formatterProvider: $formatterProvider,
+            formatterModel: $formatterModel,
+        );
+
+        return [
+            ...$normalized,
+            'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categoryPayload
+     * @param  array<int, array<string, mixed>>  $keywordCategoryItems
+     * @param  array{rawText: string, usage: array<string, mixed>, interactionId?: string|null}  $rawResponse
+     * @return array{items: array<int, array<string, mixed>>, formatterPromptSnapshot: array<string, mixed>|null, usage: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    private function normalizeBatchOnpageRawResponse(
+        string $provider,
+        string $model,
+        array $targetUrls,
+        array $categoryPayload,
+        string $checklistText,
+        array $keywordCategoryItems,
+        array $rawResponse,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
+    ): array {
         $formatterResult = null;
         $usageEvents = [
             array_merge($rawResponse['usage'], ['step' => 'batch_onpage_audit']),
@@ -508,14 +548,14 @@ TEXT;
         try {
             $data = $this->decodeJsonText($rawResponse['rawText'], $this->providerLabel($provider));
             $this->assertBatchItemsData($data, $targetUrls, 'Bước 3');
-            $this->persistParsedAiStepResponse($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $data);
+            $this->persistParsedAiStepResponse($auditRunId, $persistStep, $provider, $model, $rawResponse, $data);
         } catch (RuntimeException $exception) {
-            $this->persistAiParseError($auditRunId, $persistStep, $provider, (string) $model, $rawResponse, $exception);
+            $this->persistAiParseError($auditRunId, $persistStep, $provider, $model, $rawResponse, $exception);
             $formatterResult = $this->formatBatchOnpageJson(
                 rawOutput: $rawResponse['rawText'],
                 targetUrls: $targetUrls,
                 categories: $categoryPayload,
-                checklistText: trim($checklistText ?: self::defaultChecklist()),
+                checklistText: $checklistText,
                 keywordCategoryItems: $keywordCategoryItems,
                 formatterProvider: $formatterProvider,
                 formatterModel: $formatterModel,
@@ -544,7 +584,6 @@ TEXT;
                 ] : null,
                 $items
             ))),
-            'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
             'formatterPromptSnapshot' => $formatterResult['promptSnapshot'] ?? null,
             'usage' => $usageEvents[0],
             'usageEvents' => $usageEvents,
@@ -638,7 +677,7 @@ TEXT;
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
 
@@ -696,7 +735,7 @@ TEXT;
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
 
@@ -1186,7 +1225,14 @@ TEXT;
     /**
      * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}, interactionId: string}
      */
-    private function requestGeminiDeepResearchRaw(string $model, string $systemPrompt, string $userPrompt, ?int $auditRunId, string $provider): array
+    private function requestGeminiDeepResearchRaw(
+        string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        ?int $auditRunId,
+        string $provider,
+        ?string $persistStep = null,
+    ): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -1233,6 +1279,21 @@ TEXT;
             throw new RuntimeException('Gemini Deep Research did not return an interaction id.');
         }
 
+        if ($auditRunId && $persistStep) {
+            $this->persistAiStepResponse($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'status' => 'interaction_started',
+                'provider' => $provider,
+                'model' => $agent,
+                'interactionId' => $interactionId,
+                'remoteStatus' => 'started',
+                'interactionStartedAt' => now()->toIso8601String(),
+                'lastPollAt' => null,
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
         $deadline = $this->deepResearchDeadlineUnix();
 
         do {
@@ -1254,6 +1315,20 @@ TEXT;
             $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
             $payload = $poll->json();
             $status = $payload['status'] ?? null;
+
+            if ($auditRunId && $persistStep) {
+                $this->persistAiStepResponse($auditRunId, $persistStep, [
+                    'step' => $persistStep,
+                    'stepLabel' => $this->stepLabel($persistStep),
+                    'status' => 'interaction_polling',
+                    'provider' => $provider,
+                    'model' => $agent,
+                    'interactionId' => $interactionId,
+                    'remoteStatus' => is_string($status) ? $status : 'unknown',
+                    'lastPollAt' => now()->toIso8601String(),
+                    'createdAt' => now()->toIso8601String(),
+                ]);
+            }
 
             if ($status === 'completed') {
                 $usageMeta = is_array($payload['usage'] ?? null) ? $payload['usage'] : [];
@@ -1296,6 +1371,147 @@ TEXT;
         } while ($deadline === null || time() < $deadline);
 
         throw new RuntimeException("Gemini Deep Research timed out for interaction [{$interactionId}].");
+    }
+
+    /**
+     * @return array{status: string, interactionId: string, rawText: string|null, usage: array<string, mixed>, errorMessage: string|null}
+     */
+    public function inspectGeminiDeepResearchInteraction(
+        string $interactionId,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        ?string $model = null,
+    ): array {
+        $apiKey = config('services.gemini.api_key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('GEMINI_API_KEY is not configured.');
+        }
+
+        $poll = $this->sendAiRequest(
+            fn (): Response => Http::withHeaders([
+                'x-goog-api-key' => $apiKey,
+                'Api-Revision' => '2026-05-20',
+            ])
+                ->acceptJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->get("https://generativelanguage.googleapis.com/v1beta/interactions/{$interactionId}"),
+            'Gemini Deep Research'
+        );
+
+        $this->ensureGeminiSuccess($poll, 'Gemini Deep Research poll failed');
+        $payload = $poll->json();
+        $status = is_string($payload['status'] ?? null) ? (string) $payload['status'] : 'unknown';
+        $usageMeta = is_array($payload['usage'] ?? null) ? $payload['usage'] : [];
+        $usage = [
+            'provider' => 'gemini_deep_research',
+            'model' => (string) ($model ?: config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025')),
+            'input_tokens' => (int) ($usageMeta['total_input_tokens'] ?? 0),
+            'output_tokens' => (int) ($usageMeta['total_output_tokens'] ?? 0),
+            'total_tokens' => (int) ($usageMeta['total_tokens'] ?? 0),
+            'reasoning_tokens' => (int) ($usageMeta['total_reasoning_tokens'] ?? 0),
+        ];
+
+        if ($auditRunId && $persistStep) {
+            $this->persistAiStepResponse($auditRunId, $persistStep, [
+                'step' => $persistStep,
+                'stepLabel' => $this->stepLabel($persistStep),
+                'status' => 'interaction_watchdog_poll',
+                'provider' => 'gemini_deep_research',
+                'model' => $usage['model'],
+                'interactionId' => $interactionId,
+                'remoteStatus' => $status,
+                'lastPollAt' => now()->toIso8601String(),
+                'createdAt' => now()->toIso8601String(),
+            ]);
+        }
+
+        if ($status === 'completed') {
+            return [
+                'status' => $status,
+                'interactionId' => $interactionId,
+                'rawText' => $this->extractTextFromInteraction($payload),
+                'usage' => $usage,
+                'errorMessage' => null,
+            ];
+        }
+
+        if (in_array($status, ['failed', 'cancelled'], true)) {
+            $errorMessage = isset($payload['error'])
+                ? json_encode($payload['error'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : null;
+
+            return [
+                'status' => $status,
+                'interactionId' => $interactionId,
+                'rawText' => null,
+                'usage' => $usage,
+                'errorMessage' => is_string($errorMessage) && $errorMessage !== '' ? $errorMessage : 'Unknown Gemini Deep Research error.',
+            ];
+        }
+
+        return [
+            'status' => $status,
+            'interactionId' => $interactionId,
+            'rawText' => null,
+            'usage' => $usage,
+            'errorMessage' => null,
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $keywordCategoryItems
+     * @param  array<string, mixed>  $usage
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>|null, formatterPromptSnapshot: array<string, mixed>|null, usage: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    public function resumeBatchOnpageUrlOnlyFromRaw(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        array $keywordCategoryItems,
+        string $provider,
+        ?string $model,
+        string $rawText,
+        array $usage,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        ?string $interactionId = null,
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $categoryPayload = array_map(
+            fn (array $category): array => [
+                'name' => $category['name'] ?? null,
+                'url' => $category['url'] ?? null,
+            ],
+            $categories
+        );
+        $rawResponse = [
+            'rawText' => $rawText,
+            'usage' => $usage,
+            'interactionId' => $interactionId,
+        ];
+
+        return [
+            ...$this->normalizeBatchOnpageRawResponse(
+                provider: $provider,
+                model: $resolvedModel,
+                targetUrls: $targetUrls,
+                categoryPayload: $categoryPayload,
+                checklistText: trim($checklistText ?: self::defaultChecklist()),
+                keywordCategoryItems: $keywordCategoryItems,
+                rawResponse: $rawResponse,
+                auditRunId: $auditRunId,
+                persistStep: $persistStep,
+                formatterProvider: $formatterProvider,
+                formatterModel: $formatterModel,
+            ),
+            'promptSnapshot' => null,
+        ];
     }
 
     private function aiHttpTimeoutSeconds(): int

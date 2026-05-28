@@ -19,6 +19,7 @@ export type AuditWorkbenchRow = {
   primaryKeyword?: string | null;
   categoryName?: string | null;
   categoryUrl?: string | null;
+  categoryMatchReason?: string | null;
   auditScore?: number | null;
   auditRecommendations?: string[];
   contentRevisionDirection?: string | null;
@@ -72,6 +73,7 @@ export function AuditWorkbenchTable({
     const failed: string[] = [];
     const active: string[] = [];
     const step2Ready: string[] = [];
+    const step2Missing: string[] = [];
 
     for (const url of urls) {
       const item = itemsByUrl[url];
@@ -90,10 +92,12 @@ export function AuditWorkbenchTable({
 
       if (item?.primaryKeyword?.trim() && item?.categoryName?.trim() && item?.categoryUrl?.trim()) {
         step2Ready.push(url);
+      } else {
+        step2Missing.push(url);
       }
     }
 
-    return { completed, failed, active, step2Ready };
+    return { completed, failed, active, step2Ready, step2Missing };
   }, [itemsByUrl, urls]);
 
   useEffect(() => {
@@ -290,6 +294,9 @@ export function AuditWorkbenchTable({
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Ready)} disabled={!canSelectUrls || quickGroups.step2Ready.length === 0}>
               Có dữ liệu B2 ({quickGroups.step2Ready.length})
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Missing)} disabled={!canSelectUrls || quickGroups.step2Missing.length === 0}>
+              Thiếu dữ liệu B2 ({quickGroups.step2Missing.length})
             </Button>
           </div>
         </div>

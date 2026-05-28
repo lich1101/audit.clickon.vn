@@ -25,6 +25,7 @@ export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "complete
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research" | "perplexity";
 export type AuditWorkflow = "standard" | "audit_deep_research";
 export type AuditRunStartStep = 2 | 3;
+export type AuditRunStopAfterStep = 2 | 3 | null;
 export type DeepResearchResearchProvider = "perplexity" | "gemini_deep_research";
 export type DeepResearchReasoningProvider = "openai" | "gemini";
 
@@ -262,6 +263,7 @@ export type AuditRun = {
   websiteUrl?: string | null;
   workflow?: AuditWorkflow;
   callbackUrl?: string | null;
+  stopAfterStep?: AuditRunStopAfterStep;
   userId: string;
   userEmail?: string | null;
   targetUrls: string[];

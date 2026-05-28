@@ -5,7 +5,7 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
-import { AuditWorkbenchTable } from "@/components/dashboard/audit-workbench-table";
+import { AuditWorkbenchTable, type AuditWorkbenchRow } from "@/components/dashboard/audit-workbench-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { ProgressBar } from "@/components/dashboard/progress-bar";
@@ -29,7 +29,7 @@ import {
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
-import type { AuditRun, AuditRunItem, AuditRunStartStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunItem, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 
 const workflowLabels: Record<AuditWorkflow, string> = {
   standard: "Audit chuẩn",
@@ -50,6 +50,53 @@ function hasStep2SeedData(row?: {
   categoryUrl?: string | null;
 } | null) {
   return Boolean(row?.primaryKeyword?.trim() && row.categoryName?.trim() && row.categoryUrl?.trim());
+}
+
+function preferFilledString(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function preferStringArray(...values: Array<string[] | null | undefined>) {
+  for (const value of values) {
+    if (Array.isArray(value) && value.length > 0) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function mergeAuditWorkbenchRow(
+  persisted?: WebsiteAuditUrlResult | null,
+  current?: AuditRunItem | null
+): AuditWorkbenchRow {
+  const errorMessage = current
+    ? current.status === "failed"
+      ? preferFilledString(current.errorMessage, persisted?.errorMessage)
+      : preferFilledString(current.errorMessage)
+    : preferFilledString(persisted?.errorMessage);
+
+  return {
+    ...persisted,
+    ...current,
+    status: current?.status ?? persisted?.status,
+    extractionSource: current?.extractionSource ?? null,
+    pageTitle: preferFilledString(current?.pageTitle, persisted?.pageTitle),
+    primaryKeyword: preferFilledString(current?.primaryKeyword, persisted?.primaryKeyword),
+    categoryName: preferFilledString(current?.categoryName, persisted?.categoryName),
+    categoryUrl: preferFilledString(current?.categoryUrl, persisted?.categoryUrl),
+    categoryMatchReason: preferFilledString(current?.categoryMatchReason, persisted?.categoryMatchReason),
+    auditScore: current?.auditScore ?? persisted?.auditScore ?? null,
+    auditRecommendations: preferStringArray(current?.auditRecommendations, persisted?.auditRecommendations),
+    contentRevisionDirection: preferFilledString(current?.contentRevisionDirection, persisted?.contentRevisionDirection),
+    errorMessage,
+  };
 }
 
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -255,18 +302,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }, [run?.publicId, isRunActive]);
 
   const itemsByUrl = useMemo(() => {
-    const map: Record<string, AuditRunItem | WebsiteAuditUrlResult> = {};
+    const persistedByUrl = new Map(urlResults.map((result) => [result.targetUrl, result]));
+    const currentByUrl = new Map((run?.items ?? []).map((item) => [item.targetUrl, item]));
+    const map: Record<string, AuditWorkbenchRow> = {};
 
-    for (const result of urlResults) {
-      map[result.targetUrl] = result;
-    }
-
-    for (const item of run?.items ?? []) {
-      map[item.targetUrl] = item;
+    for (const url of urlList) {
+      map[url] = mergeAuditWorkbenchRow(persistedByUrl.get(url), currentByUrl.get(url));
     }
 
     return map;
-  }, [run?.items, urlResults]);
+  }, [run?.items, urlList, urlResults]);
   const step3ReadySelectedUrls = useMemo(
     () => selectedUrls.filter((url) => hasStep2SeedData(itemsByUrl[url])),
     [itemsByUrl, selectedUrls]
@@ -299,6 +344,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const estimatedAiCalls = configuredWorkflow === "audit_deep_research"
     ? step2Chunks + step2FormatterChunks + deepResearchChunks * 3
     : step2Chunks + step3Chunks + formatterChunks;
+  const estimatedStep2OnlyAiCalls = step2Chunks + step2FormatterChunks;
   const estimatedStep3OnlyAiCalls = configuredWorkflow === "audit_deep_research"
     ? deepResearchReadyChunks * 3
     : step3ReadyChunks + step3OnlyFormatterChunks;
@@ -385,7 +431,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     };
   }, []);
 
-  async function handleRun(startFromStep: AuditRunStartStep = 2) {
+  async function handleRun(startFromStep: AuditRunStartStep = 2, stopAfterStep: AuditRunStopAfterStep = null) {
     if (!selectedUrls.length) {
       toast.error("Chọn ít nhất một URL để chạy audit.");
       return;
@@ -422,6 +468,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         websiteName: website!.name,
         websiteUrl: website!.url,
         startFromStep,
+        stopAfterStep,
         targetUrlsInput: selectedUrls.join("\n"),
         categoriesInput: formatCategoriesInput(audit.categories),
         checklistText: audit.checklistText ?? ""
@@ -507,6 +554,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
               {workflowLabels[configuredWorkflow]}
             </span>
+            {run?.stopAfterStep === 2 ? (
+              <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
+                Chỉ chạy bước 2
+              </span>
+            ) : null}
             {audit ? <span className="text-xs text-muted-foreground">Cập nhật {formatDate(audit.updatedAt)}</span> : null}
             {savingUrls ? <span className="text-xs text-muted-foreground">Đang lưu URL...</span> : null}
           </div>
@@ -524,9 +576,19 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
                 : `Đã chọn ${selectedUrls.length} URL · B3 sẵn sàng ${step3ReadySelectedUrls.length} URL · tối đa ${estimatedAiCalls} AI call (${step3Chunks} batch bước 3 x ${step3BatchSize}${formatterChunks ? ` + ${formatterChunks} batch formatter` : ""}).`}
             </p>
           ) : null}
+          {selectedUrls.length ? (
+            <p className="text-xs text-muted-foreground">
+              Chỉ chạy bước 2: {selectedUrls.length} URL · khoảng {estimatedStep2OnlyAiCalls} AI call ({step2Chunks} batch bước 2{step2FormatterChunks ? ` + ${step2FormatterChunks} batch formatter 2.5` : ""}).
+            </p>
+          ) : null}
           {selectedUrls.length && step3ReadySelectedUrls.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               Chạy từ bước 3: {step3ReadySelectedUrls.length} URL đủ dữ liệu bước 2 · khoảng {estimatedStep3OnlyAiCalls} AI call.
+            </p>
+          ) : null}
+          {selectedUrls.length && step3ReadySelectedUrls.length !== selectedUrls.length ? (
+            <p className="text-xs text-muted-foreground">
+              Còn {selectedUrls.length - step3ReadySelectedUrls.length} URL chưa đủ keyword + danh mục từ bước 2.
             </p>
           ) : null}
           {run ? (
@@ -542,7 +604,16 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={() => void handleRun(2)} disabled={running || isRunActive || selectedUrls.length === 0}>
             <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
+            {running ? "Đang khởi chạy..." : `Run full (${selectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void handleRun(2, 2)}
+            disabled={running || isRunActive || selectedUrls.length === 0}
+          >
+            <Play className="size-4" />
+            {running ? "Đang khởi chạy..." : `Run bước 2 (${selectedUrls.length})`}
           </Button>
           <Button
             type="button"
@@ -552,6 +623,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           >
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run từ bước 3 (${step3ReadySelectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setSelectedUrls(step3ReadySelectedUrls)}
+            disabled={isRunActive || step3ReadySelectedUrls.length === 0}
+          >
+            Chọn URL đủ B2
           </Button>
           {isRunActive ? (
             <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>

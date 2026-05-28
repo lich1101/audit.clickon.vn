@@ -34,7 +34,14 @@ class StoreAuditRunRequest extends FormRequest
             ]);
         }
 
+        if (! $this->filled('stopAfterStep') && $this->filled('stop_after_step')) {
+            $this->merge([
+                'stopAfterStep' => $this->input('stop_after_step'),
+            ]);
+        }
+
         $startFromStep = $this->input('startFromStep');
+        $stopAfterStep = $this->input('stopAfterStep');
 
         if (is_string($startFromStep)) {
             $normalized = strtolower(trim($startFromStep));
@@ -45,6 +52,18 @@ class StoreAuditRunRequest extends FormRequest
 
             if (in_array($normalized, ['step3', '3'], true)) {
                 $this->merge(['startFromStep' => 3]);
+            }
+        }
+
+        if (is_string($stopAfterStep)) {
+            $normalized = strtolower(trim($stopAfterStep));
+
+            if (in_array($normalized, ['step2', 'step2_only', '2'], true)) {
+                $this->merge(['stopAfterStep' => 2]);
+            }
+
+            if (in_array($normalized, ['step3', '3'], true)) {
+                $this->merge(['stopAfterStep' => 3]);
             }
         }
     }
@@ -61,6 +80,8 @@ class StoreAuditRunRequest extends FormRequest
             'callback_url' => ['nullable', 'string', 'max:2048'],
             'startFromStep' => ['nullable', 'integer', 'in:2,3'],
             'start_from_step' => ['nullable', 'integer', 'in:2,3'],
+            'stopAfterStep' => ['nullable', 'integer', 'in:2,3'],
+            'stop_after_step' => ['nullable', 'integer', 'in:2,3'],
             'targetUrls' => ['required', 'array', 'min:1', 'max:'.self::MAX_TARGET_URLS],
             'targetUrls.*' => ['required', 'string', 'max:2048'],
             'categories' => ['nullable', 'array', 'max:200'],
@@ -81,6 +102,13 @@ class StoreAuditRunRequest extends FormRequest
             $callbackUrl = $this->input('callbackUrl');
             if (is_string($callbackUrl) && trim($callbackUrl) !== '' && ! $this->isHttpUrl($callbackUrl)) {
                 $validator->errors()->add('callbackUrl', 'Callback URL không hợp lệ.');
+            }
+
+            $startFromStep = (int) ($this->input('startFromStep') ?? 2);
+            $stopAfterStep = $this->input('stopAfterStep');
+
+            if ($stopAfterStep !== null && (int) $stopAfterStep < $startFromStep) {
+                $validator->errors()->add('stopAfterStep', 'stopAfterStep phải lớn hơn hoặc bằng startFromStep.');
             }
 
             foreach ((array) $this->input('targetUrls', []) as $index => $url) {

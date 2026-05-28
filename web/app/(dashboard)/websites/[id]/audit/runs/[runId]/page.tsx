@@ -257,6 +257,9 @@ export default function AuditRunDetailPage({
               ? `Tạo ${formatDate(run.createdAt)} · ${buildDeepResearchFlowLabel(run)}`
               : `Tạo ${formatDate(run.createdAt)} · B2 ${run.step2AiProvider ?? run.aiProvider ?? "openai"}/${run.step2AiModel ?? run.aiModel ?? "default"} · B3 ${run.step3AiProvider ?? run.aiProvider ?? "openai"}/${run.step3AiModel ?? run.aiModel ?? "default"}`}
           </p>
+          {run.stopAfterStep === 2 ? (
+            <p className="text-xs text-muted-foreground">Run này chỉ chạy bước 2 và formatter 2.5, không chuyển sang bước 3.</p>
+          ) : null}
           {isActiveAuditRun(run.status) ? <p className="text-xs text-muted-foreground">Bảng chi tiết đang tự cập nhật mỗi 3 giây trong lúc run còn chạy.</p> : null}
         </CardContent>
       </Card>

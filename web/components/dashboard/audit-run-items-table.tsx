@@ -52,6 +52,10 @@ function stageLabel(source?: string | null) {
     return "Chờ bước 3: audit onpage";
   }
 
+  if (source === "url_only_batch_step2_only_completed") {
+    return "Hoàn tất bước 2";
+  }
+
   if (source === "url_only_batch_step3_running") {
     return "Bước 3: audit onpage";
   }

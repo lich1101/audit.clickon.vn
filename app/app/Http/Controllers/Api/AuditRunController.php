@@ -165,6 +165,7 @@ class AuditRunController extends Controller
         $payload = $request->validated();
         $requestedTargetUrls = $this->auditRunService->requestedTargetUrlsForRun($payload);
         $startFromStep = $this->auditRunService->normalizeStartFromStep($payload['startFromStep'] ?? null);
+        $stopAfterStep = $this->auditRunService->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
 
         try {
             $run = $this->auditRunService->createRun(
@@ -196,6 +197,11 @@ class AuditRunController extends Controller
                     count($skippedTargetUrls),
                 )
                 : sprintf('Đã đưa %d URL vào hàng đợi bước 3.', count($queuedTargetUrls));
+        } elseif ($stopAfterStep === AuditRunService::STOP_AFTER_STEP_2) {
+            $message = sprintf(
+                'Đã đưa %d URL vào hàng đợi chạy bước 2 và formatter 2.5. Run sẽ dừng sau khi hoàn tất bước 2.',
+                count($queuedTargetUrls),
+            );
         }
 
         return response()->json([
@@ -205,6 +211,7 @@ class AuditRunController extends Controller
                 'status' => $run->status,
                 'workflow' => $run->workflow,
                 'startFromStep' => $startFromStep,
+                'stopAfterStep' => $stopAfterStep,
                 'requestedTotalUrls' => count($requestedTargetUrls),
                 'totalUrls' => $run->total_urls,
                 'queuedTargetUrls' => $queuedTargetUrls,

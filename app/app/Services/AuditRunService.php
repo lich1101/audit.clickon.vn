@@ -20,9 +20,11 @@ class AuditRunService
 {
     public const START_FROM_STEP_2 = 2;
     public const START_FROM_STEP_3 = 3;
+    public const STOP_AFTER_STEP_2 = 2;
 
     private const SOURCE_STEP2_RUNNING = 'url_only_batch_step2_running';
     private const SOURCE_STEP2_DONE = 'url_only_batch_step2_done';
+    private const SOURCE_STEP2_ONLY_COMPLETED = 'url_only_batch_step2_only_completed';
     private const SOURCE_STEP3_RUNNING = 'url_only_batch_step3_running';
     private const SOURCE_COMPLETED = 'url_only_batch';
     private const SOURCE_DEEP_RESEARCH_RUNNING = 'audit_deep_research_running';
@@ -82,6 +84,7 @@ class AuditRunService
             : AuditRun::WORKFLOW_STANDARD;
         $requestedTargetUrls = array_values(array_unique($payload['targetUrls']));
         $startFromStep = $this->normalizeStartFromStep($payload['startFromStep'] ?? null);
+        $stopAfterStep = $this->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
         $queuedTargetUrls = $requestedTargetUrls;
         $step3SeedResults = collect();
 
@@ -107,7 +110,7 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step3SeedResults, $startFromStep): AuditRun {
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step3SeedResults, $startFromStep, $stopAfterStep): AuditRun {
             $targetUrls = $queuedTargetUrls;
             $categories = $payload['categories'] ?? [];
 
@@ -121,6 +124,7 @@ class AuditRunService
                 'status' => 'queued',
                 'workflow' => $workflow,
                 'callback_url' => isset($payload['callbackUrl']) ? trim((string) $payload['callbackUrl']) ?: null : null,
+                'stop_after_step' => $stopAfterStep,
                 'target_urls' => $targetUrls,
                 'categories' => $categories,
                 'checklist_text' => $payload['checklistText'] ?? null,
@@ -186,6 +190,21 @@ class AuditRunService
         return in_array($step, [self::START_FROM_STEP_2, self::START_FROM_STEP_3], true)
             ? $step
             : self::START_FROM_STEP_2;
+    }
+
+    public function normalizeStopAfterStep(mixed $value, int $startFromStep = self::START_FROM_STEP_2): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $step = (int) $value;
+
+        if (! in_array($step, [self::STOP_AFTER_STEP_2, self::START_FROM_STEP_3], true)) {
+            return null;
+        }
+
+        return $step >= $startFromStep ? $step : null;
     }
 
     /**
@@ -392,6 +411,12 @@ class AuditRunService
 
         foreach ($state['chunks'] as $chunk) {
             ProcessAuditRunStep2BatchJob::dispatch($run->id, $chunk);
+        }
+
+        if ($state['step2Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_2)) {
+            $this->finalizeStep2OnlyRun($run);
+
+            return;
         }
 
         if ($state['step2Complete'] && ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
@@ -660,6 +685,7 @@ class AuditRunService
             ])->save();
 
             $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
         }
 
         $this->refreshRunProgress($run);
@@ -1925,6 +1951,43 @@ class AuditRunService
         $this->syncRunIfEnabled($run->fresh());
     }
 
+    private function shouldStopAfterStep(AuditRun $run, int $step): bool
+    {
+        return (int) ($run->stop_after_step ?? 0) === $step;
+    }
+
+    private function finalizeStep2OnlyRun(AuditRun $run): void
+    {
+        DB::transaction(function () use ($run): void {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
+            $freshRun->items()
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->update([
+                    'status' => 'completed',
+                    'extraction_source' => self::SOURCE_STEP2_ONLY_COMPLETED,
+                    'completed_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        });
+
+        $freshRun = $run->fresh('items');
+
+        foreach ($freshRun?->items ?? [] as $item) {
+            if ($item->extraction_source === self::SOURCE_STEP2_ONLY_COMPLETED) {
+                $this->syncItemIfEnabled($item);
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+            }
+        }
+
+        $this->refreshRunProgress($run);
+    }
+
     public function authorizeRead(Request $request, AuditRun $run): void
     {
         $uid = (string) $request->attributes->get('firebase_uid');
@@ -1950,6 +2013,7 @@ class AuditRunService
             'categories' => [],
             'categoryContexts' => [],
             'checklistText' => null,
+            'stopAfterStep' => $run->stop_after_step,
             'aiProvider' => $run->ai_provider ?? 'openai',
             'aiModel' => $run->ai_model,
             'step2AiProvider' => $this->stepAiProvider($run, 2),
@@ -2025,6 +2089,7 @@ class AuditRunService
             'websiteUrl' => $run->website_url,
             'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
             'callbackUrl' => $run->callback_url,
+            'stopAfterStep' => $run->stop_after_step,
             'targetUrls' => $run->target_urls ?? [],
             'categories' => $run->categories ?? [],
             'categoryContexts' => $run->category_contexts ?? [],

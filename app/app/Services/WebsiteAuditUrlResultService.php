@@ -17,34 +17,68 @@ class WebsiteAuditUrlResultService
             throw new \RuntimeException('Audit run item is missing parent run.');
         }
 
+        $targetUrlHash = hash('sha256', $item->target_url);
+        $existing = WebsiteAuditUrlResult::query()
+            ->where('website_id', $run->website_id)
+            ->where('target_url_hash', $targetUrlHash)
+            ->first();
+        $hasFreshAuditPayload = $this->hasFreshAuditPayload($item);
+        $provider = ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
+            ? ($run->deep_research_reasoning_provider ?: 'openai')
+            : ($run->step3_ai_provider ?: ($run->ai_provider ?? 'openai'));
+        $model = ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
+            ? ($run->deep_research_reasoning_model ?: (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))
+            : ($run->step3_ai_model ?: $run->ai_model);
+        $status = $hasFreshAuditPayload
+            ? $item->status
+            : ($item->status === 'failed' ? 'failed' : ($existing?->status ?: $item->status));
+        $errorMessage = $hasFreshAuditPayload
+            ? $item->error_message
+            : ($this->preferNewText($item->error_message, $existing?->error_message));
+        $aiProvider = $hasFreshAuditPayload
+            ? $provider
+            : ($existing?->ai_provider ?: $provider);
+        $aiModel = $hasFreshAuditPayload
+            ? $model
+            : ($existing?->ai_model ?: $model);
+        $auditedAt = $hasFreshAuditPayload
+            ? ($item->completed_at ?? now())
+            : ($existing?->audited_at ?? ($item->status === 'failed' ? now() : $item->completed_at ?? now()));
+
+        $payload = [
+            'target_url' => $item->target_url,
+            'latest_audit_run_id' => $run->id,
+            'latest_audit_run_item_id' => $item->id,
+            'status' => $status,
+            'page_title' => $this->preferNewText($item->page_title, $existing?->page_title),
+            'primary_keyword' => $this->preferNewText($item->primary_keyword, $existing?->primary_keyword),
+            'category_name' => $this->preferNewText($item->category_name, $existing?->category_name),
+            'category_url' => $this->preferNewText($item->category_url, $existing?->category_url),
+            'category_match_reason' => $this->preferNewText($item->category_match_reason, $existing?->category_match_reason),
+            'audit_score' => $hasFreshAuditPayload
+                ? $item->audit_score
+                : $existing?->audit_score,
+            'audit_findings' => $hasFreshAuditPayload
+                ? $item->audit_findings
+                : $existing?->audit_findings,
+            'audit_recommendations' => $hasFreshAuditPayload
+                ? $item->audit_recommendations
+                : $existing?->audit_recommendations,
+            'content_revision_direction' => $hasFreshAuditPayload
+                ? $item->content_revision_direction
+                : $existing?->content_revision_direction,
+            'error_message' => $errorMessage,
+            'ai_provider' => $aiProvider,
+            'ai_model' => $aiModel,
+            'audited_at' => $auditedAt,
+        ];
+
         return WebsiteAuditUrlResult::query()->updateOrCreate(
             [
                 'website_id' => $run->website_id,
-                'target_url_hash' => hash('sha256', $item->target_url),
+                'target_url_hash' => $targetUrlHash,
             ],
-            [
-                'target_url' => $item->target_url,
-                'latest_audit_run_id' => $run->id,
-                'latest_audit_run_item_id' => $item->id,
-                'status' => $item->status,
-                'page_title' => $item->page_title,
-                'primary_keyword' => $item->primary_keyword,
-                'category_name' => $item->category_name,
-                'category_url' => $item->category_url,
-                'category_match_reason' => $item->category_match_reason,
-                'audit_score' => $item->audit_score,
-                'audit_findings' => $item->audit_findings,
-                'audit_recommendations' => $item->audit_recommendations,
-                'content_revision_direction' => $item->content_revision_direction,
-                'error_message' => $item->error_message,
-                'ai_provider' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
-                    ? ($run->deep_research_reasoning_provider ?: 'openai')
-                    : ($run->step3_ai_provider ?: ($run->ai_provider ?? 'openai')),
-                'ai_model' => ($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH
-                    ? ($run->deep_research_reasoning_model ?: (string) config('services.audit.deep_research_reasoning_model', config('services.openai.model', 'gpt-5.5')))
-                    : ($run->step3_ai_model ?: $run->ai_model),
-                'audited_at' => $item->completed_at ?? now(),
-            ],
+            $payload,
         );
     }
 
@@ -74,5 +108,26 @@ class WebsiteAuditUrlResultService
             'auditedAt' => optional($result->audited_at)?->toIso8601String(),
             'updatedAt' => optional($result->updated_at)?->toIso8601String(),
         ];
+    }
+
+    private function hasFreshAuditPayload(AuditRunItem $item): bool
+    {
+        return $item->status === 'completed'
+            && (
+                $item->audit_score !== null
+                || $this->filledText($item->audit_findings)
+                || $this->filledText($item->audit_recommendations)
+                || $this->filledText($item->content_revision_direction)
+            );
+    }
+
+    private function preferNewText(?string $value, ?string $fallback): ?string
+    {
+        return $this->filledText($value) ? $value : $fallback;
+    }
+
+    private function filledText(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
     }
 }

@@ -2,7 +2,7 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
-import type { AuditRun, AuditRunStartStep, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 
 export const ACTIVE_AUDIT_POLL_INTERVAL_MS = 3000;
@@ -30,6 +30,7 @@ type CreateAuditRunResponse = {
     status: AuditRun["status"];
     workflow?: AuditWorkflow;
     startFromStep: AuditRunStartStep;
+    stopAfterStep?: AuditRunStopAfterStep;
     requestedTotalUrls: number;
     totalUrls: number;
     queuedTargetUrls: string[];
@@ -118,6 +119,7 @@ export async function createAuditRun(input: {
   websiteUrl?: string;
   callbackUrl?: string;
   startFromStep?: AuditRunStartStep;
+  stopAfterStep?: AuditRunStopAfterStep;
   targetUrlsInput: string;
   categoriesInput: string;
   checklistText?: string;
@@ -133,6 +135,7 @@ export async function createAuditRun(input: {
       websiteUrl: input.websiteUrl,
       callbackUrl: input.callbackUrl?.trim() || undefined,
       startFromStep: input.startFromStep ?? 2,
+      stopAfterStep: input.stopAfterStep ?? undefined,
       targetUrls,
       categories,
       checklistText: input.checklistText?.trim() || undefined
@@ -156,6 +159,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
     ...run,
     workflow: run.workflow ?? "standard",
     callbackUrl: run.callbackUrl ?? null,
+    stopAfterStep: run.stopAfterStep ?? null,
     targetUrls: Array.isArray(run.targetUrls) ? run.targetUrls : [],
     categories: Array.isArray(run.categories) ? run.categories : [],
     categoryContexts: Array.isArray(run.categoryContexts) ? run.categoryContexts : [],

@@ -216,6 +216,36 @@ class AuditDeepResearchWorkflowTest extends TestCase
         Queue::assertNotPushed(ProcessAuditRunStep3BatchJob::class);
     }
 
+    public function test_step2_only_run_finalizes_after_step_2_without_dispatching_step_3(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun(2, [
+            'workflow' => AuditRun::WORKFLOW_STANDARD,
+            'stop_after_step' => 2,
+        ]);
+        $items = $this->makeItems($run, 2, 'analyzing', 'url_only_batch_step2_done');
+
+        app(AuditRunService::class)->dispatchStep2Batches($run);
+
+        $run->refresh();
+        $items->each->refresh();
+
+        $this->assertSame('completed', $run->status);
+        $this->assertSame(2, $run->processed_urls);
+        $this->assertSame(2, $run->completed_urls);
+        $this->assertSame(0, $run->failed_urls);
+
+        foreach ($items as $item) {
+            $this->assertSame('completed', $item->status);
+            $this->assertSame('url_only_batch_step2_only_completed', $item->extraction_source);
+            $this->assertNotNull($item->completed_at);
+        }
+
+        Queue::assertNotPushed(ProcessAuditRunStep3BatchJob::class);
+        Queue::assertNotPushed(ProcessAuditDeepResearchBatchJob::class);
+    }
+
     public function test_deep_research_failed_batch_only_fails_its_own_chunk_and_keeps_other_chunks_running(): void
     {
         Queue::fake();
@@ -680,7 +710,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
         ], 200);
     }
 
-    private function makeRun(int $totalUrls = 1): AuditRun
+    private function makeRun(int $totalUrls = 1, array $overrides = []): AuditRun
     {
         return AuditRun::query()->create([
             'public_id' => (string) Str::ulid(),
@@ -718,6 +748,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'completed_urls' => 0,
             'failed_urls' => 0,
             'started_at' => now(),
+            ...$overrides,
         ]);
     }
 

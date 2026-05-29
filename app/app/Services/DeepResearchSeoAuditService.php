@@ -4,11 +4,14 @@ namespace App\Services;
 
 use App\Models\AuditPromptTemplate;
 use App\Models\AuditRun;
+use App\Support\AuditAiDemandRetry;
+use App\Support\AuditGeminiGenerationConfig;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class DeepResearchSeoAuditService
@@ -1043,7 +1046,7 @@ class DeepResearchSeoAuditService
             'createdAt' => now()->toIso8601String(),
         ]);
 
-        $raw = $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema);
+        $raw = $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema, $persistStep);
 
         $this->persistAiStepResponse($auditRunId, $persistStep, [
             'step' => $persistStep,
@@ -1084,7 +1087,7 @@ class DeepResearchSeoAuditService
         ]);
 
         $raw = match ($provider) {
-            'gemini' => $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema),
+            'gemini' => $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema, $persistStep),
             default => $this->requestOpenAiFormatterRaw($model, $systemPrompt, $userPrompt),
         };
 
@@ -1167,7 +1170,7 @@ class DeepResearchSeoAuditService
      * @param  array<string, mixed>  $schema
      * @return array{rawText: string, usage: array<string, mixed>}
      */
-    private function requestGeminiRaw(string $model, string $systemPrompt, string $userPrompt, array $schema): array
+    private function requestGeminiRaw(string $model, string $systemPrompt, string $userPrompt, array $schema, ?string $persistStep = null): array
     {
         $apiKey = config('services.gemini.api_key');
 
@@ -1189,11 +1192,11 @@ class DeepResearchSeoAuditService
                     ],
                 ],
             ],
-            'generationConfig' => [
-                'temperature' => 0.1,
-                'responseMimeType' => 'application/json',
-                'responseSchema' => $schema,
-            ],
+            'generationConfig' => AuditGeminiGenerationConfig::forJsonStep(
+                $model,
+                $schema,
+                str_contains($persistStep ?? '', 'json_formatter') ? 'formatter' : 'batch',
+            ),
         ];
 
         $response = $this->sendRequest(
@@ -1230,8 +1233,47 @@ class DeepResearchSeoAuditService
      */
     private function sendRequest(callable $callback, string $provider): Response
     {
-        $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
-        $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $connectionAttempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
+        $connectionSleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $demandAttempt = 0;
+
+        while (true) {
+            $response = $this->sendRequestOnce($callback, $provider, $connectionAttempts, $connectionSleepMs);
+
+            if ($response->successful()) {
+                return $response;
+            }
+
+            $status = $response->status();
+            $message = $this->httpErrorMessage($response);
+
+            if (! AuditAiDemandRetry::isRecoverable($status, $message)) {
+                $this->throwIfRequestFailed($response, $provider);
+            }
+
+            $demandAttempt++;
+            $maxAttempts = AuditAiDemandRetry::maxAttempts();
+
+            if ($maxAttempts > 0 && $demandAttempt >= $maxAttempts) {
+                throw new RuntimeException($provider.' API lỗi HTTP '.$status.': '.$message.' (đã thử lại '.$demandAttempt.' lần do nhu cầu cao).');
+            }
+
+            Log::info('Audit AI demand retry', [
+                'provider' => $provider,
+                'attempt' => $demandAttempt,
+                'status' => $status,
+                'message' => mb_substr($message, 0, 240),
+            ]);
+
+            usleep(AuditAiDemandRetry::sleepMs() * 1000);
+        }
+    }
+
+    /**
+     * @param  callable(): Response  $callback
+     */
+    private function sendRequestOnce(callable $callback, string $provider, int $attempts, int $sleepMs): Response
+    {
         $lastException = null;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
@@ -1249,6 +1291,16 @@ class DeepResearchSeoAuditService
         throw new RuntimeException($provider.' network error after '.$attempts.' attempts: '.trim((string) $lastException?->getMessage()));
     }
 
+    private function httpErrorMessage(Response $response): string
+    {
+        $payload = $response->json();
+        $message = is_array($payload)
+            ? (string) ($payload['error']['message'] ?? $payload['message'] ?? json_encode($payload, JSON_UNESCAPED_UNICODE))
+            : mb_substr($response->body(), 0, 500);
+
+        return trim(preg_replace('/\s+/', ' ', $message) ?? $message);
+    }
+
     private function throwIfRequestFailed(Response $response, string $provider): void
     {
         if ($response->successful()) {
@@ -1258,10 +1310,7 @@ class DeepResearchSeoAuditService
         try {
             $response->throw();
         } catch (RequestException $exception) {
-            $payload = $exception->response->json();
-            $message = is_array($payload)
-                ? (string) ($payload['error']['message'] ?? $payload['message'] ?? json_encode($payload, JSON_UNESCAPED_UNICODE))
-                : mb_substr($exception->response->body(), 0, 500);
+            $message = $this->httpErrorMessage($exception->response);
 
             if ($exception->response->status() === 429) {
                 throw new RuntimeException($provider.' rate limit (429): '.$message, previous: $exception);

@@ -8,6 +8,7 @@ use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep1BatchJob;
 use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
+use App\Support\AuditBatchInputLimiter;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use App\Models\WebsiteAuditUrlResult;
@@ -399,7 +400,7 @@ class AuditRunService
     /**
      * @return array<string, mixed>
      */
-    private function step2BatchPagePayload(AuditRunItem $item): array
+    private function step2BatchPagePayload(AuditRunItem $item, ?int $maxExcerptChars = null): array
     {
         $hasStep1Data = $this->filledText($item->page_title)
             || $this->filledText($item->meta_description)
@@ -417,6 +418,10 @@ class AuditRunService
 
         $metrics = is_array($item->extracted_metrics) ? $item->extracted_metrics : [];
         $contentExcerpt = trim((string) ($item->content_excerpt ?? ''));
+
+        if ($contentExcerpt !== null && $maxExcerptChars !== null && $maxExcerptChars > 0) {
+            $contentExcerpt = mb_substr($contentExcerpt, 0, $maxExcerptChars);
+        }
 
         if ($contentExcerpt === '') {
             $contentExcerpt = null;
@@ -651,6 +656,42 @@ class AuditRunService
 
             $this->dispatchStep2Batches($run);
         }
+    }
+
+    public function retryFailedStep2Batches(AuditRun $run): int
+    {
+        $count = DB::transaction(function () use ($run): int {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            $updated = $freshRun->items()
+                ->where('status', 'failed')
+                ->where('extraction_source', self::SOURCE_STEP2_RUNNING)
+                ->update([
+                    'status' => 'queued',
+                    'extraction_source' => self::SOURCE_STEP1_DONE,
+                    'error_message' => null,
+                    'completed_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated > 0 && in_array($freshRun->status, ['partial', 'failed'], true)) {
+                $freshRun->forceFill([
+                    'status' => 'processing',
+                    'last_error' => null,
+                    'cancelled_at' => null,
+                    'completed_at' => null,
+                ])->save();
+            }
+
+            return $updated;
+        });
+
+        if ($count > 0) {
+            $this->dispatchStep2Batches($run->fresh());
+            $this->syncRunIfEnabled($run->fresh());
+        }
+
+        return $count;
     }
 
     public function dispatchStep2Batches(AuditRun $run): void
@@ -1142,7 +1183,9 @@ class AuditRunService
             return;
         }
 
-        $batchPages = $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+        $excerptLimit = AuditBatchInputLimiter::pageExcerptCharLimit($items->count());
+        $batchPages = $items
+            ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item, $excerptLimit))
             ->values()
             ->all();
 
@@ -1269,9 +1312,10 @@ class AuditRunService
             'categoryMatchReason' => $item->category_match_reason,
         ])->values()->all();
 
+        $excerptLimit = AuditBatchInputLimiter::pageExcerptCharLimit($items->count());
         $batchPages = $this->stepAiProvider($run, 3) === 'gemini_deep_research'
             ? []
-            : $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+            : $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item, $excerptLimit))
                 ->filter(fn (array $payload): bool => isset($payload['page']))
                 ->values()
                 ->all();

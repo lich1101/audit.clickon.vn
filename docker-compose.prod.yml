@@ -55,7 +55,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 2048M
 
   scheduler:
     image: clickon-audit-api:latest

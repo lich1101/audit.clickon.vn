@@ -4,11 +4,14 @@ namespace App\Services;
 
 use App\Models\AuditPromptTemplate;
 use App\Models\AuditRun;
+use App\Support\AuditAiDemandRetry;
+use App\Support\AuditGeminiGenerationConfig;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class SeoAiAuditService
@@ -722,7 +725,7 @@ TEXT;
 
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
-            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment, $persistStep),
             'gemini_deep_research' => $this->requestGeminiDeepResearchRaw(
                 $resolvedModel,
                 $systemPrompt,
@@ -791,7 +794,7 @@ TEXT;
 
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
-            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment, $persistStep),
             'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep, false, $pdfAttachment),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
@@ -1224,6 +1227,7 @@ TEXT;
         array $schema,
         string $provider,
         ?array $pdfAttachment = null,
+        ?string $persistStep = null,
     ): array {
         $apiKey = config('services.gemini.api_key');
 
@@ -1244,11 +1248,11 @@ TEXT;
                     'parts' => $this->geminiPdfAttachmentService->buildGeminiUserParts($userPrompt, $pdfAttachment),
                 ],
             ],
-            'generationConfig' => [
-                'temperature' => 0.2,
-                'responseMimeType' => 'application/json',
-                'responseSchema' => $schema,
-            ],
+            'generationConfig' => AuditGeminiGenerationConfig::forJsonStep(
+                $modelName,
+                $schema,
+                $this->geminiGenerationProfile($persistStep),
+            ),
         ];
 
         $response = $this->sendAiRequest(
@@ -1589,6 +1593,15 @@ TEXT;
         ];
     }
 
+    private function geminiGenerationProfile(?string $persistStep): string
+    {
+        if ($persistStep !== null && str_contains($persistStep, 'json_formatter')) {
+            return 'formatter';
+        }
+
+        return 'batch';
+    }
+
     private function aiHttpTimeoutSeconds(): int
     {
         $auditTimeout = (int) config('services.audit.ai_http_timeout_seconds', 0);
@@ -1610,8 +1623,47 @@ TEXT;
      */
     private function sendAiRequest(callable $callback, string $provider): Response
     {
-        $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
-        $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $connectionAttempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
+        $connectionSleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $demandAttempt = 0;
+
+        while (true) {
+            $response = $this->sendAiRequestOnce($callback, $provider, $connectionAttempts, $connectionSleepMs);
+
+            if ($response->successful()) {
+                return $response;
+            }
+
+            $status = $response->status();
+            $message = $this->aiHttpErrorMessage($response);
+
+            if (! AuditAiDemandRetry::isRecoverable($status, $message)) {
+                $this->throwIfAiRequestFailed($response, $provider);
+            }
+
+            $demandAttempt++;
+            $maxAttempts = AuditAiDemandRetry::maxAttempts();
+
+            if ($maxAttempts > 0 && $demandAttempt >= $maxAttempts) {
+                throw new RuntimeException("{$provider} API lỗi HTTP {$status}: {$message} (đã thử lại {$demandAttempt} lần do nhu cầu cao).");
+            }
+
+            Log::info('Audit AI demand retry', [
+                'provider' => $provider,
+                'attempt' => $demandAttempt,
+                'status' => $status,
+                'message' => mb_substr($message, 0, 240),
+            ]);
+
+            usleep(AuditAiDemandRetry::sleepMs() * 1000);
+        }
+    }
+
+    /**
+     * @param  callable(): Response  $callback
+     */
+    private function sendAiRequestOnce(callable $callback, string $provider, int $attempts, int $sleepMs): Response
+    {
         $lastException = null;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
@@ -1634,6 +1686,23 @@ TEXT;
         throw new RuntimeException("{$provider} network error after {$attempts} attempts: {$message}.{$hint}");
     }
 
+    private function aiHttpErrorMessage(Response $response): string
+    {
+        $payload = $response->json();
+        $message = null;
+
+        if (is_array($payload)) {
+            $message = Arr::get($payload, 'error.message')
+                ?? Arr::get($payload, 'message')
+                ?? Arr::get($payload, 'error');
+        }
+
+        if (! is_string($message) || trim($message) === '') {
+            $message = mb_substr($response->body(), 0, 500);
+        }
+
+        return trim(preg_replace('/\s+/', ' ', (string) $message) ?? (string) $message);
+    }
     /**
      * null = poll không giới hạn (chỉ dừng khi completed/failed hoặc user cancel run).
      */
@@ -1687,20 +1756,7 @@ TEXT;
         try {
             $response->throw();
         } catch (RequestException $exception) {
-            $payload = $exception->response->json();
-            $message = null;
-
-            if (is_array($payload)) {
-                $message = Arr::get($payload, 'error.message')
-                    ?? Arr::get($payload, 'message')
-                    ?? Arr::get($payload, 'error');
-            }
-
-            if (! is_string($message) || trim($message) === '') {
-                $message = mb_substr($exception->response->body(), 0, 500);
-            }
-
-            $message = trim(preg_replace('/\s+/', ' ', (string) $message) ?? (string) $message);
+            $message = $this->aiHttpErrorMessage($exception->response);
 
             if ($exception->response->status() === 429) {
                 throw new RuntimeException("{$provider} rate limit (429): {$message}. Hãy giảm số URL trong một batch, đổi model nhẹ hơn hoặc chờ quota reset.");

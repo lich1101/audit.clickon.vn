@@ -4,8 +4,9 @@ import { Download, Play, Settings, Square } from "lucide-react";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { AuditAiStepErrorsPanel } from "@/components/dashboard/audit-ai-step-errors-panel";
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
-import { AuditWorkbenchTable, type AuditWorkbenchRow } from "@/components/dashboard/audit-workbench-table";
+import { AuditWorkbenchTable } from "@/components/dashboard/audit-workbench-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { ProgressBar } from "@/components/dashboard/progress-bar";
@@ -15,7 +16,9 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
-import { exportAuditRunToExcel } from "@/lib/audit-report";
+import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-step-errors";
+import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
+import { mergeAuditWorkbenchRow } from "@/lib/audit-workbench-data";
 import {
   ACTIVE_AUDIT_POLL_INTERVAL_MS,
   createAuditRun,
@@ -29,7 +32,8 @@ import {
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
-import type { AuditRun, AuditRunItem, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditWorkbenchRow } from "@/lib/audit-workbench-data";
 
 const workflowLabels: Record<AuditWorkflow, string> = {
   standard: "Audit chuẩn",
@@ -98,61 +102,6 @@ function hasStep3SeedData(row?: {
   contentRevisionDirection?: string | null;
 } | null) {
   return typeof row?.auditScore === "number" || Boolean(row?.auditRecommendations?.length || row?.contentRevisionDirection?.trim());
-}
-
-function preferFilledString(...values: Array<string | null | undefined>) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) {
-      return value;
-    }
-  }
-
-  return null;
-}
-
-function preferStringArray(...values: Array<string[] | null | undefined>) {
-  for (const value of values) {
-    if (Array.isArray(value) && value.length > 0) {
-      return value;
-    }
-  }
-
-  return [];
-}
-
-function mergeAuditWorkbenchRow(
-  persisted?: WebsiteAuditUrlResult | null,
-  current?: AuditRunItem | null
-): AuditWorkbenchRow {
-  const errorMessage = current
-    ? current.status === "failed"
-      ? preferFilledString(current.errorMessage, persisted?.errorMessage)
-      : preferFilledString(current.errorMessage)
-    : preferFilledString(persisted?.errorMessage);
-
-  return {
-    ...persisted,
-    ...current,
-    status: current?.status ?? persisted?.status,
-    extractionSource: current?.extractionSource ?? null,
-    contentSource: preferFilledString(current?.contentSource, persisted?.contentSource),
-    contentError: preferFilledString(current?.contentError, persisted?.contentError),
-    readerUrl: preferFilledString(current?.readerUrl, persisted?.readerUrl),
-    pageTitle: preferFilledString(current?.pageTitle, persisted?.pageTitle),
-    metaDescription: preferFilledString(current?.metaDescription, persisted?.metaDescription),
-    canonicalUrl: preferFilledString(current?.canonicalUrl, persisted?.canonicalUrl),
-    headings: current?.headings && Object.keys(current.headings).length > 0 ? current.headings : persisted?.headings,
-    metrics: current?.metrics && Object.keys(current.metrics).length > 0 ? current.metrics : persisted?.metrics,
-    primaryKeyword: preferFilledString(current?.primaryKeyword, persisted?.primaryKeyword),
-    categoryName: preferFilledString(current?.categoryName, persisted?.categoryName),
-    categoryUrl: preferFilledString(current?.categoryUrl, persisted?.categoryUrl),
-    categoryMatchReason: preferFilledString(current?.categoryMatchReason, persisted?.categoryMatchReason),
-    auditScore: current?.auditScore ?? persisted?.auditScore ?? null,
-    auditRecommendations: preferStringArray(current?.auditRecommendations, persisted?.auditRecommendations),
-    contentRevisionDirection: preferFilledString(current?.contentRevisionDirection, persisted?.contentRevisionDirection),
-    contentExcerpt: preferFilledString(current?.contentExcerpt, persisted?.contentExcerpt),
-    errorMessage,
-  };
 }
 
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -363,11 +312,24 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     const map: Record<string, AuditWorkbenchRow> = {};
 
     for (const url of urlList) {
-      map[url] = mergeAuditWorkbenchRow(persistedByUrl.get(url), currentByUrl.get(url));
+      const current = currentByUrl.get(url);
+      const row = mergeAuditWorkbenchRow(url, persistedByUrl.get(url), current);
+      const aiState = resolveAiStepRowState({
+        position: current?.position,
+        aiStepErrors: run?.aiStepErrors,
+        itemErrorMessage: row.errorMessage,
+        status: row.status,
+      });
+
+      map[url] = {
+        ...row,
+        errorMessage: aiState.errorMessage,
+        stageHint: aiState.stageHint,
+      };
     }
 
     return map;
-  }, [run?.items, urlList, urlResults]);
+  }, [run?.aiStepErrors, run?.items, urlList, urlResults]);
   const step2FromStep1ReadySelectedUrls = useMemo(
     () => selectedUrls.filter((url) => isStep1ValidForAudit(itemsByUrl[url])),
     [itemsByUrl, selectedUrls]
@@ -408,8 +370,15 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }, [itemsByUrl, urlList]);
 
   const progressPercent = progressFor(run);
-  const firstItemError = (run?.items ?? []).find((item) => item.errorMessage)?.errorMessage ?? null;
-  const displayError = run?.lastError ?? firstItemError;
+  const displayErrors = useMemo(
+    () =>
+      collectRunDisplayErrors({
+        lastError: run?.lastError,
+        aiStepErrors: run?.aiStepErrors,
+        itemErrorMessages: (run?.items ?? []).map((item) => item.errorMessage),
+      }),
+    [run?.aiStepErrors, run?.items, run?.lastError]
+  );
   const activeUrls = (run?.items ?? []).filter(
     (item) => item.status === "fetching" || (item.status === "analyzing" && item.extractionSource !== "url_only_batch_step2_done")
   ).length;
@@ -583,15 +552,28 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }
 
   async function handleExport() {
-    if (!run) {
+    const exportUrls = urlList.filter((url) => selectedUrls.includes(url));
+
+    if (exportUrls.length === 0) {
+      toast.error("Chọn ít nhất một URL để xuất Excel.");
       return;
     }
 
     try {
       setExporting(true);
-      const fullRun = await getAuditRun(run.publicId);
-      await exportAuditRunToExcel(fullRun);
-      toast.success("Đã xuất báo cáo Excel.");
+
+      const fullRun = run ? await getAuditRun(run.publicId).catch(() => null) : null;
+      const fullItemsByUrl = Object.fromEntries((fullRun?.items ?? []).map((item) => [item.targetUrl, item]));
+
+      await exportAuditWorkbenchToExcel({
+        websiteName: website?.name ?? run?.websiteName,
+        websiteId: website?.id ?? run?.websiteId,
+        runPublicId: run?.publicId,
+        urls: exportUrls,
+        rowsByUrl: itemsByUrl,
+        fullItemsByUrl,
+      });
+      toast.success(`Đã xuất ${exportUrls.length} URL ra Excel.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể xuất file Excel.");
     } finally {
@@ -732,21 +714,27 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <Settings className="size-4" />
             Cấu hình
           </Button>
-          {run ? (
-            <Button type="button" variant="outline" onClick={handleExport} disabled={exporting}>
-              <Download className="size-4" />
-              {exporting ? "Đang xuất..." : "Xuất Excel"}
-            </Button>
-          ) : null}
+          <Button type="button" variant="outline" onClick={handleExport} disabled={exporting || selectedUrls.length === 0 || urlList.length === 0}>
+            <Download className="size-4" />
+            {exporting ? "Đang xuất..." : `Xuất Excel (${selectedUrls.length})`}
+          </Button>
         </div>
       </div>
 
-      {displayError ? (
+      {displayErrors.length > 0 ? (
         <div className="rounded-[20px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <p className="font-medium">Audit run gặp lỗi</p>
-          <p className="mt-1 whitespace-pre-wrap break-words">{displayError}</p>
+          <div className="mt-2 space-y-2">
+            {displayErrors.map((message) => (
+              <p key={message} className="whitespace-pre-wrap break-words">
+                {message}
+              </p>
+            ))}
+          </div>
         </div>
       ) : null}
+
+      {run?.aiStepErrors?.length ? <AuditAiStepErrorsPanel errors={run.aiStepErrors} /> : null}
 
       <AuditWorkbenchTable
         urls={urlList}

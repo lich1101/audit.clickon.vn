@@ -14,7 +14,7 @@ class AuditBatchIsolationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_step3_failed_job_retries_recoverable_batch_in_smaller_chunks(): void
+    public function test_step3_failed_job_does_not_auto_retry_recoverable_batch_shape_errors(): void
     {
         Queue::fake();
 
@@ -28,17 +28,15 @@ class AuditBatchIsolationTest extends TestCase
         $run->refresh();
 
         foreach ($items as $item) {
-            $this->assertSame('analyzing', $item->status);
-            $this->assertSame('url_only_batch_step3_running', $item->extraction_source);
-            $this->assertNull($item->error_message);
-            $this->assertNull($item->completed_at);
+            $this->assertSame('failed', $item->status);
+            $this->assertStringContainsString('[Bước 3: audit onpage]', (string) $item->error_message);
+            $this->assertNotNull($item->completed_at);
         }
 
-        $this->assertSame('processing', $run->status);
-        Queue::assertPushed(ProcessAuditRunStep3BatchJob::class, 2);
+        Queue::assertNotPushed(ProcessAuditRunStep3BatchJob::class);
     }
 
-    public function test_step3_failed_job_only_fails_its_own_chunk_and_keeps_other_chunks_running(): void
+    public function test_step3_failed_job_only_fails_its_own_chunk_without_dispatching_other_chunks(): void
     {
         Queue::fake();
 
@@ -55,21 +53,17 @@ class AuditBatchIsolationTest extends TestCase
 
         foreach ($failedChunk as $item) {
             $this->assertSame('failed', $item->status);
-            $this->assertSame('Gemini formatter timeout.', $item->error_message);
+            $this->assertStringContainsString('[Bước 3: audit onpage]', (string) $item->error_message);
             $this->assertNotNull($item->completed_at);
         }
 
         foreach ($pendingChunk as $item) {
             $this->assertSame('analyzing', $item->status);
-            $this->assertSame('url_only_batch_step3_running', $item->extraction_source);
+            $this->assertSame('url_only_batch_step2_done', $item->extraction_source);
             $this->assertNull($item->error_message);
         }
 
-        $this->assertSame('processing', $run->status);
-        Queue::assertPushed(ProcessAuditRunStep3BatchJob::class, function (ProcessAuditRunStep3BatchJob $job) use ($pendingChunk): bool {
-            return $job->runId === $pendingChunk->first()->audit_run_id
-                && $job->itemIds === $pendingChunk->pluck('id')->values()->all();
-        });
+        Queue::assertNotPushed(ProcessAuditRunStep3BatchJob::class);
     }
 
     private function makeRun(int $totalUrls = 2): AuditRun

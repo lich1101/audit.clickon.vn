@@ -418,7 +418,7 @@ class DeepResearchSeoAuditService
                     'canonicalUrl' => $page['canonicalUrl'] ?? '',
                     'headings' => $page['headings'] ?? [],
                     'metrics' => $page['metrics'] ?? [],
-                    'contentExcerpt' => mb_substr((string) ($page['content'] ?? ''), 0, 2000),
+                    'contentExcerpt' => (string) ($page['content'] ?? ''),
                     'source' => $page['source'] ?? null,
                     'extractionError' => $page['extractionError'] ?? null,
                 ],

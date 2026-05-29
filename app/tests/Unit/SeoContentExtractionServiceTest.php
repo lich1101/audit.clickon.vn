@@ -33,11 +33,28 @@ class SeoContentExtractionServiceTest extends TestCase
         $this->assertStringNotContainsString('URL Source:', $parsed['content']);
     }
 
+        $method = new ReflectionMethod(SeoContentExtractionService::class, 'extractMarkdownHeadings');
+        $method->setAccessible(true);
+
+        $headings = $method->invoke($service, implode("\n", [
+            '# Tiêu đề chính',
+            '## Mục hợp lệ',
+            '## ![Image 2](https://example.com/image.jpg)',
+            '### Chi tiết',
+        ]));
+
+        $this->assertSame(['Tiêu đề chính'], $headings['h1']);
+        $this->assertSame(['Mục hợp lệ'], $headings['h2']);
+        $this->assertSame(['Chi tiết'], $headings['h3']);
+    }
+
     public function test_extract_uses_jina_markdown_content_for_excerpt(): void
     {
         config([
+            'services.audit.content_provider' => 'jina',
             'services.audit.use_jina' => true,
             'services.audit.jina_base_url' => 'https://r.jina.ai/',
+            'services.audit.jina_html_meta_fallback' => false,
             'services.audit.ai_http_retry_attempts' => 1,
         ]);
 
@@ -49,6 +66,8 @@ class SeoContentExtractionServiceTest extends TestCase
                 'Thiên Long chuyên THU MUA GIÀN GIÁO CŨ GIÁ CAO tận nơi.',
                 '## Tại Sao Nên Chọn Thiên Long',
                 'Cam kết giá tốt nhất thị trường.',
+                '![Thu mua giàn giáo](https://example.com/images/gian-giao.jpg)',
+                'Xem thêm [bảng giá phế liệu](/bang-gia) hoặc [Facebook](https://facebook.com/example).',
             ])),
         ]);
 
@@ -59,13 +78,57 @@ class SeoContentExtractionServiceTest extends TestCase
         $this->assertStringContainsString('THU MUA GIÀN GIÁO CŨ GIÁ CAO tận nơi', $page['content']);
         $this->assertStringNotContainsString('URL Source:', $page['content']);
         $this->assertContains('Tại Sao Nên Chọn Thiên Long', $page['headings']['h2']);
+        $this->assertSame(1, $page['metrics']['imageCount']);
+        $this->assertSame(0, $page['metrics']['missingAltCount']);
+        $this->assertSame(1, $page['metrics']['internalLinkCount']);
+        $this->assertSame(1, $page['metrics']['externalLinkCount']);
+    }
+
+    public function test_jina_extraction_falls_back_to_html_meta_description(): void
+    {
+        config([
+            'services.audit.content_provider' => 'jina',
+            'services.audit.use_jina' => true,
+            'services.audit.jina_base_url' => 'https://r.jina.ai/',
+            'services.audit.jina_html_meta_fallback' => true,
+            'services.audit.ai_http_retry_attempts' => 1,
+        ]);
+
+        Http::fake([
+            'https://r.jina.ai/*' => Http::response(implode("\n", [
+                'Title: Thu mua phế liệu giá cao',
+                'URL Source: https://example.com/page',
+                'Markdown Content:',
+                'Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon.',
+            ])),
+            'https://example.com/page' => Http::response(<<<'HTML'
+<!doctype html>
+<html>
+<head>
+  <title>Thu mua phế liệu giá cao</title>
+  <meta name="description" content="Dịch vụ thu mua phế liệu tận nơi, giá cao, thanh toán nhanh tại TP.HCM.">
+  <link rel="canonical" href="https://example.com/page" />
+</head>
+<body><p>Nội dung</p></body>
+</html>
+HTML),
+        ]);
+
+        $page = (new SeoContentExtractionService)->extract('https://example.com/page');
+
+        $this->assertSame('jina', $page['source']);
+        $this->assertSame('Dịch vụ thu mua phế liệu tận nơi, giá cao, thanh toán nhanh tại TP.HCM.', $page['metaDescription']);
+        $this->assertSame('https://example.com/page', $page['canonicalUrl']);
+        $this->assertTrue($page['metrics']['hasCanonical']);
     }
 
     public function test_extract_falls_back_to_html_and_picks_longest_content_node(): void
     {
         config([
+            'services.audit.content_provider' => 'jina',
             'services.audit.use_jina' => true,
             'services.audit.jina_base_url' => 'https://r.jina.ai/',
+            'services.audit.jina_html_meta_fallback' => false,
             'services.audit.ai_http_retry_attempts' => 1,
         ]);
 
@@ -92,5 +155,64 @@ HTML),
         $this->assertSame('html', $page['source']);
         $this->assertStringContainsString('Thiên Long chuyên thu mua phế liệu', $page['content']);
         $this->assertStringNotContainsString('0986 117 289', $page['content']);
+    }
+
+    public function test_extract_uses_firecrawl_when_configured(): void
+    {
+        config([
+            'services.audit.content_provider' => 'firecrawl',
+            'services.audit.firecrawl_base_url' => 'http://firecrawl.test',
+            'services.audit.firecrawl_only_main_content' => true,
+            'services.audit.ai_http_retry_attempts' => 1,
+        ]);
+
+        Http::fake([
+            'http://firecrawl.test/v1/scrape' => Http::response([
+                'success' => true,
+                'data' => [
+                    'metadata' => [
+                        'title' => 'Thu mua phế liệu giá cao',
+                        'description' => 'Mô tả meta 120 ký tự dùng cho audit SEO onpage checklist Clickon.',
+                        'og:url' => 'https://example.com/page',
+                    ],
+                    'markdown' => "# Thu mua phế liệu giá cao\n\nNội dung bài viết chi tiết.\n\n## Quy trình thu mua\n\nCam kết giá tốt.\n\n![Thu mua phế liệu](https://example.com/a.jpg)\n\n[Xem bảng giá](/bang-gia)",
+                    'html' => <<<'HTML'
+<!doctype html>
+<html>
+<head>
+  <title>Thu mua phế liệu giá cao</title>
+  <meta name="description" content="Mô tả meta 120 ký tự dùng cho audit SEO onpage checklist Clickon." />
+  <link rel="canonical" href="https://example.com/page" />
+</head>
+<body>
+  <main class="content-main">
+    <h1>Thu mua phế liệu giá cao</h1>
+    <p>Nội dung bài viết chi tiết đủ dài để audit SEO onpage theo checklist Clickon.</p>
+    <h2>Quy trình thu mua</h2>
+    <p>Cam kết giá tốt.</p>
+    <img src="https://example.com/a.jpg" alt="Thu mua phế liệu" />
+    <a href="/bang-gia">Xem bảng giá</a>
+  </main>
+</body>
+</html>
+HTML,
+                    'links' => [
+                        'https://example.com/bang-gia',
+                        'https://facebook.com/example',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $page = (new SeoContentExtractionService)->extract('https://example.com/page');
+
+        $this->assertSame('firecrawl', $page['source']);
+        $this->assertSame('Thu mua phế liệu giá cao', $page['title']);
+        $this->assertStringContainsString('Mô tả meta 120 ký tự', $page['metaDescription']);
+        $this->assertSame('https://example.com/page', $page['canonicalUrl']);
+        $this->assertContains('Quy trình thu mua', $page['headings']['h2']);
+        $this->assertGreaterThanOrEqual(1, $page['metrics']['imageCount']);
+        $this->assertGreaterThanOrEqual(1, $page['metrics']['internalLinkCount']);
+        $this->assertStringContainsString('Nội dung bài viết chi tiết', $page['content']);
     }
 }

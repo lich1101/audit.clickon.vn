@@ -57,4 +57,5 @@ if [[ -n "$ADMIN_UID" ]]; then
   ARGS+=("--uid=$ADMIN_UID")
 fi
 
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api php artisan "${ARGS[@]}"
+COMPOSE_PROJECT="$(audit_compose_project "$ENV_FILE")"
+docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api php artisan "${ARGS[@]}"

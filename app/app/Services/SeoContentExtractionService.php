@@ -18,31 +18,78 @@ class SeoContentExtractionService
      */
     public function extract(string $url): array
     {
-        if (config('services.audit.use_jina', true)) {
-            $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
-            $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
-            $lastException = null;
+        $provider = $this->contentProvider();
 
-            for ($attempt = 1; $attempt <= $attempts; $attempt++) {
-                try {
-                    return $this->extractWithJina($url);
-                } catch (\Throwable $exception) {
-                    $lastException = $exception;
+        if ($provider === 'firecrawl') {
+            return $this->extractWithProviderRetries(
+                'Firecrawl',
+                fn (): array => $this->extractWithFirecrawl($url),
+                $url,
+                fallback: fn (): array => $this->extractFromHtml($url),
+            );
+        }
 
-                    if ($attempt < $attempts && $sleepMs > 0) {
-                        usleep($sleepMs * 1000);
-                    }
-                }
-            }
-
-            Log::warning('Jina Reader failed, falling back to HTML extraction.', [
-                'url' => $url,
-                'attempts' => $attempts,
-                'error' => $lastException?->getMessage(),
-            ]);
+        if ($provider === 'jina') {
+            return $this->extractWithProviderRetries(
+                'Jina Reader',
+                fn (): array => $this->extractWithJina($url),
+                $url,
+                fallback: fn (): array => $this->extractFromHtml($url),
+            );
         }
 
         return $this->extractFromHtml($url);
+    }
+
+    private function contentProvider(): string
+    {
+        $configured = strtolower(trim((string) config('services.audit.content_provider', '')));
+
+        if (in_array($configured, ['firecrawl', 'jina', 'html'], true)) {
+            return $configured;
+        }
+
+        if (config('services.audit.use_jina', true)) {
+            return 'jina';
+        }
+
+        return 'html';
+    }
+
+    /**
+     * @param  callable(): array<string, mixed>  $extract
+     * @param  callable(): array<string, mixed>  $fallback
+     * @return array<string, mixed>
+     */
+    private function extractWithProviderRetries(
+        string $providerLabel,
+        callable $extract,
+        string $url,
+        callable $fallback,
+    ): array {
+        $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
+        $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                return $extract();
+            } catch (\Throwable $exception) {
+                $lastException = $exception;
+
+                if ($attempt < $attempts && $sleepMs > 0) {
+                    usleep($sleepMs * 1000);
+                }
+            }
+        }
+
+        Log::warning("{$providerLabel} failed, falling back to HTML extraction.", [
+            'url' => $url,
+            'attempts' => $attempts,
+            'error' => $lastException?->getMessage(),
+        ]);
+
+        return $fallback();
     }
 
     /**
@@ -116,6 +163,7 @@ class SeoContentExtractionService
         $metaDescription = $parsed['metaDescription'];
         $content = $parsed['content'];
         $headings = $this->extractMarkdownHeadings($parsed['markdown']);
+        $mediaMetrics = $this->extractMarkdownMediaMetrics($parsed['markdown'], $url);
 
         if ($headings['h1'] === [] && $title !== '') {
             $headings['h1'] = [$title];
@@ -125,7 +173,7 @@ class SeoContentExtractionService
             throw new RuntimeException("Jina Reader returned no Markdown Content for [{$url}].");
         }
 
-        return [
+        $page = [
             'url' => $url,
             'title' => $title,
             'metaDescription' => $metaDescription,
@@ -133,10 +181,10 @@ class SeoContentExtractionService
             'headings' => $headings,
             'metrics' => [
                 'wordCount' => str_word_count(strip_tags($content)),
-                'imageCount' => 0,
-                'missingAltCount' => 0,
-                'internalLinkCount' => 0,
-                'externalLinkCount' => 0,
+                'imageCount' => $mediaMetrics['imageCount'],
+                'missingAltCount' => $mediaMetrics['missingAltCount'],
+                'internalLinkCount' => $mediaMetrics['internalLinkCount'],
+                'externalLinkCount' => $mediaMetrics['externalLinkCount'],
                 'hasCanonical' => false,
                 'titleLength' => mb_strlen($title),
                 'metaDescriptionLength' => mb_strlen($metaDescription),
@@ -144,6 +192,156 @@ class SeoContentExtractionService
             ],
             'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
             'source' => 'jina',
+        ];
+
+        return $this->supplementPageFromHtml($url, $page);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function extractWithFirecrawl(string $url): array
+    {
+        $baseUrl = rtrim((string) config('services.audit.firecrawl_base_url', ''), '/');
+
+        if ($baseUrl === '') {
+            throw new RuntimeException('Firecrawl base URL is not configured.');
+        }
+
+        $headers = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+        ];
+        $apiKey = config('services.audit.firecrawl_api_key');
+
+        if ($apiKey) {
+            $headers['Authorization'] = "Bearer {$apiKey}";
+        }
+
+        $response = Http::withHeaders($headers)
+            ->timeout(max(30, (int) config('services.audit.firecrawl_timeout_seconds', 120)))
+            ->post("{$baseUrl}/v1/scrape", [
+                'url' => $url,
+                'formats' => ['markdown', 'html', 'links'],
+                'onlyMainContent' => (bool) config('services.audit.firecrawl_only_main_content', true),
+            ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Firecrawl scrape failed for [{$url}] with status {$response->status()}.");
+        }
+
+        $payload = $response->json();
+
+        if (! is_array($payload) || ! ($payload['success'] ?? false)) {
+            $error = is_array($payload) ? (string) ($payload['error'] ?? 'unknown error') : 'invalid response';
+
+            throw new RuntimeException("Firecrawl scrape failed for [{$url}]: {$error}");
+        }
+
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $metadata = is_array($data['metadata'] ?? null) ? $data['metadata'] : [];
+        $markdown = trim((string) ($data['markdown'] ?? ''));
+        $html = trim((string) ($data['html'] ?? ''));
+        $linkUrls = is_array($data['links'] ?? null) ? $data['links'] : [];
+
+        $title = trim((string) ($metadata['title'] ?? $metadata['og:title'] ?? ''));
+        $metaDescription = trim((string) ($metadata['description'] ?? $metadata['og:description'] ?? ''));
+        $canonicalUrl = trim((string) ($metadata['og:url'] ?? $metadata['ogUrl'] ?? $metadata['sourceURL'] ?? $url));
+
+        if ($canonicalUrl === '') {
+            $canonicalUrl = $url;
+        }
+
+        $headings = [
+            'h1' => [],
+            'h2' => [],
+            'h3' => [],
+        ];
+        $imageCount = 0;
+        $missingAltCount = 0;
+        $internalLinkCount = 0;
+        $externalLinkCount = 0;
+        $content = '';
+
+        if ($html !== '') {
+            $parsedHtml = $this->parseHtmlDocument($html, $url);
+            $headings = $parsedHtml['headings'];
+
+            if ($title === '') {
+                $title = $parsedHtml['title'];
+            }
+
+            if ($metaDescription === '') {
+                $metaDescription = $parsedHtml['metaDescription'];
+            }
+
+            if ($parsedHtml['canonicalUrl'] !== '') {
+                $canonicalUrl = $parsedHtml['canonicalUrl'];
+            }
+
+            $imageCount = $parsedHtml['imageCount'];
+            $missingAltCount = $parsedHtml['missingAltCount'];
+            $internalLinkCount = $parsedHtml['internalLinkCount'];
+            $externalLinkCount = $parsedHtml['externalLinkCount'];
+            $content = $parsedHtml['content'];
+        }
+
+        if ($markdown !== '') {
+            $markdownHeadings = $this->extractMarkdownHeadings($markdown);
+
+            foreach (['h1', 'h2', 'h3'] as $tag) {
+                if ($headings[$tag] === []) {
+                    $headings[$tag] = $markdownHeadings[$tag];
+                }
+            }
+
+            $markdownMedia = $this->extractMarkdownMediaMetrics($markdown, $url);
+
+            if ($imageCount === 0) {
+                $imageCount = $markdownMedia['imageCount'];
+                $missingAltCount = $markdownMedia['missingAltCount'];
+            }
+
+            $markdownContent = trim(preg_replace('/\s+/u', ' ', $markdown) ?? '');
+
+            if (mb_strlen($markdownContent) > mb_strlen($content)) {
+                $content = $markdownContent;
+            }
+        }
+
+        if ($linkUrls !== []) {
+            [$linksInternal, $linksExternal] = $this->countAbsoluteUrlListLinks($linkUrls, $url);
+            $internalLinkCount = max($internalLinkCount, $linksInternal);
+            $externalLinkCount = max($externalLinkCount, $linksExternal);
+        }
+
+        if ($content === '') {
+            throw new RuntimeException("Firecrawl returned no content for [{$url}].");
+        }
+
+        if ($headings['h1'] === [] && $title !== '') {
+            $headings['h1'] = [$title];
+        }
+
+        return [
+            'url' => $url,
+            'title' => $title,
+            'metaDescription' => $metaDescription,
+            'canonicalUrl' => $canonicalUrl,
+            'headings' => $headings,
+            'metrics' => [
+                'wordCount' => str_word_count(strip_tags($content)),
+                'imageCount' => $imageCount,
+                'missingAltCount' => $missingAltCount,
+                'internalLinkCount' => $internalLinkCount,
+                'externalLinkCount' => $externalLinkCount,
+                'hasCanonical' => $canonicalUrl !== '',
+                'titleLength' => mb_strlen($title),
+                'metaDescriptionLength' => mb_strlen($metaDescription),
+                'h1Count' => count($headings['h1']),
+            ],
+            'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
+            'source' => 'firecrawl',
         ];
     }
 
@@ -161,6 +359,14 @@ class SeoContentExtractionService
         }
 
         if (preg_match('/^Description:\s*(.+)$/mi', $text, $matches)) {
+            $metaDescription = trim($matches[1]);
+        }
+
+        if ($metaDescription === '' && preg_match('/^og:description:\s*(.+)$/mi', $text, $matches)) {
+            $metaDescription = trim($matches[1]);
+        }
+
+        if ($metaDescription === '' && preg_match('/^meta description:\s*(.+)$/mi', $text, $matches)) {
             $metaDescription = trim($matches[1]);
         }
 
@@ -203,26 +409,299 @@ class SeoContentExtractionService
             }
 
             if (preg_match('/^#\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
-                $headings['h1'][] = $this->normalizeMarkdownHeading($matches[1]);
+                $heading = $this->normalizeMarkdownHeading($matches[1]);
+
+                if ($heading !== '') {
+                    $headings['h1'][] = $heading;
+                }
+
                 continue;
             }
 
             if (preg_match('/^##\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
-                $headings['h2'][] = $this->normalizeMarkdownHeading($matches[1]);
+                $heading = $this->normalizeMarkdownHeading($matches[1]);
+
+                if ($heading !== '') {
+                    $headings['h2'][] = $heading;
+                }
+
                 continue;
             }
 
             if (preg_match('/^###\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
-                $headings['h3'][] = $this->normalizeMarkdownHeading($matches[1]);
+                $heading = $this->normalizeMarkdownHeading($matches[1]);
+
+                if ($heading !== '') {
+                    $headings['h3'][] = $heading;
+                }
             }
         }
 
         return $headings;
     }
 
+    /**
+     * @return array{imageCount: int, missingAltCount: int, internalLinkCount: int, externalLinkCount: int}
+     */
+    private function extractMarkdownMediaMetrics(string $markdown, string $pageUrl): array
+    {
+        $imageCount = 0;
+        $missingAltCount = 0;
+        $internalLinkCount = 0;
+        $externalLinkCount = 0;
+
+        if ($markdown === '') {
+            return compact('imageCount', 'missingAltCount', 'internalLinkCount', 'externalLinkCount');
+        }
+
+        if (preg_match_all('/!\[([^\]]*)\]\(([^)]+)\)/u', $markdown, $images, PREG_SET_ORDER)) {
+            foreach ($images as $image) {
+                $imageCount++;
+                $alt = trim((string) ($image[1] ?? ''));
+
+                if ($alt === '' || preg_match('/^image\s+\d+$/i', $alt)) {
+                    $missingAltCount++;
+                }
+            }
+        }
+
+        if (preg_match_all('/(?<!!)\[([^\]]*)\]\(([^)]+)\)/u', $markdown, $links, PREG_SET_ORDER)) {
+            foreach ($links as $link) {
+                $href = trim((string) ($link[2] ?? ''));
+
+                if ($href === '' || str_starts_with($href, '#') || str_starts_with($href, 'javascript:') || str_starts_with($href, 'mailto:')) {
+                    continue;
+                }
+
+                if ($this->isInternalHref($href, $pageUrl)) {
+                    $internalLinkCount++;
+                } else {
+                    $externalLinkCount++;
+                }
+            }
+        }
+
+        return compact('imageCount', 'missingAltCount', 'internalLinkCount', 'externalLinkCount');
+    }
+
+    private function isInternalHref(string $href, string $pageUrl): bool
+    {
+        $targetHost = parse_url($href, PHP_URL_HOST);
+        $pageHost = parse_url($pageUrl, PHP_URL_HOST);
+
+        if ($targetHost === null || $targetHost === '') {
+            return true;
+        }
+
+        if ($pageHost === null || $pageHost === '') {
+            return false;
+        }
+
+        return strcasecmp((string) $targetHost, (string) $pageHost) === 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $page
+     * @return array<string, mixed>
+     */
+    private function supplementPageFromHtml(string $url, array $page): array
+    {
+        if (! config('services.audit.jina_html_meta_fallback', true)) {
+            return $page;
+        }
+
+        $needsMeta = trim((string) ($page['metaDescription'] ?? '')) === '';
+        $needsTitle = trim((string) ($page['title'] ?? '')) === '';
+        $needsCanonical = trim((string) ($page['canonicalUrl'] ?? '')) === ''
+            || ($page['canonicalUrl'] ?? null) === $url;
+
+        if (! $needsMeta && ! $needsTitle && ! $needsCanonical) {
+            return $page;
+        }
+
+        try {
+            $metadata = $this->fetchHtmlMetadata($url);
+        } catch (\Throwable $exception) {
+            Log::warning('HTML metadata fallback failed after Jina extraction.', [
+                'url' => $url,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return $page;
+        }
+
+        if ($needsTitle && ($metadata['title'] ?? '') !== '') {
+            $page['title'] = $metadata['title'];
+            $page['metrics']['titleLength'] = mb_strlen($metadata['title']);
+        }
+
+        if ($needsMeta && ($metadata['metaDescription'] ?? '') !== '') {
+            $page['metaDescription'] = $metadata['metaDescription'];
+            $page['metrics']['metaDescriptionLength'] = mb_strlen($metadata['metaDescription']);
+        }
+
+        if (($metadata['canonicalUrl'] ?? '') !== '') {
+            $page['canonicalUrl'] = $metadata['canonicalUrl'];
+            $page['metrics']['hasCanonical'] = true;
+        }
+
+        return $page;
+    }
+
+    /**
+     * @return array{title: string, metaDescription: string, canonicalUrl: string}
+     */
+    private function fetchHtmlMetadata(string $url): array
+    {
+        $response = Http::withHeaders([
+            'User-Agent' => config('services.audit.user_agent', 'ClickonAuditBot/1.0 (+https://clickon-audit.local)'),
+            'Accept-Language' => 'vi,en;q=0.8',
+        ])->timeout(20)->get($url);
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Unable to fetch HTML metadata for [{$url}] with status {$response->status()}.");
+        }
+
+        $html = $response->body();
+        $dom = new DOMDocument();
+
+        libxml_use_internal_errors(true);
+        $dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
+        libxml_clear_errors();
+
+        $xpath = new DOMXPath($dom);
+        $title = trim((string) $xpath->evaluate('string(//title)'));
+        $metaDescription = $this->extractMeta($xpath, 'description');
+
+        if ($metaDescription === '') {
+            $metaDescription = trim((string) $xpath->evaluate(
+                'string((//meta[translate(@property, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")="og:description"]/@content)[1])'
+            ));
+        }
+
+        $canonicalUrl = trim((string) $xpath->evaluate('string(//link[@rel="canonical"]/@href)'));
+
+        return [
+            'title' => $title,
+            'metaDescription' => $metaDescription,
+            'canonicalUrl' => $canonicalUrl,
+        ];
+    }
+
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function countAbsoluteUrlListLinks(array $urls, string $pageUrl): array
+    {
+        $internal = 0;
+        $external = 0;
+        $seen = [];
+
+        foreach ($urls as $href) {
+            if (! is_string($href)) {
+                continue;
+            }
+
+            $href = trim($href);
+
+            if ($href === ''
+                || str_starts_with($href, '#')
+                || str_starts_with($href, 'javascript:')
+                || str_starts_with($href, 'mailto:')
+                || str_starts_with($href, 'tel:')) {
+                continue;
+            }
+
+            if (isset($seen[$href])) {
+                continue;
+            }
+
+            $seen[$href] = true;
+
+            if ($this->isInternalHref($href, $pageUrl)) {
+                $internal++;
+            } else {
+                $external++;
+            }
+        }
+
+        return [$internal, $external];
+    }
+
+    /**
+     * @return array{
+     *   title: string,
+     *   metaDescription: string,
+     *   canonicalUrl: string,
+     *   headings: array{h1: array<int, string>, h2: array<int, string>, h3: array<int, string>},
+     *   content: string,
+     *   imageCount: int,
+     *   missingAltCount: int,
+     *   internalLinkCount: int,
+     *   externalLinkCount: int
+     * }
+     */
+    private function parseHtmlDocument(string $html, string $pageUrl): array
+    {
+        $dom = new DOMDocument();
+
+        libxml_use_internal_errors(true);
+        $dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
+        libxml_clear_errors();
+
+        $xpath = new DOMXPath($dom);
+        $title = trim((string) $xpath->evaluate('string(//title)'));
+        $metaDescription = $this->extractMeta($xpath, 'description');
+
+        if ($metaDescription === '') {
+            $metaDescription = trim((string) $xpath->evaluate(
+                'string((//meta[translate(@property, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")="og:description"]/@content)[1])'
+            ));
+        }
+
+        $canonicalUrl = trim((string) $xpath->evaluate('string(//link[@rel="canonical"]/@href)'));
+        $h1 = $this->extractHeadings($xpath, 'h1');
+        $h2 = $this->extractHeadings($xpath, 'h2');
+        $h3 = $this->extractHeadings($xpath, 'h3');
+        $mainNode = $this->resolveMainNode($xpath, $dom);
+        $content = trim(preg_replace('/\s+/u', ' ', $this->extractReadableText($mainNode)) ?? '');
+
+        $images = $xpath->query('//img');
+        $links = $xpath->query('//a[@href]');
+        [$internalLinks, $externalLinks] = $this->countLinks($links, $pageUrl);
+        $missingAltCount = 0;
+
+        foreach ($images ?: [] as $image) {
+            if ($image instanceof DOMElement && trim((string) $image->getAttribute('alt')) === '') {
+                $missingAltCount++;
+            }
+        }
+
+        return [
+            'title' => $title,
+            'metaDescription' => $metaDescription,
+            'canonicalUrl' => $canonicalUrl,
+            'headings' => [
+                'h1' => $h1,
+                'h2' => $h2,
+                'h3' => $h3,
+            ],
+            'content' => $content,
+            'imageCount' => $images?->count() ?? 0,
+            'missingAltCount' => $missingAltCount,
+            'internalLinkCount' => $internalLinks,
+            'externalLinkCount' => $externalLinks,
+        ];
+    }
+
     private function normalizeMarkdownHeading(string $heading): string
     {
         $heading = trim($heading);
+
+        if ($heading === '' || preg_match('/^!\[/u', $heading)) {
+            return '';
+        }
+
         $heading = preg_replace('/\[([^\]]+)\]\([^)]+\)/u', '$1', $heading) ?? $heading;
 
         return trim($heading, " \t*");
@@ -242,66 +721,34 @@ class SeoContentExtractionService
             throw new RuntimeException("Unable to fetch URL [{$url}] with status {$response->status()}.");
         }
 
-        $html = $response->body();
-        $dom = new DOMDocument();
+        $parsed = $this->parseHtmlDocument($response->body(), $url);
 
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
-        libxml_clear_errors();
-
-        $xpath = new DOMXPath($dom);
-        $title = trim((string) $xpath->evaluate('string(//title)'));
-        $metaDescription = $this->extractMeta($xpath, 'description');
-        $canonicalUrl = trim((string) $xpath->evaluate('string(//link[@rel="canonical"]/@href)'));
-        $h1 = $this->extractHeadings($xpath, 'h1');
-        $h2 = $this->extractHeadings($xpath, 'h2');
-        $h3 = $this->extractHeadings($xpath, 'h3');
-        $mainNode = $this->resolveMainNode($xpath, $dom);
-        $content = $this->extractReadableText($mainNode);
-        $content = trim(preg_replace('/\s+/u', ' ', $content) ?? '');
-
-        if (mb_strlen($content) < 200) {
+        if (mb_strlen($parsed['content']) < 200) {
             Log::warning('HTML extraction returned thin content.', [
                 'url' => $url,
-                'content_length' => mb_strlen($content),
-                'content_preview' => mb_substr($content, 0, 120),
+                'content_length' => mb_strlen($parsed['content']),
+                'content_preview' => mb_substr($parsed['content'], 0, 120),
             ]);
-        }
-
-        $images = $xpath->query('//img');
-        $links = $xpath->query('//a[@href]');
-
-        [$internalLinks, $externalLinks] = $this->countLinks($links, $url);
-        $missingAltCount = 0;
-
-        foreach ($images ?: [] as $image) {
-            if ($image instanceof DOMElement && trim((string) $image->getAttribute('alt')) === '') {
-                $missingAltCount++;
-            }
         }
 
         return [
             'url' => $url,
-            'title' => $title,
-            'metaDescription' => $metaDescription,
-            'canonicalUrl' => $canonicalUrl,
-            'headings' => [
-                'h1' => $h1,
-                'h2' => $h2,
-                'h3' => $h3,
-            ],
+            'title' => $parsed['title'],
+            'metaDescription' => $parsed['metaDescription'],
+            'canonicalUrl' => $parsed['canonicalUrl'] !== '' ? $parsed['canonicalUrl'] : $url,
+            'headings' => $parsed['headings'],
             'metrics' => [
-                'wordCount' => str_word_count(strip_tags($content)),
-                'imageCount' => $images?->count() ?? 0,
-                'missingAltCount' => $missingAltCount,
-                'internalLinkCount' => $internalLinks,
-                'externalLinkCount' => $externalLinks,
-                'hasCanonical' => $canonicalUrl !== '',
-                'titleLength' => mb_strlen($title),
-                'metaDescriptionLength' => mb_strlen($metaDescription),
-                'h1Count' => count($h1),
+                'wordCount' => str_word_count(strip_tags($parsed['content'])),
+                'imageCount' => $parsed['imageCount'],
+                'missingAltCount' => $parsed['missingAltCount'],
+                'internalLinkCount' => $parsed['internalLinkCount'],
+                'externalLinkCount' => $parsed['externalLinkCount'],
+                'hasCanonical' => $parsed['canonicalUrl'] !== '',
+                'titleLength' => mb_strlen($parsed['title']),
+                'metaDescriptionLength' => mb_strlen($parsed['metaDescription']),
+                'h1Count' => count($parsed['headings']['h1']),
             ],
-            'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
+            'content' => mb_substr($parsed['content'], 0, (int) config('services.audit.max_content_chars', 18000)),
             'source' => 'html',
         ];
     }

@@ -3,6 +3,7 @@
 set -eu
 
 workers="${QUEUE_WORKERS:-3}"
+memory_limit="${PHP_MEMORY_LIMIT:-512M}"
 config_path="/tmp/supervisord-queue.conf"
 
 cat > "$config_path" <<'EOF'
@@ -19,7 +20,7 @@ cat >> "$config_path" <<EOF
 
 [program:queue-worker-$i]
 directory=/var/www/html
-command=php artisan queue:work --tries=1 --timeout=0 --sleep=1
+command=run-php artisan queue:work --tries=1 --timeout=0 --sleep=1
 autostart=true
 autorestart=true
 startsecs=0

@@ -57,11 +57,6 @@ class ProcessAuditDeepResearchBatchJob implements ShouldQueue
             return;
         }
 
-        if ($auditRunService->retryDeepResearchBatchItemIdsInSmallerChunks($run, $this->itemIds, $exception->getMessage())) {
-            return;
-        }
-
         $auditRunService->markDeepResearchBatchItemIdsFailed($run, $this->itemIds, $exception->getMessage());
-        $auditRunService->dispatchDeepResearchBatches($run);
     }
 }

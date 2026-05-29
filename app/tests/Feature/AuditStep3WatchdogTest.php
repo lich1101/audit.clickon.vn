@@ -72,7 +72,7 @@ class AuditStep3WatchdogTest extends TestCase
             ]);
         $this->app->instance(SeoAiAuditService::class, $seoAi);
 
-        app(AuditRunService::class)->watchdogActiveRun($run);
+        app(AuditRunService::class)->recoverStaleGeminiDeepResearchStep3Batches($run);
 
         $item->refresh();
         $run->refresh();
@@ -107,7 +107,7 @@ class AuditStep3WatchdogTest extends TestCase
             ],
         ])->save();
 
-        app(AuditRunService::class)->watchdogActiveRun($run);
+        app(AuditRunService::class)->recoverStaleGeminiDeepResearchStep3Batches($run);
 
         $item->refresh();
         $run->refresh();
@@ -146,7 +146,7 @@ class AuditStep3WatchdogTest extends TestCase
             'step3_ai_model' => 'gpt-4.1',
             'total_urls' => 1,
         ]);
-        $this->makeStep3Item($ignoredRun, now()->subMinutes(10));
+        $this->makeStep3Item($ignoredRun, now()->subSeconds(30));
 
         $seoAi = Mockery::mock(SeoAiAuditService::class);
         $seoAi->shouldReceive('inspectGeminiDeepResearchInteraction')
@@ -188,7 +188,7 @@ class AuditStep3WatchdogTest extends TestCase
         $ignoredRun->refresh();
 
         $this->assertIsArray($payload);
-        $this->assertSame(1, $payload['scanned'] ?? null);
+        $this->assertSame(2, $payload['scanned'] ?? null);
         $this->assertSame(1, $payload['changed'] ?? null);
         $this->assertSame(1, $payload['recovered'] ?? null);
         $this->assertSame(0, $payload['failedMarked'] ?? null);

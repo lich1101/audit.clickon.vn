@@ -19,8 +19,10 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
+COMPOSE_PROJECT="$(audit_compose_project "$ENV_FILE")"
+
 dc() {
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
 read_or_empty() {
@@ -115,9 +117,12 @@ echo "AUDIT_DEEP_RESEARCH_FORMATTER_MODEL=$(read_or_empty AUDIT_DEEP_RESEARCH_FO
 echo "AUDIT_DEEP_RESEARCH_BATCH_SIZE=$(read_or_empty AUDIT_DEEP_RESEARCH_BATCH_SIZE)"
 
 echo
+echo "==> Preflight: MySQL host"
+audit_check_host_mysql "$ENV_FILE" || STATUS=1
+
+echo
 echo "==> Preflight: Laravel audit configuration check"
-echo "Starting MySQL only so Laravel can read system settings..."
-dc up -d mysql
+dc up -d --no-build api 2>/dev/null || true
 
 if dc run --rm --no-deps api php artisan audit:check-config; then
   echo

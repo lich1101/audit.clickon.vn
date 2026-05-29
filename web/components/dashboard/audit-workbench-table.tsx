@@ -10,33 +10,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { isHttpUrl } from "@/lib/validators";
+import type { AuditWorkbenchRow } from "@/lib/audit-workbench-data";
 import type { AuditRunItemStatus } from "@/types";
 
-export type AuditWorkbenchRow = {
-  status?: AuditRunItemStatus;
-  extractionSource?: string | null;
-  contentSource?: string | null;
-  contentError?: string | null;
-  readerUrl?: string | null;
-  pageTitle?: string | null;
-  metaDescription?: string | null;
-  canonicalUrl?: string | null;
-  headings?: {
-    h1?: string[];
-    h2?: string[];
-    h3?: string[];
-  };
-  metrics?: Record<string, number | boolean | string | null>;
-  primaryKeyword?: string | null;
-  categoryName?: string | null;
-  categoryUrl?: string | null;
-  categoryMatchReason?: string | null;
-  auditScore?: number | null;
-  auditRecommendations?: string[];
-  contentRevisionDirection?: string | null;
-  contentExcerpt?: string | null;
-  errorMessage?: string | null;
-};
+export type { AuditWorkbenchRow };
 
 function ScoreCell({ score }: { score?: number | null }) {
   if (typeof score !== "number") {
@@ -503,6 +480,9 @@ export function AuditWorkbenchTable({
                         <div className="space-y-1">
                           <AuditStatusBadge status={status} />
                           {stageLabel ? <p className="text-xs text-muted-foreground">{stageLabel}</p> : null}
+                          {item?.stageHint ? (
+                            <p className="text-xs text-amber-700 dark:text-amber-300">{item.stageHint}</p>
+                          ) : null}
                         </div>
                       )}
                     </TableCell>
@@ -542,6 +522,10 @@ export function AuditWorkbenchTable({
                       {item?.errorMessage ? (
                         <div className="max-w-[220px]">
                           <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-300">{item.errorMessage}</p>
+                        </div>
+                      ) : item?.stageHint ? (
+                        <div className="max-w-[220px]">
+                          <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm text-amber-700 dark:text-amber-300">{item.stageHint}</p>
                         </div>
                       ) : null}
                     </TableCell>

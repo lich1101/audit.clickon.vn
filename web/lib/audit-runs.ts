@@ -90,6 +90,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     urlResults: Array.isArray(response.data.urlResults)
       ? response.data.urlResults.map((result) => ({
           ...result,
+          auditFindings: Array.isArray(result.auditFindings) ? result.auditFindings : [],
           auditRecommendations: Array.isArray(result.auditRecommendations) ? result.auditRecommendations : [],
           headings: result.headings ?? {},
           metrics: result.metrics ?? {}
@@ -231,6 +232,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
         }
       : null,
     aiStepResponses: run.aiStepResponses ?? {},
+    aiStepErrors: Array.isArray(run.aiStepErrors) ? run.aiStepErrors : [],
     items: Array.isArray(run.items) ? run.items.map((item) => ({
       ...item,
       auditFindings: Array.isArray(item.auditFindings) ? item.auditFindings : [],

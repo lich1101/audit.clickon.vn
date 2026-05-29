@@ -18,8 +18,9 @@ WORKDIR /var/www/html
 
 COPY --from=vendor /app /var/www/html
 COPY docker/php/start-queue-supervisor.sh /usr/local/bin/start-queue-supervisor
+COPY docker/php/run-php.sh /usr/local/bin/run-php
 
-RUN chmod +x /usr/local/bin/start-queue-supervisor
+RUN chmod +x /usr/local/bin/start-queue-supervisor /usr/local/bin/run-php
 
 RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
     && chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
@@ -28,4 +29,4 @@ USER www-data
 
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+CMD ["run-php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

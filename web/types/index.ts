@@ -76,6 +76,7 @@ export type WebsiteAuditUrlResult = {
   categoryUrl?: string | null;
   categoryMatchReason?: string | null;
   auditScore?: number | null;
+  auditFindings?: string[];
   auditRecommendations: string[];
   contentRevisionDirection?: string | null;
   errorMessage?: string | null;
@@ -219,7 +220,7 @@ export type AuditRunItem = {
 export type AuditAiStepResponse = {
   step?: string;
   stepLabel?: string | null;
-  status?: "parsed" | "parse_failed" | string | null;
+  status?: "parsed" | "parse_failed" | "needs_json_formatter" | string | null;
   provider?: AiProvider | string | null;
   model?: string | null;
   interactionId?: string | null;
@@ -239,6 +240,19 @@ export type AuditAiStepResponse = {
   rawTextOriginalBytes?: number | null;
   rawTextTruncated?: boolean;
   rawTextPreview?: string | null;
+  createdAt?: string | null;
+};
+
+export type AuditAiStepError = {
+  stepKey: string;
+  stepLabel: string;
+  status?: string | null;
+  errorMessage?: string | null;
+  parseError?: string | null;
+  positionFrom?: number | null;
+  positionTo?: number | null;
+  provider?: string | null;
+  model?: string | null;
   createdAt?: string | null;
 };
 
@@ -327,6 +341,7 @@ export type AuditRun = {
   createdAt: string;
   updatedAt: string;
   lastError?: string | null;
+  aiStepErrors?: AuditAiStepError[];
   usageSummary?: AuditRunUsageSummary | null;
   aiStepResponses?: Record<string, AuditAiStepResponse>;
   items?: AuditRunItem[];

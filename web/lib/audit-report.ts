@@ -1,6 +1,13 @@
 "use client";
 
-import type { AuditRun } from "@/types";
+import {
+  AUDIT_EXPORT_COLUMNS,
+  auditRunItemToWorkbenchRow,
+  buildAuditExportRow,
+  enrichWorkbenchRowForExport,
+  type AuditWorkbenchRow,
+} from "@/lib/audit-workbench-data";
+import type { AuditRun, AuditRunItem } from "@/types";
 
 function sanitizeFilenamePart(input: string) {
   return input
@@ -10,37 +17,97 @@ function sanitizeFilenamePart(input: string) {
     .slice(0, 60);
 }
 
-export async function exportAuditRunToExcel(run: AuditRun) {
-  const XLSX = await import("xlsx");
-  const rows = (run.items ?? []).map((item) => ({
-    "URL mục tiêu": item.targetUrl,
-    "Từ khóa SEO chính": item.primaryKeyword ?? "",
-    "Danh mục": item.categoryName ?? "",
-    "URL danh mục": item.categoryUrl ?? "",
-    "Lý do chọn danh mục": item.categoryMatchReason ?? "",
-    "Điểm phân tích Audit": item.auditScore ?? "",
-    "Đề xuất audit": item.auditRecommendations.join(" | "),
-    "Định hướng chỉnh sửa nội dung theo Audit": item.contentRevisionDirection ?? "",
-    "Nhận định audit": item.auditFindings.join(" | "),
-    "Trạng thái": item.status,
-    "Nguồn dữ liệu": item.extractionSource ?? "",
-    "Tiêu đề trang": item.pageTitle ?? "",
-    "Meta description": item.metaDescription ?? "",
-    "Canonical": item.canonicalUrl ?? ""
-  }));
+type ExportAuditWorkbenchInput = {
+  websiteName?: string | null;
+  websiteId?: string | null;
+  runPublicId?: string | null;
+  urls: string[];
+  rowsByUrl: Record<string, AuditWorkbenchRow>;
+  fullItemsByUrl?: Record<string, AuditRunItem | undefined>;
+};
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
+export async function exportAuditWorkbenchToExcel(input: ExportAuditWorkbenchInput) {
+  const XLSX = await import("xlsx");
+  const urls = input.urls.filter((url) => url.trim() !== "");
+
+  if (urls.length === 0) {
+    throw new Error("Không có URL nào để xuất Excel.");
+  }
+
+  const rows = urls.map((url, index) => {
+    const merged = input.rowsByUrl[url] ?? { targetUrl: url };
+    const enriched = enrichWorkbenchRowForExport(merged, input.fullItemsByUrl?.[url]);
+    return buildAuditExportRow(index, { ...enriched, targetUrl: url });
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(rows, {
+    header: [...AUDIT_EXPORT_COLUMNS],
+  });
+
+  worksheet["!cols"] = [
+    { wch: 6 },
+    { wch: 42 },
+    { wch: 34 },
+    { wch: 34 },
+    { wch: 12 },
+    { wch: 48 },
+    { wch: 28 },
+    { wch: 12 },
+    { wch: 24 },
+    { wch: 28 },
+    { wch: 24 },
+    { wch: 34 },
+    { wch: 28 },
+    { wch: 10 },
+    { wch: 42 },
+    { wch: 42 },
+    { wch: 42 },
+    { wch: 28 },
+    { wch: 34 },
+    { wch: 28 },
+    { wch: 28 },
+    { wch: 28 },
+  ];
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Audit Report");
 
   const filename = [
     "clickon-audit",
-    sanitizeFilenamePart(run.websiteName || run.websiteId || "website"),
-    sanitizeFilenamePart(run.publicId)
+    sanitizeFilenamePart(input.websiteName || input.websiteId || "website"),
+    input.runPublicId ? sanitizeFilenamePart(input.runPublicId) : "selected",
+    `${urls.length}-urls`,
   ]
     .filter(Boolean)
     .join("-")
     .concat(".xlsx");
 
   XLSX.writeFile(workbook, filename);
+}
+
+export async function exportAuditRunToExcel(
+  run: AuditRun,
+  options?: {
+    urls?: string[];
+    rowsByUrl?: Record<string, AuditWorkbenchRow>;
+  }
+) {
+  const items = [...(run.items ?? [])].sort((left, right) => left.position - right.position);
+  const defaultUrls = items.map((item) => item.targetUrl);
+  const urls = (options?.urls?.length ? options.urls : defaultUrls).filter((url) => url.trim() !== "");
+
+  const rowsByUrl =
+    options?.rowsByUrl ??
+    Object.fromEntries(items.map((item) => [item.targetUrl, auditRunItemToWorkbenchRow(item)]));
+
+  const fullItemsByUrl = Object.fromEntries(items.map((item) => [item.targetUrl, item]));
+
+  await exportAuditWorkbenchToExcel({
+    websiteName: run.websiteName,
+    websiteId: run.websiteId,
+    runPublicId: run.publicId,
+    urls,
+    rowsByUrl,
+    fullItemsByUrl,
+  });
 }

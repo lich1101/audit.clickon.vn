@@ -394,7 +394,7 @@ Artisan::command('audit:recover-stale-runs {--limit=} {--json}', function (Audit
     }
 
     return SymfonyCommand::SUCCESS;
-})->purpose('Recover stale active audit runs in bulk without waiting for the UI watchdog');
+})->purpose('Khôi phục run kẹt: bước 1 (fetch) và lưu DB bước 3 từ kết quả đã có — không gọi lại AI bước 2–3.5');
 
 if ((bool) config('services.audit.stale_run_recovery_enabled', true)) {
     Schedule::command('audit:recover-stale-runs --quiet')

@@ -115,6 +115,9 @@ class WebsiteAuditUrlResultService
             'categoryUrl' => $result->category_url,
             'categoryMatchReason' => $result->category_match_reason,
             'auditScore' => $result->audit_score,
+            'auditFindings' => $result->audit_findings
+                ? array_values(array_filter(preg_split('/\r\n|\r|\n/', $result->audit_findings) ?: []))
+                : [],
             'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
             'contentRevisionDirection' => $result->content_revision_direction,
             'errorMessage' => $result->error_message,
@@ -157,6 +160,12 @@ class WebsiteAuditUrlResultService
 
     private function readerUrlFor(string $targetUrl): string
     {
+        $provider = strtolower(trim((string) config('services.audit.content_provider', '')));
+
+        if ($provider === 'firecrawl') {
+            return $targetUrl;
+        }
+
         return rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$targetUrl;
     }
 }

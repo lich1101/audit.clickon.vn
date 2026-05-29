@@ -328,7 +328,7 @@ class AuditRunService
             return false;
         }
 
-        if (! in_array($source, ['jina', 'html'], true)) {
+        if (! in_array($source, ['jina', 'html', 'firecrawl'], true)) {
             return false;
         }
 
@@ -385,6 +385,8 @@ class AuditRunService
             return $payload;
         }
 
+        $contentExcerpt = $item->content_excerpt ?: null;
+
         $payload['page'] = [
             'url' => $item->target_url,
             'title' => $item->page_title,
@@ -392,17 +394,23 @@ class AuditRunService
             'canonicalUrl' => $item->canonical_url,
             'headings' => $item->extracted_headings ?? [],
             'metrics' => $item->extracted_metrics ?? [],
-            'contentExcerpt' => $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 3000) : null,
+            'contentExcerpt' => $contentExcerpt,
             'source' => $item->content_source,
             'extractionError' => $item->content_error,
         ];
-        $payload['articleContent'] = $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 3000) : null;
+        $payload['articleContent'] = $contentExcerpt;
 
         return $payload;
     }
 
     private function readerUrlFor(string $targetUrl): string
     {
+        $provider = strtolower(trim((string) config('services.audit.content_provider', '')));
+
+        if ($provider === 'firecrawl') {
+            return $targetUrl;
+        }
+
         return rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$targetUrl;
     }
 
@@ -936,7 +944,16 @@ class AuditRunService
             $query->where(function ($builder): void {
                 $builder
                     ->where('content_source', 'html')
-                    ->orWhereRaw('CHAR_LENGTH(COALESCE(content_excerpt, "")) <= ?', [20]);
+                    ->orWhereRaw('CHAR_LENGTH(COALESCE(content_excerpt, "")) <= ?', [20])
+                    ->orWhere(function ($nested): void {
+                        $nested
+                            ->whereIn('content_source', ['jina', 'firecrawl'])
+                            ->where(function ($meta): void {
+                                $meta
+                                    ->whereNull('meta_description')
+                                    ->orWhere('meta_description', '');
+                            });
+                    });
             });
         }
 
@@ -1056,7 +1073,7 @@ class AuditRunService
                 $item->forceFill([
                     'status' => 'failed',
                     'extraction_source' => self::SOURCE_STEP2_DONE,
-                    'error_message' => 'Batch AI bước 2 không trả kết quả cho URL này.',
+                    'error_message' => '[Bước 2: keyword + danh mục] Batch AI không trả kết quả cho URL này.',
                     'completed_at' => now(),
                 ])->save();
                 $this->syncItemIfEnabled($item->fresh('run'));
@@ -1177,13 +1194,121 @@ class AuditRunService
 
     public function watchdogActiveRun(AuditRun $run): void
     {
-        $freshRun = $run->fresh('items');
+        $freshRun = $run->fresh();
 
-        if (! $freshRun || $freshRun->cancelled_at !== null || ! in_array($freshRun->status, ['queued', 'processing'], true)) {
+        if (! $freshRun || $freshRun->cancelled_at !== null || ! in_array($freshRun->status, ['queued', 'processing', 'partial'], true)) {
             return;
         }
 
-        $this->recoverStaleGeminiDeepResearchStep3Batches($freshRun);
+        $this->recoverStaleStep1Batches($freshRun);
+        $this->recoverStep3DbApplyFromSavedParsed($freshRun);
+    }
+
+    /**
+     * Chỉ apply lại kết quả AI bước 3 đã lưu vào DB — không gọi lại API bước 2/2.5/3/3.5.
+     */
+    public function recoverStep3DbApplyFromSavedParsed(AuditRun $run): bool
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run) || ! in_array($run->status, ['queued', 'processing', 'partial'], true)) {
+            return false;
+        }
+
+        if ($this->stepAiProvider($run, 3) === 'gemini_deep_research') {
+            return false;
+        }
+
+        if (! $run->items()
+            ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+            ->where('status', 'analyzing')
+            ->exists()) {
+            return false;
+        }
+
+        $responses = is_array($run->ai_step_responses) ? $run->ai_step_responses : [];
+        $changed = false;
+
+        foreach ($responses as $stepKey => $record) {
+            if (! is_string($stepKey) || ! str_starts_with($stepKey, 'batch_onpage_audit_') || ! is_array($record)) {
+                continue;
+            }
+
+            if (($record['status'] ?? '') !== 'parsed' || ! is_array($record['parsed'] ?? null)) {
+                continue;
+            }
+
+            if (! preg_match('/_(\d{3})_(\d{3})$/', $stepKey, $matches)) {
+                continue;
+            }
+
+            $pendingItems = $run->items()
+                ->whereBetween('position', [(int) $matches[1], (int) $matches[2]])
+                ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+                ->where('status', 'analyzing')
+                ->orderBy('position')
+                ->get(AuditRunItem::boardSummaryColumns());
+
+            if ($pendingItems->isEmpty()) {
+                continue;
+            }
+
+            $this->applyStep3BatchAnalysis(
+                $run->fresh(),
+                $pendingItems,
+                $this->analysisFromSavedStep3Parsed($record),
+                continuePipeline: false,
+            );
+            $changed = true;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * @deprecated Use recoverStep3DbApplyFromSavedParsed()
+     */
+    public function recoverIncompleteStep3Batches(AuditRun $run): bool
+    {
+        return $this->recoverStep3DbApplyFromSavedParsed($run);
+    }
+
+    /**
+     * Khôi phục batch bước 1 bị kẹt (worker chết giữa chừng) — cho phép fetch lại Jina/HTML.
+     */
+    public function recoverStaleStep1Batches(AuditRun $run): bool
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run) || ! in_array($run->status, ['queued', 'processing', 'partial'], true)) {
+            return false;
+        }
+
+        $staleBefore = now()->subSeconds($this->step1RecoveryStaleSeconds());
+        $stuckItemIds = $run->items()
+            ->where('status', 'fetching')
+            ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+            ->where('updated_at', '<=', $staleBefore)
+            ->orderBy('position')
+            ->pluck('id')
+            ->all();
+
+        if ($stuckItemIds === []) {
+            return false;
+        }
+
+        $run->items()
+            ->whereIn('id', $stuckItemIds)
+            ->update([
+                'status' => 'queued',
+                'extraction_source' => null,
+                'error_message' => null,
+                'updated_at' => now(),
+            ]);
+
+        $this->dispatchStep1Batches($run->fresh());
+
+        return true;
     }
 
     /**
@@ -1412,14 +1537,20 @@ class AuditRunService
 
         $runs = AuditRun::query()
             ->whereNull('cancelled_at')
-            ->whereIn('status', ['queued', 'processing'])
-            ->where('step3_ai_provider', 'gemini_deep_research')
-            ->whereHas('items', function ($query): void {
+            ->whereIn('status', ['queued', 'processing', 'partial'])
+            ->where(function ($query): void {
                 $query
-                    ->where('status', 'analyzing')
-                    ->where('extraction_source', self::SOURCE_STEP3_RUNNING);
+                    ->whereHas('items', function ($itemQuery): void {
+                        $itemQuery
+                            ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+                            ->where('status', 'fetching');
+                    })
+                    ->orWhereHas('items', function ($itemQuery): void {
+                        $itemQuery
+                            ->where('extraction_source', self::SOURCE_STEP3_RUNNING)
+                            ->where('status', 'analyzing');
+                    });
             })
-            ->with(['items' => fn ($query) => $query->orderBy('position')])
             ->orderBy('updated_at')
             ->limit($effectiveLimit)
             ->get();
@@ -1443,7 +1574,7 @@ class AuditRunService
 
             $this->watchdogActiveRun($run);
 
-            $afterRun = $run->fresh(['items' => fn ($query) => $query->orderBy('position')]);
+            $afterRun = $run->fresh();
             $after = [
                 'status' => $afterRun?->status,
                 'processed' => (int) ($afterRun?->processed_urls ?? 0),
@@ -1487,8 +1618,12 @@ class AuditRunService
      * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
      * @param  array{items: array<int, array<string, mixed>>, promptSnapshot?: array<string, mixed>|null, formatterPromptSnapshot?: array<string, mixed>|null}  $analysis
      */
-    private function applyStep3BatchAnalysis(AuditRun $run, \Illuminate\Support\Collection $items, array $analysis): void
-    {
+    private function applyStep3BatchAnalysis(
+        AuditRun $run,
+        \Illuminate\Support\Collection $items,
+        array $analysis,
+        bool $continuePipeline = true,
+    ): void {
         $resultList = collect($analysis['items'] ?? [])
             ->filter(fn (mixed $item): bool => is_array($item))
             ->values();
@@ -1502,12 +1637,16 @@ class AuditRunService
             if (! is_array($result)) {
                 $item->forceFill([
                     'status' => 'failed',
-                    'error_message' => 'Batch AI bước 3 không trả kết quả cho URL này.',
+                    'error_message' => '[Bước 3: audit onpage] Batch AI không trả kết quả cho URL này.',
                     'completed_at' => now(),
                 ])->save();
                 $this->syncItemIfEnabled($item->fresh('run'));
                 $this->urlResultService->upsertFromItem($item->fresh('run'));
 
+                continue;
+            }
+
+            if ($item->status === 'completed' && $item->extraction_source === self::SOURCE_COMPLETED) {
                 continue;
             }
 
@@ -1519,7 +1658,7 @@ class AuditRunService
                 $item->category_url,
             );
 
-            $item->forceFill([
+            $updates = [
                 'status' => 'completed',
                 'extraction_source' => self::SOURCE_COMPLETED,
                 'primary_keyword' => $result['primaryKeyword'] ?? $item->primary_keyword,
@@ -1530,23 +1669,37 @@ class AuditRunService
                 'audit_findings' => implode("\n", array_filter($result['auditFindings'] ?? [], 'is_string')),
                 'audit_recommendations' => implode("\n", array_filter($result['auditRecommendations'] ?? [], 'is_string')),
                 'content_revision_direction' => is_string($result['contentRevisionDirection'] ?? null) ? $result['contentRevisionDirection'] : null,
-                'prompt_snapshots' => array_merge($item->prompt_snapshots ?? [], [
-                    'onpageAudit' => $analysis['promptSnapshot'] ?? null,
-                    'onpageAuditFormatter' => $analysis['formatterPromptSnapshot'] ?? null,
-                ]),
                 'error_message' => null,
                 'completed_at' => now(),
-            ])->save();
+            ];
+
+            if ($index === 0 && (
+                ($analysis['promptSnapshot'] ?? null) !== null
+                || ($analysis['formatterPromptSnapshot'] ?? null) !== null
+            )) {
+                $updates['prompt_snapshots'] = array_merge($item->prompt_snapshots ?? [], [
+                    'onpageAudit' => $analysis['promptSnapshot'] ?? null,
+                    'onpageAuditFormatter' => $analysis['formatterPromptSnapshot'] ?? null,
+                ]);
+            }
+
+            $item->forceFill($updates)->save();
 
             $this->syncItemIfEnabled($item->fresh('run'));
             $this->urlResultService->upsertFromItem($item->fresh('run'));
         }
 
         $this->refreshRunProgress($run);
-        $this->dispatchStep3Batches($run);
+
+        if ($continuePipeline) {
+            $this->dispatchStep3Batches($run);
+        }
     }
 
-    private function recoverStaleGeminiDeepResearchStep3Batches(AuditRun $run): void
+    /**
+     * Watchdog thủ công cho Gemini Deep Research — không chạy tự động qua cron/UI.
+     */
+    public function recoverStaleGeminiDeepResearchStep3Batches(AuditRun $run): void
     {
         if ($this->stepAiProvider($run, 3) !== 'gemini_deep_research') {
             return;
@@ -1593,7 +1746,6 @@ class AuditRunService
                     $chunk->pluck('id')->values()->all(),
                     'Bước 3 bị kẹt quá lâu và không có interaction id của Gemini Deep Research. Worker có thể đã chết trước khi lưu trạng thái. Hãy chạy lại batch từ bước 3.'
                 );
-                $this->dispatchStep3Batches($run);
 
                 continue;
             }
@@ -1612,7 +1764,6 @@ class AuditRunService
                     $chunk->pluck('id')->values()->all(),
                     'Không thể kiểm tra lại trạng thái Gemini Deep Research bị kẹt: '.$exception->getMessage()
                 );
-                $this->dispatchStep3Batches($run);
 
                 continue;
             }
@@ -1648,7 +1799,6 @@ class AuditRunService
                         $chunk->pluck('id')->values()->all(),
                         'Gemini Deep Research đã hoàn tất từ xa nhưng không dựng lại được kết quả batch: '.$exception->getMessage()
                     );
-                    $this->dispatchStep3Batches($run);
 
                     continue;
                 }
@@ -1671,7 +1821,6 @@ class AuditRunService
             if (in_array($remoteStatus, ['failed', 'cancelled'], true)) {
                 $message = 'Gemini Deep Research '.($inspection['status'] ?? 'failed').': '.((string) ($inspection['errorMessage'] ?? 'Unknown error.'));
                 $this->markBatchItemIdsFailed($run, $chunk->pluck('id')->values()->all(), $message);
-                $this->dispatchStep3Batches($run);
 
                 continue;
             }
@@ -1912,6 +2061,11 @@ class AuditRunService
      */
     public function retryBatchItemIdsInSmallerChunks(AuditRun $run, array $itemIds, int $step, string $message): bool
     {
+        // Không tự gọi lại API bước 2 / 3 khi lỗi — tránh vượt quota cấu hình.
+        if (in_array($step, [2, 3], true)) {
+            return false;
+        }
+
         $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
 
         if (! in_array($step, [2, 3], true) || count($itemIds) <= 1 || ! $this->isRecoverableBatchShapeFailure($message)) {
@@ -1966,45 +2120,7 @@ class AuditRunService
      */
     public function retryDeepResearchBatchItemIdsInSmallerChunks(AuditRun $run, array $itemIds, string $message): bool
     {
-        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
-
-        if (count($itemIds) <= 1 || ! $this->isRecoverableBatchShapeFailure($message)) {
-            return false;
-        }
-
-        $chunkSize = $this->smallerRetryChunkSize(count($itemIds));
-
-        $shouldRetry = DB::transaction(function () use ($run, $itemIds): bool {
-            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
-
-            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
-                return false;
-            }
-
-            $freshRun->items()
-                ->whereIn('id', $itemIds)
-                ->update([
-                    'status' => 'fetching',
-                    'extraction_source' => self::SOURCE_DEEP_RESEARCH_RUNNING,
-                    'error_message' => null,
-                    'completed_at' => null,
-                    'updated_at' => now(),
-                ]);
-
-            return true;
-        });
-
-        if (! $shouldRetry) {
-            return false;
-        }
-
-        foreach (array_chunk($itemIds, $chunkSize) as $chunk) {
-            ProcessAuditDeepResearchBatchJob::dispatch($run->id, array_values($chunk));
-        }
-
-        $this->syncRunIfEnabled($run->fresh());
-
-        return true;
+        return false;
     }
 
     /**
@@ -2402,6 +2518,59 @@ class AuditRunService
     private function step3WatchdogStaleSeconds(): int
     {
         return max(30, (int) config('services.audit.gemini_deep_research_watchdog_stale_seconds', 120));
+    }
+
+    private function step1RecoveryStaleSeconds(): int
+    {
+        return max(30, (int) config('services.audit.step3_recovery_stale_seconds', 120));
+    }
+
+    private function step3RecoveryStaleSeconds(): int
+    {
+        return max(30, (int) config('services.audit.step3_recovery_stale_seconds', 120));
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $chunk
+     * @param  array<string, mixed>  $record
+     */
+    private function isStep3RecoveryStale(\Illuminate\Support\Collection $chunk, array $record): bool
+    {
+        $heartbeatUnix = $this->step3HeartbeatUnix($record);
+        $staleSeconds = $this->step3RecoveryStaleSeconds();
+
+        if ($heartbeatUnix !== null) {
+            return (time() - $heartbeatUnix) >= $staleSeconds;
+        }
+
+        $lastUpdatedUnix = $chunk
+            ->map(fn (AuditRunItem $item): ?int => $item->updated_at?->getTimestamp())
+            ->filter(fn (?int $timestamp): bool => $timestamp !== null)
+            ->max();
+
+        if (! is_int($lastUpdatedUnix)) {
+            return false;
+        }
+
+        return (time() - $lastUpdatedUnix) >= $staleSeconds;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: null, formatterPromptSnapshot: null}
+     */
+    private function analysisFromSavedStep3Parsed(array $record): array
+    {
+        $parsed = $record['parsed'] ?? [];
+        $items = is_array($parsed['items'] ?? null)
+            ? $parsed['items']
+            : (is_array($parsed) ? $parsed : []);
+
+        return [
+            'items' => array_values(array_filter($items, is_array(...))),
+            'promptSnapshot' => null,
+            'formatterPromptSnapshot' => null,
+        ];
     }
 
     public function isRunCancelled(AuditRun $run): bool
@@ -3076,11 +3245,16 @@ class AuditRunService
 
             $freshRun->items()
                 ->whereIn('status', ['queued', 'fetching', 'analyzing'])
-                ->update([
-                    'status' => 'failed',
-                    'error_message' => $message,
-                    'completed_at' => now(),
-                ]);
+                ->get()
+                ->each(function (AuditRunItem $item) use ($message): void {
+                    $item->forceFill([
+                        'status' => 'failed',
+                        'error_message' => is_string($item->error_message) && trim($item->error_message) !== ''
+                            ? $item->error_message
+                            : $message,
+                        'completed_at' => now(),
+                    ])->save();
+                });
 
             $items = $freshRun->items()->get(['status']);
             $completed = $items->where('status', 'completed')->count();
@@ -3225,7 +3399,165 @@ class AuditRunService
             'createdAt' => optional($run->created_at)?->toIso8601String(),
             'updatedAt' => optional($run->updated_at)?->toIso8601String(),
             'lastError' => $run->last_error,
+            'aiStepErrors' => $this->compactAiStepErrors($run->ai_step_responses ?? []),
             'items' => [],
+        ];
+    }
+
+    /**
+     * @return list<array{
+     *     stepKey: string,
+     *     stepLabel: string,
+     *     status: string|null,
+     *     errorMessage: string|null,
+     *     parseError: string|null,
+     *     positionFrom: int|null,
+     *     positionTo: int|null,
+     *     provider: string|null,
+     *     model: string|null,
+     *     createdAt: string|null
+     * }>
+     */
+    public function compactAiStepErrors(mixed $responses): array
+    {
+        if (! is_array($responses)) {
+            return [];
+        }
+
+        $errors = [];
+
+        foreach ($responses as $stepKey => $record) {
+            if (! is_string($stepKey) || ! is_array($record)) {
+                continue;
+            }
+
+            if (! $this->isAiStepErrorRecord($stepKey, $record)) {
+                continue;
+            }
+
+            $meta = $this->usageStepMeta($stepKey);
+            $positions = $this->stepKeyPositionRange($stepKey);
+
+            $errors[] = [
+                'stepKey' => $stepKey,
+                'stepLabel' => (string) ($record['stepLabel'] ?? $meta['label']),
+                'status' => isset($record['status']) ? (string) $record['status'] : null,
+                'errorMessage' => $this->aiStepRecordErrorMessage($record),
+                'parseError' => is_string($record['parseError'] ?? null) ? $record['parseError'] : null,
+                'positionFrom' => $positions['from'],
+                'positionTo' => $positions['to'],
+                'provider' => is_string($record['provider'] ?? null) ? $record['provider'] : null,
+                'model' => is_string($record['model'] ?? null) ? $record['model'] : null,
+                'createdAt' => is_string($record['createdAt'] ?? null) ? $record['createdAt'] : null,
+            ];
+        }
+
+        usort($errors, function (array $left, array $right): int {
+            $leftOrder = $this->usageStepMeta($left['stepKey'])['order'];
+            $rightOrder = $this->usageStepMeta($right['stepKey'])['order'];
+
+            if ($leftOrder !== $rightOrder) {
+                return $leftOrder <=> $rightOrder;
+            }
+
+            return ($left['positionFrom'] ?? 0) <=> ($right['positionFrom'] ?? 0);
+        });
+
+        return $errors;
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function markBatchItemIdsFailedForAiStep(AuditRun $run, array $itemIds, string $stepBase, string $message): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get(['id', 'position']);
+
+        $stepKey = $this->chunkStepKey($stepBase, $items);
+        $label = $this->usageStepMeta($stepKey)['label'];
+        $formatted = '['.$label.'] '.$message;
+
+        $this->markBatchItemIdsFailed($run, $itemIds, $formatted);
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function isAiStepErrorRecord(string $stepKey, array $record): bool
+    {
+        if (! preg_match('/^(batch_keyword_category_mapping|keyword_category_json_formatter|batch_onpage_audit|onpage_audit_json_formatter|deep_research_)/', $stepKey)) {
+            return false;
+        }
+
+        $status = (string) ($record['status'] ?? '');
+        $parseError = trim((string) ($record['parseError'] ?? ''));
+
+        if ($parseError !== '') {
+            return true;
+        }
+
+        return in_array($status, [
+            'parse_failed',
+            'failed',
+            'cancelled',
+            'watchdog_stale_detected',
+            'needs_json_formatter',
+        ], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function aiStepRecordErrorMessage(array $record): ?string
+    {
+        foreach (['parseError', 'reason', 'errorMessage', 'remoteStatus'] as $field) {
+            $value = $record[$field] ?? null;
+
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        $status = (string) ($record['status'] ?? '');
+
+        if ($status === 'needs_json_formatter') {
+            return 'AI trả prose thay vì JSON — đang chạy formatter để chuẩn hóa.';
+        }
+
+        if ($status === 'recovery_redispatch') {
+            return 'Batch đã được reset thủ công trước đó (legacy).';
+        }
+
+        if ($status === 'watchdog_stale_detected') {
+            return 'Batch treo quá lâu, hệ thống đang kiểm tra lại.';
+        }
+
+        if (in_array($status, ['parse_failed', 'failed', 'cancelled'], true)) {
+            return 'Gọi AI thất bại (status: '.$status.').';
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{from: int|null, to: int|null}
+     */
+    private function stepKeyPositionRange(string $stepKey): array
+    {
+        if (! preg_match('/_(\d{3})_(\d{3})$/', $stepKey, $matches)) {
+            return ['from' => null, 'to' => null];
+        }
+
+        return [
+            'from' => (int) $matches[1],
+            'to' => (int) $matches[2],
         ];
     }
 
@@ -3261,7 +3593,9 @@ class AuditRunService
             'categoryUrl' => $item->category_url,
             'categoryMatchReason' => $item->category_match_reason,
             'auditScore' => $item->audit_score,
-            'auditFindings' => [],
+            'auditFindings' => $item->audit_findings
+                ? array_values(array_filter(preg_split('/\r\n|\r|\n/', $item->audit_findings) ?: []))
+                : [],
             'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
             'contentRevisionDirection' => $item->content_revision_direction,
             'contentExcerpt' => $item->content_excerpt ? mb_substr($item->content_excerpt, 0, 1200) : null,
@@ -3315,6 +3649,7 @@ class AuditRunService
             'updatedAt' => optional($run->updated_at)?->toIso8601String(),
             'lastError' => $run->last_error,
             'usageSummary' => $this->serializeUsageSummary($run),
+            'aiStepErrors' => $this->compactAiStepErrors($run->ai_step_responses ?? []),
             'aiStepResponses' => $this->compactAiStepResponses($run->ai_step_responses ?? []),
             'items' => $run->items->map(fn (AuditRunItem $item): array => [
                 'publicId' => $item->public_id,

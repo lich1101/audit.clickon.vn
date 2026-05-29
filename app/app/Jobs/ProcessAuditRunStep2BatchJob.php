@@ -57,11 +57,12 @@ class ProcessAuditRunStep2BatchJob implements ShouldQueue
             return;
         }
 
-        if ($auditRunService->retryBatchItemIdsInSmallerChunks($run, $this->itemIds, 2, $exception->getMessage())) {
-            return;
-        }
-
-        $auditRunService->markBatchItemIdsFailed($run, $this->itemIds, $exception->getMessage());
+        $auditRunService->markBatchItemIdsFailedForAiStep(
+            $run,
+            $this->itemIds,
+            'batch_keyword_category_mapping',
+            $exception->getMessage(),
+        );
         $auditRunService->abortRunAfterStep2Failure(
             $run,
             'Bước 2 lỗi batch: '.$exception->getMessage(),

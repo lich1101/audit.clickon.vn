@@ -33,6 +33,9 @@ class SeoContentExtractionServiceTest extends TestCase
         $this->assertStringNotContainsString('URL Source:', $parsed['content']);
     }
 
+    public function test_extract_markdown_headings_skips_image_like_headings(): void
+    {
+        $service = new SeoContentExtractionService;
         $method = new ReflectionMethod(SeoContentExtractionService::class, 'extractMarkdownHeadings');
         $method->setAccessible(true);
 
@@ -46,6 +49,134 @@ class SeoContentExtractionServiceTest extends TestCase
         $this->assertSame(['Tiêu đề chính'], $headings['h1']);
         $this->assertSame(['Mục hợp lệ'], $headings['h2']);
         $this->assertSame(['Chi tiết'], $headings['h3']);
+    }
+
+    public function test_parse_html_document_preserves_vietnamese_utf8_headings(): void
+    {
+        $service = new SeoContentExtractionService;
+        $method = new ReflectionMethod(SeoContentExtractionService::class, 'parseHtmlDocument');
+        $method->setAccessible(true);
+
+        $parsed = $method->invoke($service, <<<'HTML'
+<!doctype html>
+<html>
+<body>
+  <h1>1KG CHÌ GIÁ BAO NHIÊU? THU MUA CHÌ PHẾ LIỆU</h1>
+  <h2>Giá 1kg Chì Phế Liệu Hiện Nay?</h2>
+  <p>Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon với tiếng Việt có dấu.</p>
+</body>
+</html>
+HTML, 'https://example.com/page');
+
+        $this->assertSame(['1KG CHÌ GIÁ BAO NHIÊU? THU MUA CHÌ PHẾ LIỆU'], $parsed['headings']['h1']);
+        $this->assertSame(['Giá 1kg Chì Phế Liệu Hiện Nay?'], $parsed['headings']['h2']);
+        $this->assertStringContainsString('tiếng Việt có dấu', $parsed['content']);
+        $this->assertStringContainsString('## Giá 1kg Chì Phế Liệu Hiện Nay?', $parsed['content']);
+    }
+
+    public function test_build_audit_content_removes_sidebar_and_related_sections(): void
+    {
+        $service = new SeoContentExtractionService;
+        $method = new ReflectionMethod(SeoContentExtractionService::class, 'parseHtmlDocument');
+        $method->setAccessible(true);
+
+        $parsed = $method->invoke($service, <<<'HTML'
+<!doctype html>
+<html><body>
+  <div class="wrap-content">0986 117 289</div>
+  <main class="content-main">
+    <h1>Thu mua chì phế liệu</h1>
+    <p>Nội dung chính đủ dài để audit SEO onpage theo checklist Clickon với tiếng Việt có dấu và mô tả chi tiết quy trình thu mua.</p>
+    <p>Thiên Long cam kết giá cao, thanh toán nhanh và tận nơi tại TP.HCM cho khách hàng cá nhân và doanh nghiệp.</p>
+    <div class="related-posts">Bài viết liên quan</div>
+    <p>Danh mục thu mua khác không thuộc bài viết chính.</p>
+  </main>
+</body></html>
+HTML, 'https://example.com/page');
+
+        $this->assertStringContainsString('Nội dung chính đủ dài', $parsed['content']);
+        $this->assertStringNotContainsString('0986 117 289', $parsed['content']);
+        $this->assertStringNotContainsString('Danh mục thu mua', $parsed['content']);
+        $this->assertSame(0, $parsed['internalLinkCount']);
+    }
+
+    public function test_parse_html_document_builds_checklist_evidence_for_pdf_criteria(): void
+    {
+        $service = new SeoContentExtractionService;
+        $method = new ReflectionMethod(SeoContentExtractionService::class, 'parseHtmlDocument');
+        $method->setAccessible(true);
+
+        $parsed = $method->invoke($service, <<<'HTML'
+<!doctype html>
+<html>
+<head>
+  <title>Thu mua chì phế liệu giá cao 2026 tại TP.HCM</title>
+  <meta name="description" content="Dịch vụ thu mua chì phế liệu giá cao, thanh toán nhanh, tận nơi tại TP.HCM cho khách hàng cá nhân và doanh nghiệp cần bán phế liệu." />
+</head>
+<body>
+<main class="content-main">
+  <h1>Thu mua chì phế liệu giá cao 2026</h1>
+  <p>Thiên Long thu mua chì phế liệu tận nơi. Xem <a href="https://example.com/thu-mua-chi-phe-lieu">bài viết này</a> hoặc về <a href="https://example.com/">trang chủ</a>.</p>
+  <p>Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon với tiếng Việt có dấu và mô tả chi tiết quy trình thu mua.</p>
+  <h2>Giá thu mua chì phế liệu</h2>
+  <ul><li>Giá cao</li><li>Thanh toán nhanh</li></ul>
+  <img src="https://example.com/uploads/thu-mua-chi-phe-lieu.jpg" alt="Thu mua chì phế liệu giá cao" />
+  <img src="https://example.com/uploads/bang-gia.jpg" alt="" />
+  <a href="https://example.com/bang-gia">Xem bảng giá</a>
+  <a href="https://example.com/lien-he">Liên hệ ngay</a>
+  <h2>FAQ thu mua chì phế liệu</h2>
+  <p>Câu hỏi thường gặp về giá và quy trình thu mua.</p>
+</main>
+</body></html>
+HTML, 'https://example.com/thu-mua-chi-phe-lieu');
+
+        $evidence = $parsed['checklistEvidence'];
+        $this->assertGreaterThan(0, $evidence['title']['length']);
+        $this->assertTrue($evidence['title']['hasNumber']);
+        $this->assertTrue($evidence['url']['usesHyphens']);
+        $this->assertFalse($evidence['url']['hasDiacritics']);
+        $this->assertTrue($evidence['sapo']['hasSelfLink']);
+        $this->assertTrue($evidence['sapo']['hasHomepageLink']);
+        $this->assertSame(2, $evidence['images']['count']);
+        $this->assertSame(1, $evidence['images']['missingAltCount']);
+        $this->assertGreaterThanOrEqual(2, $evidence['internalLinks']['count']);
+        $this->assertTrue($evidence['structure']['hasBulletList']);
+        $this->assertTrue($evidence['cta']['detected']);
+        $this->assertTrue($evidence['faq']['detected']);
+        $this->assertContains(1, $evidence['verifiableCriteria']);
+        $this->assertContains(3, $evidence['verifiableCriteria']);
+        $this->assertContains(15, $evidence['verifiableCriteria']);
+        $this->assertContains(5, $evidence['externalDataRequired']);
+    }
+
+    public function test_finalize_extracted_page_marks_audit_ready_for_substantive_content(): void
+    {
+        config([
+            'services.audit.content_provider' => 'firecrawl',
+            'services.audit.firecrawl_base_url' => 'http://firecrawl.test',
+            'services.audit.min_audit_content_words' => 20,
+            'services.audit.min_audit_content_chars' => 100,
+            'services.audit.ai_http_retry_attempts' => 1,
+        ]);
+
+        Http::fake([
+            'http://firecrawl.test/v1/scrape' => Http::response([
+                'success' => true,
+                'data' => [
+                    'metadata' => ['title' => 'Thu mua phế liệu'],
+                    'markdown' => '',
+                    'html' => <<<'HTML'
+<!doctype html><html><body><main><h1>Thu mua phế liệu</h1><p>Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon với tiếng Việt có dấu.</p></main></body></html>
+HTML,
+                ],
+            ]),
+        ]);
+
+        $page = (new SeoContentExtractionService)->extract('https://example.com/page');
+
+        $this->assertTrue($page['metrics']['auditReady']);
+        $this->assertSame([], $page['metrics']['contentQualityIssues']);
+        $this->assertIsArray($page['metrics']['checklistEvidence'] ?? null);
     }
 
     public function test_extract_uses_jina_markdown_content_for_excerpt(): void
@@ -214,5 +345,54 @@ HTML,
         $this->assertGreaterThanOrEqual(1, $page['metrics']['imageCount']);
         $this->assertGreaterThanOrEqual(1, $page['metrics']['internalLinkCount']);
         $this->assertStringContainsString('Nội dung bài viết chi tiết', $page['content']);
+    }
+
+    public function test_firecrawl_prefers_clean_html_main_content_over_noisy_markdown(): void
+    {
+        config([
+            'services.audit.content_provider' => 'firecrawl',
+            'services.audit.firecrawl_base_url' => 'http://firecrawl.test',
+            'services.audit.firecrawl_only_main_content' => true,
+            'services.audit.firecrawl_min_html_content_chars' => 500,
+            'services.audit.ai_http_retry_attempts' => 1,
+        ]);
+
+        Http::fake([
+            'http://firecrawl.test/v1/scrape' => Http::response([
+                'success' => true,
+                'data' => [
+                    'metadata' => [
+                        'title' => '1KG CHÌ GIÁ BAO NHIÊU? THU MUA CHÌ PHẾ LIỆU',
+                        'description' => 'Mô tả meta bài viết chì phế liệu.',
+                    ],
+                    'markdown' => implode("\n", [
+                        '* Menu item 1',
+                        '* Menu item 2',
+                        '1KG CHÌ GIÁ BAO NHIÊU? THU MUA CHÌ PHẾ LIỆU',
+                        str_repeat('Nội dung markdown dài kèm menu và sidebar. ', 120),
+                        'Copy link AddToAny More…',
+                    ]),
+                    'html' => <<<'HTML'
+<!doctype html>
+<html><body>
+<main class="content-main">
+  <h1>1KG CHÌ GIÁ BAO NHIÊU? THU MUA CHÌ PHẾ LIỆU</h1>
+  <p>Giá thu mua chì phế liệu luôn là vấn đề được nhiều người quan tâm trong lĩnh vực tái chế.</p>
+  <p>Thiên Long cập nhật bảng giá thu mua chì phế liệu chi tiết, minh bạch và thanh toán nhanh cho khách hàng.</p>
+  <p>Đoạn nội dung chính đủ dài để audit SEO onpage theo checklist Clickon với tiếng Việt có dấu.</p>
+</main>
+</body></html>
+HTML,
+                ],
+            ]),
+        ]);
+
+        $page = (new SeoContentExtractionService)->extract('https://example.com/page');
+
+        $this->assertSame('firecrawl', $page['source']);
+        $this->assertStringContainsString('Giá thu mua chì phế liệu', $page['content']);
+        $this->assertStringNotContainsString('Menu item 1', $page['content']);
+        $this->assertStringNotContainsString('AddToAny', $page['content']);
+        $this->assertTrue($page['metrics']['auditReady'] ?? false);
     }
 }

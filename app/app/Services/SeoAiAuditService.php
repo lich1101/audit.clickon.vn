@@ -634,13 +634,18 @@ TEXT;
      */
     private function pagePayload(array $page): array
     {
+        $metrics = is_array($page['metrics'] ?? null) ? $page['metrics'] : [];
+
         return [
             'url' => $page['url'],
             'title' => $page['title'],
             'metaDescription' => $page['metaDescription'],
             'canonicalUrl' => $page['canonicalUrl'],
             'headings' => $page['headings'],
-            'metrics' => $page['metrics'],
+            'metrics' => $metrics,
+            'checklistEvidence' => is_array($metrics['checklistEvidence'] ?? null)
+                ? $metrics['checklistEvidence']
+                : (is_array($page['checklistEvidence'] ?? null) ? $page['checklistEvidence'] : null),
             'contentExcerpt' => $page['content'],
             'source' => $page['source'] ?? null,
             'extractionError' => $page['extractionError'] ?? null,
@@ -1987,8 +1992,10 @@ TEXT;
         return implode("\n", [
             '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
             'Mode: batch onpage audit with step-1 page data. Process all URLs provided in this chunk in one response.',
-            'Use step-1 page data (title/meta/headings/contentExcerpt/source) for each URL when scoring checklist criteria.',
-            'If a URL has thin or missing step-1 contentExcerpt, score only from available fields and state "không kiểm chứng được" for unverified criteria.',
+            'Use step-1 page data (title/meta/headings/contentExcerpt/checklistEvidence/source) for each URL when scoring checklist criteria.',
+            'When checklistEvidence is present, prefer its structured fields for STT 1-4, 7-18, 24-25 instead of guessing from raw text alone.',
+            'Use primaryKeyword from step-2 results to verify STT 4, 7, 8, 13, 14 keyword placement.',
+            'For checklistEvidence.externalDataRequired (STT 5, 6, 19, and competitor-backed parts of 22-23), state "không kiểm chứng được" unless deep-research/research data is provided.',
             'Do not invent crawl data beyond the provided step-1 payload.',
             'Return exactly this JSON shape and include every target URL once:',
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',

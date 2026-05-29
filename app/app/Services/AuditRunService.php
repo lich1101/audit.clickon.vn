@@ -301,6 +301,7 @@ class AuditRunService
             $result->page_title,
             $result->meta_description,
             $result->content_excerpt,
+            $result->extracted_metrics,
         );
     }
 
@@ -312,6 +313,7 @@ class AuditRunService
             $item->page_title,
             $item->meta_description,
             $item->content_excerpt,
+            $item->extracted_metrics,
         );
     }
 
@@ -321,6 +323,7 @@ class AuditRunService
         mixed $pageTitle,
         mixed $metaDescription,
         mixed $contentExcerpt,
+        mixed $extractedMetrics = null,
     ): bool {
         $source = strtolower(trim((string) ($contentSource ?? '')));
 
@@ -338,11 +341,38 @@ class AuditRunService
             return false;
         }
 
-        if ($this->filledText($pageTitle) || $this->filledText($metaDescription)) {
+        if (is_array($extractedMetrics) && ($extractedMetrics['auditReady'] ?? false) === true) {
             return true;
         }
 
-        return mb_strlen(trim((string) ($contentExcerpt ?? ''))) > 20;
+        return $this->contentExcerptAuditReady($contentExcerpt);
+    }
+
+    private function contentExcerptAuditReady(mixed $contentExcerpt): bool
+    {
+        $content = trim((string) ($contentExcerpt ?? ''));
+
+        if ($content === '') {
+            return false;
+        }
+
+        $minWords = max(50, (int) config('services.audit.min_audit_content_words', 80));
+        $minChars = max(200, (int) config('services.audit.min_audit_content_chars', 500));
+
+        return mb_strlen($content) >= $minChars && $this->countAuditWords($content) >= $minWords;
+    }
+
+    private function countAuditWords(string $content): int
+    {
+        $plain = trim(preg_replace('/[#*\[\]()>`_\-]+/u', ' ', strip_tags($content)) ?? '');
+
+        if ($plain === '') {
+            return 0;
+        }
+
+        $tokens = preg_split('/\s+/u', $plain, -1, PREG_SPLIT_NO_EMPTY);
+
+        return is_array($tokens) ? count($tokens) : 0;
     }
 
     public function hasStep2SeedData(WebsiteAuditUrlResult $result): bool
@@ -385,7 +415,12 @@ class AuditRunService
             return $payload;
         }
 
-        $contentExcerpt = $item->content_excerpt ?: null;
+        $metrics = is_array($item->extracted_metrics) ? $item->extracted_metrics : [];
+        $contentExcerpt = trim((string) ($item->content_excerpt ?? ''));
+
+        if ($contentExcerpt === '') {
+            $contentExcerpt = null;
+        }
 
         $payload['page'] = [
             'url' => $item->target_url,
@@ -393,8 +428,11 @@ class AuditRunService
             'metaDescription' => $item->meta_description,
             'canonicalUrl' => $item->canonical_url,
             'headings' => $item->extracted_headings ?? [],
-            'metrics' => $item->extracted_metrics ?? [],
+            'metrics' => $metrics,
             'contentExcerpt' => $contentExcerpt,
+            'contentFormat' => 'structured_main_content',
+            'auditContentReady' => (bool) ($metrics['auditReady'] ?? false),
+            'checklistEvidence' => is_array($metrics['checklistEvidence'] ?? null) ? $metrics['checklistEvidence'] : null,
             'source' => $item->content_source,
             'extractionError' => $item->content_error,
         ];
@@ -688,7 +726,7 @@ class AuditRunService
             return;
         }
 
-        if ($state['step2Complete'] && $this->runHasStep2Failures($run->fresh())) {
+        if ($state['step2Complete'] && $this->runHasStep2Failures($run->fresh()) && ! $this->usesStep2Step3BatchPipeline($run)) {
             $this->abortRunAfterStep2Failure(
                 $run,
                 'Bước 2 có URL lỗi. Run dừng và không chạy bước 3.',
@@ -717,9 +755,12 @@ class AuditRunService
                 return ['chunks' => [], 'stageComplete' => false];
             }
 
-            if ($freshRun->items()
-                ->whereIn('status', ['queued', 'fetching'])
-                ->exists()) {
+            if (
+                ! $this->usesStep2Step3BatchPipeline($freshRun)
+                && $freshRun->items()
+                    ->whereIn('status', ['queued', 'fetching'])
+                    ->exists()
+            ) {
                 return ['chunks' => [], 'stageComplete' => false];
             }
 
@@ -788,6 +829,78 @@ class AuditRunService
         if ($state['stageComplete']) {
             $this->refreshRunProgress($run);
         }
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    public function dispatchStep3ForItemIds(AuditRun $run, array $itemIds): void
+    {
+        if ($itemIds === [] || ! $this->usesStep2Step3BatchPipeline($run)) {
+            return;
+        }
+
+        $eligibleIds = DB::transaction(function () use ($run, $itemIds): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return [];
+            }
+
+            $eligibleIds = $freshRun->items()
+                ->whereIn('id', $itemIds)
+                ->where('status', 'analyzing')
+                ->where('extraction_source', self::SOURCE_STEP2_DONE)
+                ->orderBy('position')
+                ->pluck('id')
+                ->values()
+                ->all();
+
+            if ($eligibleIds === []) {
+                return [];
+            }
+
+            $freshRun->items()
+                ->whereIn('id', $eligibleIds)
+                ->update([
+                    'status' => 'analyzing',
+                    'extraction_source' => self::SOURCE_STEP3_RUNNING,
+                    'error_message' => null,
+                    'updated_at' => now(),
+                ]);
+
+            return $eligibleIds;
+        });
+
+        if ($eligibleIds === []) {
+            return;
+        }
+
+        ProcessAuditRunStep3BatchJob::dispatch($run->id, $eligibleIds);
+        $this->syncRunIfEnabled($run->fresh());
+    }
+
+    public function usesStep2Step3BatchPipeline(?AuditRun $run = null): bool
+    {
+        $settings = $this->auditSettingsService->getAuditSettings();
+        $step2BatchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
+        $step3BatchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
+
+        if ($step2BatchSize !== $step3BatchSize) {
+            return false;
+        }
+
+        if ($run !== null) {
+            if (($run->workflow ?? AuditRun::WORKFLOW_STANDARD) === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
+                return false;
+            }
+
+            if ($this->stepAiProvider($run, 3) === 'gemini_deep_research') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function dispatchDeepResearchBatches(AuditRun $run): void
@@ -1104,7 +1217,15 @@ class AuditRunService
 
         $this->refreshRunProgress($run);
 
-        if ($items->contains(fn (AuditRunItem $item): bool => $item->fresh()->status === 'failed')) {
+        $successfulItemIds = $items
+            ->filter(fn (AuditRunItem $item): bool => $item->fresh()->status !== 'failed')
+            ->pluck('id')
+            ->values()
+            ->all();
+        $hasBatchFailures = count($successfulItemIds) !== $items->count();
+        $pipeline = $this->usesStep2Step3BatchPipeline($run);
+
+        if ($hasBatchFailures && ! $pipeline) {
             $this->abortRunAfterStep2Failure(
                 $run->fresh(),
                 'Bước 2 có URL lỗi. Run dừng và không chạy bước 3.',
@@ -1113,7 +1234,11 @@ class AuditRunService
             return;
         }
 
-        $this->dispatchStep2Batches($run);
+        if ($pipeline && $successfulItemIds !== []) {
+            $this->dispatchStep3ForItemIds($run->fresh(), $successfulItemIds);
+        }
+
+        $this->dispatchStep2Batches($run->fresh());
     }
 
     /**
@@ -3588,12 +3713,8 @@ class AuditRunService
         $latestItem = AuditRunItem::query()
             ->where('target_url', $targetUrl)
             ->whereHas('run', fn ($query) => $query->where('website_id', $websiteId))
-            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
             ->first();
-
-        if ($latestItem && $this->itemHasStep1Content($latestItem)) {
-            return $this->serializeStep1Content($latestItem);
-        }
 
         /** @var WebsiteAuditUrlResult|null $persisted */
         $persisted = WebsiteAuditUrlResult::query()
@@ -3601,11 +3722,46 @@ class AuditRunService
             ->where('target_url', $targetUrl)
             ->first();
 
-        if ($persisted && $this->hasStep1SeedData($persisted)) {
-            return $this->serializeStep1ContentFromPersisted($persisted);
+        $itemPayload = ($latestItem && $this->itemHasStep1Content($latestItem))
+            ? $this->serializeStep1Content($latestItem)
+            : null;
+        $persistedPayload = ($persisted && $this->hasStep1SeedData($persisted))
+            ? $this->serializeStep1ContentFromPersisted($persisted)
+            : null;
+
+        return $this->preferNewerStep1Content($itemPayload, $persistedPayload);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $itemPayload
+     * @param  array<string, mixed>|null  $persistedPayload
+     * @return array<string, mixed>|null
+     */
+    private function preferNewerStep1Content(?array $itemPayload, ?array $persistedPayload): ?array
+    {
+        if ($itemPayload === null) {
+            return $persistedPayload;
         }
 
-        return null;
+        if ($persistedPayload === null) {
+            return $itemPayload;
+        }
+
+        $itemUpdatedAt = strtotime((string) ($itemPayload['updatedAt'] ?? '')) ?: 0;
+        $persistedUpdatedAt = strtotime((string) ($persistedPayload['updatedAt'] ?? '')) ?: 0;
+
+        if ($persistedUpdatedAt > $itemUpdatedAt) {
+            return $persistedPayload;
+        }
+
+        if ($persistedUpdatedAt < $itemUpdatedAt) {
+            return $itemPayload;
+        }
+
+        $itemLength = mb_strlen(trim((string) ($itemPayload['contentExcerpt'] ?? '')));
+        $persistedLength = mb_strlen(trim((string) ($persistedPayload['contentExcerpt'] ?? '')));
+
+        return $persistedLength > $itemLength ? $persistedPayload : $itemPayload;
     }
 
     public function itemHasStep1Content(AuditRunItem $item): bool
@@ -3629,6 +3785,9 @@ class AuditRunService
             'canonicalUrl' => $item->canonical_url,
             'headings' => $item->extracted_headings ?? [],
             'metrics' => $item->extracted_metrics ?? [],
+            'checklistEvidence' => is_array($item->extracted_metrics['checklistEvidence'] ?? null)
+                ? $item->extracted_metrics['checklistEvidence']
+                : null,
             'contentExcerpt' => $item->content_excerpt,
             'contentSource' => $item->content_source,
             'contentError' => $item->content_error,

@@ -99,9 +99,14 @@ class AuditStep1GateTest extends TestCase
         Queue::assertPushed(ProcessAuditRunStep2BatchJob::class, 2);
     }
 
-    public function test_step2_failure_aborts_run_and_does_not_dispatch_step3(): void
+    public function test_step2_failure_aborts_run_and_does_not_dispatch_step3_when_batch_sizes_differ(): void
     {
         Queue::fake();
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'step2BatchSize' => 50,
+            'step3BatchSize' => 30,
+        ]);
 
         $run = $this->makeRun([
             'stop_after_step' => null,
@@ -149,6 +154,64 @@ class AuditStep1GateTest extends TestCase
         Queue::assertNotPushed(ProcessAuditRunStep3BatchJob::class);
     }
 
+    public function test_step2_pipeline_dispatches_step3_for_successful_urls_when_batch_sizes_match(): void
+    {
+        Queue::fake();
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'step2BatchSize' => 50,
+            'step3BatchSize' => 50,
+        ]);
+
+        $run = $this->makeRun([
+            'categories' => [
+                ['name' => 'Danh mục A', 'url' => 'https://example.com/a'],
+            ],
+        ]);
+
+        $validItem = $this->makeStep1DoneItem($run, 1, valid: true);
+        $validItem->forceFill([
+            'status' => 'fetching',
+            'extraction_source' => 'url_only_batch_step2_running',
+        ])->save();
+
+        $failedItem = $this->makeStep1DoneItem($run, 2, valid: true);
+        $failedItem->forceFill([
+            'status' => 'fetching',
+            'extraction_source' => 'url_only_batch_step2_running',
+        ])->save();
+
+        $seoAi = Mockery::mock(SeoAiAuditService::class);
+        $seoAi->shouldReceive('analyzeBatchKeywordCategoryUrlOnly')
+            ->once()
+            ->andReturn([
+                'items' => [
+                    [
+                        'targetUrl' => $validItem->target_url,
+                        'primaryKeyword' => 'keyword a',
+                        'categoryName' => 'Danh mục A',
+                        'categoryUrl' => 'https://example.com/a',
+                    ],
+                ],
+                'promptSnapshot' => null,
+                'formatterPromptSnapshot' => null,
+                'usageEvents' => [],
+            ]);
+        $this->app->instance(SeoAiAuditService::class, $seoAi);
+
+        app(AuditRunService::class)->processStep2Batch($run, [$validItem->id, $failedItem->id]);
+
+        $run->refresh();
+        $validItem->refresh();
+        $failedItem->refresh();
+
+        $this->assertSame('processing', $run->status);
+        $this->assertSame('analyzing', $validItem->status);
+        $this->assertSame('url_only_batch_step3_running', $validItem->extraction_source);
+        $this->assertSame('failed', $failedItem->status);
+        Queue::assertPushed(ProcessAuditRunStep3BatchJob::class, 1);
+    }
+
     public function test_is_step1_valid_url_result_rejects_url_only_and_404(): void
     {
         $service = app(AuditRunService::class);
@@ -169,7 +232,7 @@ class AuditStep1GateTest extends TestCase
             'content_excerpt' => 'short',
         ]);
 
-        $valid = WebsiteAuditUrlResult::query()->make([
+        $titleOnly = WebsiteAuditUrlResult::query()->make([
             'content_source' => 'jina',
             'content_error' => null,
             'page_title' => 'Tiêu đề hợp lệ',
@@ -177,8 +240,18 @@ class AuditStep1GateTest extends TestCase
             'content_excerpt' => null,
         ]);
 
+        $valid = WebsiteAuditUrlResult::query()->make([
+            'content_source' => 'jina',
+            'content_error' => null,
+            'page_title' => 'Tiêu đề hợp lệ',
+            'meta_description' => null,
+            'content_excerpt' => str_repeat('Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon. ', 20),
+            'extracted_metrics' => ['auditReady' => true],
+        ]);
+
         $this->assertFalse($service->isStep1ValidUrlResult($urlOnly));
         $this->assertFalse($service->isStep1ValidUrlResult($notFound));
+        $this->assertFalse($service->isStep1ValidUrlResult($titleOnly));
         $this->assertTrue($service->isStep1ValidUrlResult($valid));
     }
 
@@ -230,7 +303,8 @@ class AuditStep1GateTest extends TestCase
             'content_error' => $valid ? null : 'Could not extract content',
             'page_title' => $valid ? "Tiêu đề bài {$index}" : null,
             'meta_description' => $valid ? 'Mô tả meta hợp lệ cho bài viết.' : null,
-            'content_excerpt' => $valid ? str_repeat('Nội dung crawl hợp lệ. ', 10) : null,
+            'content_excerpt' => $valid ? str_repeat('Nội dung crawl hợp lệ đủ dài cho audit SEO onpage theo checklist Clickon. ', 20) : null,
+            'extracted_metrics' => $valid ? ['auditReady' => true, 'wordCount' => 160] : null,
         ]);
     }
 }

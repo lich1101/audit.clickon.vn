@@ -63,6 +63,13 @@ class ProcessAuditRunStep2BatchJob implements ShouldQueue
             'batch_keyword_category_mapping',
             $exception->getMessage(),
         );
+
+        if ($auditRunService->usesStep2Step3BatchPipeline($run)) {
+            $auditRunService->dispatchStep2Batches($run);
+
+            return;
+        }
+
         $auditRunService->abortRunAfterStep2Failure(
             $run,
             'Bước 2 lỗi batch: '.$exception->getMessage(),

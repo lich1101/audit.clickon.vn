@@ -898,13 +898,18 @@ class DeepResearchSeoAuditService
      */
     private function pagePayload(array $page): array
     {
+        $metrics = is_array($page['metrics'] ?? null) ? $page['metrics'] : [];
+
         return [
             'url' => $page['url'] ?? '',
             'title' => $page['title'] ?? '',
             'metaDescription' => $page['metaDescription'] ?? '',
             'canonicalUrl' => $page['canonicalUrl'] ?? '',
             'headings' => $page['headings'] ?? [],
-            'metrics' => $page['metrics'] ?? [],
+            'metrics' => $metrics,
+            'checklistEvidence' => is_array($metrics['checklistEvidence'] ?? null)
+                ? $metrics['checklistEvidence']
+                : (is_array($page['checklistEvidence'] ?? null) ? $page['checklistEvidence'] : null),
             'contentExcerpt' => $page['content'] ?? '',
             'source' => $page['source'] ?? null,
             'extractionError' => $page['extractionError'] ?? null,

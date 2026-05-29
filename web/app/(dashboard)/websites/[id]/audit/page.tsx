@@ -52,6 +52,36 @@ function hasStep2SeedData(row?: {
   return Boolean(row?.primaryKeyword?.trim() && row.categoryName?.trim() && row.categoryUrl?.trim());
 }
 
+function isStep1ValidForAudit(row?: {
+  pageTitle?: string | null;
+  metaDescription?: string | null;
+  contentExcerpt?: string | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+} | null) {
+  const source = (row?.contentSource ?? "").trim().toLowerCase();
+
+  if (!source || source === "url_only") {
+    return false;
+  }
+
+  if (source !== "jina" && source !== "html") {
+    return false;
+  }
+
+  const error = (row?.contentError ?? "").trim().toLowerCase();
+
+  if (error && (error.includes("404") || error.includes("not found"))) {
+    return false;
+  }
+
+  if (row?.pageTitle?.trim() || row?.metaDescription?.trim()) {
+    return true;
+  }
+
+  return (row?.contentExcerpt?.trim().length ?? 0) > 20;
+}
+
 function hasStep1SeedData(row?: {
   pageTitle?: string | null;
   metaDescription?: string | null;
@@ -59,13 +89,7 @@ function hasStep1SeedData(row?: {
   contentSource?: string | null;
   contentError?: string | null;
 } | null) {
-  return Boolean(
-    row?.pageTitle?.trim() ||
-      row?.metaDescription?.trim() ||
-      row?.contentExcerpt?.trim() ||
-      row?.contentSource?.trim() ||
-      row?.contentError?.trim()
-  );
+  return isStep1ValidForAudit(row);
 }
 
 function hasStep3SeedData(row?: {
@@ -344,6 +368,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     return map;
   }, [run?.items, urlList, urlResults]);
+  const step2FromStep1ReadySelectedUrls = useMemo(
+    () => selectedUrls.filter((url) => isStep1ValidForAudit(itemsByUrl[url])),
+    [itemsByUrl, selectedUrls]
+  );
   const step3ReadySelectedUrls = useMemo(
     () => selectedUrls.filter((url) => hasStep2SeedData(itemsByUrl[url])),
     [itemsByUrl, selectedUrls]
@@ -489,6 +517,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       return;
     }
 
+    if (startFromStep === 2 && step2FromStep1ReadySelectedUrls.length === 0) {
+      toast.error("Không có URL nào trong lựa chọn hiện tại đã crawl bước 1 hợp lệ (không 404/url_only) để chạy từ bước 2.");
+      return;
+    }
+
     if (startFromStep === 3 && step3ReadySelectedUrls.length === 0) {
       toast.error("Không có URL nào trong lựa chọn hiện tại có đủ keyword + danh mục từ bước 2 để chạy thẳng bước 3.");
       return;
@@ -517,7 +550,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         const skippedCount = response.data.skippedTargetUrls.length;
         const baseMessage = response.message || "Audit run đã được đưa vào hàng đợi.";
 
-        if (startFromStep === 3 && skippedCount > 0) {
+        if ((startFromStep === 2 || startFromStep === 3) && skippedCount > 0) {
           toast.warning(baseMessage);
           return;
         }
@@ -650,10 +683,19 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             type="button"
             variant="secondary"
             onClick={() => void handleRun(2, 2)}
-            disabled={running || isRunActive || selectedUrls.length === 0}
+            disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
           >
             <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run bước 2 (${selectedUrls.length})`}
+            {running ? "Đang khởi chạy..." : `Run bước 2 only (${step2FromStep1ReadySelectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void handleRun(2)}
+            disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
+          >
+            <Play className="size-4" />
+            {running ? "Đang khởi chạy..." : `Run từ bước 2 (${step2FromStep1ReadySelectedUrls.length})`}
           </Button>
           <Button
             type="button"
@@ -663,6 +705,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           >
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run từ bước 3 (${step3ReadySelectedUrls.length})`}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setSelectedUrls(step2FromStep1ReadySelectedUrls)}
+            disabled={isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
+          >
+            Chọn URL đủ B1
           </Button>
           <Button
             type="button"

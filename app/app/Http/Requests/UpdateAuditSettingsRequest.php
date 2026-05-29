@@ -28,6 +28,7 @@ class UpdateAuditSettingsRequest extends FormRequest
             'maxParallelItems' => ['required', 'integer', 'min:1', 'max:10'],
             'step2BatchSize' => ['required', 'integer', 'min:1', 'max:300'],
             'step3BatchSize' => ['required', 'integer', 'min:1', 'max:300'],
+            'minValidUrlsAfterStep1' => ['required', 'integer', 'min:1', 'max:300'],
             'deepResearchBatchSize' => ['required', 'integer', 'min:1', 'max:100'],
             'deepResearchResearchProvider' => ['required', 'string', 'in:perplexity,gemini_deep_research'],
             'deepResearchResearchModel' => ['required', 'string', 'max:160'],

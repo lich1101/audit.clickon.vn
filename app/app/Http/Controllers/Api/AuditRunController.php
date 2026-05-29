@@ -215,6 +215,14 @@ class AuditRunController extends Controller
                 'Đã đưa %d URL vào hàng đợi chạy bước 2 và formatter 2.5. Run sẽ dừng sau khi hoàn tất bước 2.',
                 count($queuedTargetUrls),
             );
+        } elseif ($startFromStep === AuditRunService::START_FROM_STEP_2) {
+            $message = count($skippedTargetUrls) > 0
+                ? sprintf(
+                    'Đã đưa %d URL hợp lệ sau bước 1 vào hàng đợi bước 2 và 3. Bỏ qua %d URL chưa crawl thành công hoặc 404/url_only.',
+                    count($queuedTargetUrls),
+                    count($skippedTargetUrls),
+                )
+                : sprintf('Đã đưa %d URL hợp lệ sau bước 1 vào hàng đợi bước 2 và 3.', count($queuedTargetUrls));
         }
 
         return response()->json([

@@ -8,6 +8,7 @@ use DOMElement;
 use DOMNode;
 use DOMXPath;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class SeoContentExtractionService
@@ -18,11 +19,27 @@ class SeoContentExtractionService
     public function extract(string $url): array
     {
         if (config('services.audit.use_jina', true)) {
-            try {
-                return $this->extractWithJina($url);
-            } catch (\Throwable) {
-                // Fall back to direct HTML extraction. Some sites throttle Jina or block proxy fetches.
+            $attempts = max(1, (int) config('services.audit.ai_http_retry_attempts', 3));
+            $sleepMs = max(0, (int) config('services.audit.ai_http_retry_sleep_ms', 2000));
+            $lastException = null;
+
+            for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+                try {
+                    return $this->extractWithJina($url);
+                } catch (\Throwable $exception) {
+                    $lastException = $exception;
+
+                    if ($attempt < $attempts && $sleepMs > 0) {
+                        usleep($sleepMs * 1000);
+                    }
+                }
             }
+
+            Log::warning('Jina Reader failed, falling back to HTML extraction.', [
+                'url' => $url,
+                'attempts' => $attempts,
+                'error' => $lastException?->getMessage(),
+            ]);
         }
 
         return $this->extractFromHtml($url);
@@ -81,7 +98,7 @@ class SeoContentExtractionService
         }
 
         $response = Http::withHeaders($headers)
-            ->timeout(60)
+            ->timeout(90)
             ->get($readerUrl);
 
         if (! $response->successful()) {
@@ -94,29 +111,26 @@ class SeoContentExtractionService
             throw new RuntimeException("Jina Reader returned empty content for [{$url}].");
         }
 
-        $title = '';
-        $metaDescription = '';
+        $parsed = $this->parseJinaReaderText($text);
+        $title = $parsed['title'];
+        $metaDescription = $parsed['metaDescription'];
+        $content = $parsed['content'];
+        $headings = $this->extractMarkdownHeadings($parsed['markdown']);
 
-        if (preg_match('/^Title:\s*(.+)$/mi', $text, $matches)) {
-            $title = trim($matches[1]);
+        if ($headings['h1'] === [] && $title !== '') {
+            $headings['h1'] = [$title];
         }
 
-        if (preg_match('/^Description:\s*(.+)$/mi', $text, $matches)) {
-            $metaDescription = trim($matches[1]);
+        if ($content === '') {
+            throw new RuntimeException("Jina Reader returned no Markdown Content for [{$url}].");
         }
-
-        $content = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
 
         return [
             'url' => $url,
             'title' => $title,
             'metaDescription' => $metaDescription,
             'canonicalUrl' => $url,
-            'headings' => [
-                'h1' => $title !== '' ? [$title] : [],
-                'h2' => [],
-                'h3' => [],
-            ],
+            'headings' => $headings,
             'metrics' => [
                 'wordCount' => str_word_count(strip_tags($content)),
                 'imageCount' => 0,
@@ -126,11 +140,92 @@ class SeoContentExtractionService
                 'hasCanonical' => false,
                 'titleLength' => mb_strlen($title),
                 'metaDescriptionLength' => mb_strlen($metaDescription),
-                'h1Count' => $title !== '' ? 1 : 0,
+                'h1Count' => count($headings['h1']),
             ],
             'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
             'source' => 'jina',
         ];
+    }
+
+    /**
+     * @return array{title: string, metaDescription: string, markdown: string, content: string}
+     */
+    private function parseJinaReaderText(string $text): array
+    {
+        $title = '';
+        $metaDescription = '';
+        $markdown = '';
+
+        if (preg_match('/^Title:\s*(.+)$/mi', $text, $matches)) {
+            $title = trim($matches[1]);
+        }
+
+        if (preg_match('/^Description:\s*(.+)$/mi', $text, $matches)) {
+            $metaDescription = trim($matches[1]);
+        }
+
+        if (preg_match('/^Markdown Content:\s*\r?\n([\s\S]*)$/mi', $text, $matches)) {
+            $markdown = trim($matches[1]);
+        }
+
+        $content = $markdown !== ''
+            ? trim(preg_replace('/\s+/u', ' ', $markdown) ?? '')
+            : trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+
+        return [
+            'title' => $title,
+            'metaDescription' => $metaDescription,
+            'markdown' => $markdown,
+            'content' => $content,
+        ];
+    }
+
+    /**
+     * @return array{h1: array<int, string>, h2: array<int, string>, h3: array<int, string>}
+     */
+    private function extractMarkdownHeadings(string $markdown): array
+    {
+        $headings = [
+            'h1' => [],
+            'h2' => [],
+            'h3' => [],
+        ];
+
+        if ($markdown === '') {
+            return $headings;
+        }
+
+        foreach (preg_split('/\r?\n/', $markdown) ?: [] as $line) {
+            $line = trim($line);
+
+            if ($line === '') {
+                continue;
+            }
+
+            if (preg_match('/^#\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
+                $headings['h1'][] = $this->normalizeMarkdownHeading($matches[1]);
+                continue;
+            }
+
+            if (preg_match('/^##\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
+                $headings['h2'][] = $this->normalizeMarkdownHeading($matches[1]);
+                continue;
+            }
+
+            if (preg_match('/^###\s+\*?\*?(.+?)\*?\*?\s*$/u', $line, $matches)) {
+                $headings['h3'][] = $this->normalizeMarkdownHeading($matches[1]);
+            }
+        }
+
+        return $headings;
+    }
+
+    private function normalizeMarkdownHeading(string $heading): string
+    {
+        $heading = trim($heading);
+        $heading = preg_replace('/\[([^\]]+)\]\([^)]+\)/u', '$1', $heading) ?? $heading;
+
+        return trim($heading, " \t*");
     }
 
     /**
@@ -164,6 +259,15 @@ class SeoContentExtractionService
         $mainNode = $this->resolveMainNode($xpath, $dom);
         $content = $this->extractReadableText($mainNode);
         $content = trim(preg_replace('/\s+/u', ' ', $content) ?? '');
+
+        if (mb_strlen($content) < 200) {
+            Log::warning('HTML extraction returned thin content.', [
+                'url' => $url,
+                'content_length' => mb_strlen($content),
+                'content_preview' => mb_substr($content, 0, 120),
+            ]);
+        }
+
         $images = $xpath->query('//img');
         $links = $xpath->query('//a[@href]');
 
@@ -236,6 +340,7 @@ class SeoContentExtractionService
 
     private function resolveMainNode(DOMXPath $xpath, DOMDocument $dom): DOMNode
     {
+        $minimumChars = 200;
         $queries = [
             '//article',
             '//main',
@@ -243,15 +348,39 @@ class SeoContentExtractionService
             '//*[contains(@class, "entry-content")]',
             '//*[contains(@class, "post-content")]',
             '//*[contains(@class, "article-content")]',
-            '//*[contains(@class, "content")]',
+            '//*[contains(@class, "content-main")]',
+            '//*[contains(concat(" ", normalize-space(@class), " "), " content ")]',
         ];
+
+        $bestNode = null;
+        $bestLength = 0;
 
         foreach ($queries as $query) {
             $nodes = $xpath->query($query);
 
-            if ($nodes && $nodes->count() > 0) {
-                return $nodes->item(0);
+            if (! $nodes) {
+                continue;
             }
+
+            for ($index = 0; $index < $nodes->count(); $index++) {
+                $node = $nodes->item($index);
+
+                if (! $node instanceof DOMNode) {
+                    continue;
+                }
+
+                $text = trim(preg_replace('/\s+/u', ' ', $this->extractReadableText($node)) ?? '');
+                $length = mb_strlen($text);
+
+                if ($length > $bestLength) {
+                    $bestLength = $length;
+                    $bestNode = $node;
+                }
+            }
+        }
+
+        if ($bestNode instanceof DOMNode && ($bestLength >= $minimumChars || $bestLength > 0)) {
+            return $bestNode;
         }
 
         return $dom->getElementsByTagName('body')->item(0) ?? $dom;

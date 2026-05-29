@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\CreditTransactionController;
 use App\Http\Controllers\Api\AuditRunController;
+use App\Http\Controllers\Api\AuditGeminiPdfController;
 use App\Http\Controllers\Api\AuditSettingsController;
 use App\Http\Controllers\Api\AiModelController;
 use App\Http\Controllers\Api\AuditPromptTemplateController;
@@ -45,6 +46,8 @@ Route::prefix('admin')
         Route::get('/audit-settings', [AuditSettingsController::class, 'showAdmin']);
         Route::match(['GET', 'POST'], '/audit-settings/check', [AuditSettingsController::class, 'checkAdmin']);
         Route::put('/audit-settings', [AuditSettingsController::class, 'updateAdmin']);
+        Route::post('/audit-settings/gemini-pdf/{slot}', [AuditGeminiPdfController::class, 'upload']);
+        Route::delete('/audit-settings/gemini-pdf/{slot}', [AuditGeminiPdfController::class, 'destroy']);
         Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
         Route::get('/users', [AdminUserController::class, 'index']);
         Route::get('/users/{firebaseUid}', [AdminUserController::class, 'show']);

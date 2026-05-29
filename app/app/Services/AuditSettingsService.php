@@ -33,6 +33,9 @@ class AuditSettingsService
             $step3BatchSize = (int) ($value['step3BatchSize'] ?? 30);
             $step3BatchSize = max(1, min(300, $step3BatchSize));
 
+            $minValidUrlsAfterStep1 = (int) ($value['minValidUrlsAfterStep1'] ?? 50);
+            $minValidUrlsAfterStep1 = max(1, min(300, $minValidUrlsAfterStep1));
+
             $deepResearchBatchSize = (int) ($value['deepResearchBatchSize'] ?? env('AUDIT_DEEP_RESEARCH_BATCH_SIZE', 5));
             $deepResearchBatchSize = max(1, min(100, $deepResearchBatchSize));
             $deepResearchResearchProvider = $this->normalizeDeepResearchResearchProvider(
@@ -74,6 +77,10 @@ class AuditSettingsService
                 $this->defaultFormatterModel($step3FormatterProvider),
             );
 
+            $geminiPdfAttachments = is_array($value['geminiPdfAttachments'] ?? null)
+                ? $value['geminiPdfAttachments']
+                : [];
+
             return [
                 'aiProvider' => $provider,
                 'aiModel' => $aiModel,
@@ -89,6 +96,7 @@ class AuditSettingsService
                 'maxParallelItems' => $maxParallel,
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
+                'minValidUrlsAfterStep1' => $minValidUrlsAfterStep1,
                 'deepResearchBatchSize' => $deepResearchBatchSize,
                 'deepResearchResearchProvider' => $deepResearchResearchProvider,
                 'deepResearchResearchModel' => $deepResearchResearchModel,
@@ -96,8 +104,26 @@ class AuditSettingsService
                 'deepResearchReasoningModel' => $deepResearchReasoningModel,
                 'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
                 'deepResearchFormatterModel' => $deepResearchFormatterModel,
+                'geminiPdfAttachments' => $geminiPdfAttachments,
             ];
         });
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $attachments
+     */
+    public function updateGeminiPdfAttachments(array $attachments): void
+    {
+        $record = SystemSetting::query()->where('key', 'audit')->first();
+        $value = is_array($record?->value) ? $record->value : [];
+        $value['geminiPdfAttachments'] = $attachments;
+
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'audit'],
+            ['value' => $value],
+        );
+
+        Cache::forget(self::CACHE_KEY);
     }
 
     /**
@@ -152,6 +178,9 @@ class AuditSettingsService
         $step3BatchSize = isset($payload['step3BatchSize'])
             ? max(1, min(300, (int) $payload['step3BatchSize']))
             : $current['step3BatchSize'];
+        $minValidUrlsAfterStep1 = isset($payload['minValidUrlsAfterStep1'])
+            ? max(1, min(300, (int) $payload['minValidUrlsAfterStep1']))
+            : ($current['minValidUrlsAfterStep1'] ?? 50);
 
         $deepResearchBatchSize = isset($payload['deepResearchBatchSize'])
             ? max(1, min(100, (int) $payload['deepResearchBatchSize']))
@@ -202,6 +231,9 @@ class AuditSettingsService
         $step3FormatterModel = array_key_exists('step3FormatterModel', $payload)
             ? $this->normalizeModel($payload['step3FormatterModel'], $this->defaultFormatterModel($step3FormatterProvider))
             : $current['step3FormatterModel'];
+        $geminiPdfAttachments = array_key_exists('geminiPdfAttachments', $payload) && is_array($payload['geminiPdfAttachments'])
+            ? $payload['geminiPdfAttachments']
+            : ($current['geminiPdfAttachments'] ?? []);
 
         return [
             'aiProvider' => $provider,
@@ -218,6 +250,7 @@ class AuditSettingsService
             'maxParallelItems' => $maxParallel,
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
+            'minValidUrlsAfterStep1' => $minValidUrlsAfterStep1,
             'deepResearchBatchSize' => $deepResearchBatchSize,
             'deepResearchResearchProvider' => $deepResearchResearchProvider,
             'deepResearchResearchModel' => $deepResearchResearchModel,
@@ -225,6 +258,7 @@ class AuditSettingsService
             'deepResearchReasoningModel' => $deepResearchReasoningModel,
             'deepResearchFormatterProvider' => $deepResearchFormatterProvider,
             'deepResearchFormatterModel' => $deepResearchFormatterModel,
+            'geminiPdfAttachments' => $geminiPdfAttachments,
         ];
     }
 
@@ -241,6 +275,11 @@ class AuditSettingsService
     public function step3BatchSize(): int
     {
         return $this->getAuditSettings()['step3BatchSize'];
+    }
+
+    public function minValidUrlsAfterStep1(): int
+    {
+        return $this->getAuditSettings()['minValidUrlsAfterStep1'] ?? 50;
     }
 
     public function step3FlowMode(): string

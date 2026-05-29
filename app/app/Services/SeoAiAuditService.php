@@ -32,6 +32,7 @@ TEXT;
     public function __construct(
         private readonly AuditPromptTemplateService $promptTemplateService,
         private readonly AuditAiStepResponseStorageService $aiStepResponseStorage,
+        private readonly AuditGeminiPdfAttachmentService $geminiPdfAttachmentService,
     ) {
     }
 
@@ -181,6 +182,7 @@ TEXT;
         ?string $formatterModel = null,
         ?int $auditRunId = null,
         ?string $persistStep = null,
+        array $batchPages = [],
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
         $result = $this->analyzeBatchOnpage(
@@ -194,6 +196,7 @@ TEXT;
             $persistStep,
             $formatterProvider,
             $formatterModel,
+            $batchPages,
         );
 
         return [
@@ -446,6 +449,7 @@ TEXT;
         ?string $persistStep = null,
         ?string $formatterProvider = null,
         ?string $formatterModel = null,
+        array $batchPages = [],
     ): array {
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
         $categoryPayload = array_map(
@@ -457,27 +461,46 @@ TEXT;
         );
 
         $usesDeepResearchBrowse = $this->usesGeminiDeepResearchBrowseMode($provider);
+        $usesStep1Content = ! $usesDeepResearchBrowse && $this->batchPagesIncludeStep1Content($batchPages);
+        $contentAvailableUrls = array_values(array_map(
+            fn (array $item): string => (string) ($item['targetUrl'] ?? ''),
+            array_filter($batchPages, function (mixed $item): bool {
+                return is_array($item)
+                    && is_array($item['page'] ?? null)
+                    && (
+                        is_string($item['page']['title'] ?? null)
+                        || is_string($item['page']['metaDescription'] ?? null)
+                        || is_string($item['page']['contentExcerpt'] ?? null)
+                    );
+            })
+        ));
 
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_ONPAGE_AUDIT, [
             'url' => '',
             'target_urls_json' => $targetUrls,
             'target_urls_text' => implode("\n", $targetUrls),
+            'batch_pages_json' => $batchPages,
             'categories_json' => $categoryPayload,
             'keyword_category_results_json' => $keywordCategoryItems,
             'primary_keyword' => '',
             'category_json' => [],
             'category_contexts_json' => [],
             'page_json' => [
-                'mode' => $usesDeepResearchBrowse ? 'deep_research_browse_batch' : 'url_only_batch',
+                'mode' => $usesDeepResearchBrowse
+                    ? 'deep_research_browse_batch'
+                    : ($usesStep1Content ? 'step1_content_batch' : 'url_only_batch'),
                 'targetUrls' => $targetUrls,
+                'contentAvailableUrls' => $contentAvailableUrls,
             ],
             'article_content' => '',
             'checklist' => trim($checklistText ?: self::defaultChecklist()),
         ]);
 
-        $batchContract = $usesDeepResearchBrowse
-            ? $this->geminiDeepResearchOnpageBatchContract()
-            : $this->urlOnlyOnpageBatchContract();
+        $batchContract = match (true) {
+            $usesDeepResearchBrowse => $this->geminiDeepResearchOnpageBatchContract(),
+            $usesStep1Content => $this->step1ContentOnpageBatchContract(),
+            default => $this->urlOnlyOnpageBatchContract(),
+        };
         $prompts['system'] .= "\n\n".$batchContract;
         $prompts['developer'] = $prompts['system'];
 
@@ -493,6 +516,13 @@ TEXT;
 
         if ($usesDeepResearchBrowse) {
             $userAppendix[] = $this->geminiDeepResearchBrowseUrlsBlock($targetUrls);
+        }
+
+        $encodedBatchPages = json_encode($batchPages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+
+        if ($usesStep1Content && $encodedBatchPages !== false && ! str_contains($prompts['user'], (string) $encodedBatchPages)) {
+            $userAppendix[] = 'Step 1 page data JSON (per URL):';
+            $userAppendix[] = $encodedBatchPages;
         }
 
         $prompts['user'] .= "\n\n".implode("\n", $userAppendix);
@@ -683,9 +713,11 @@ TEXT;
             ]);
         }
 
+        $pdfAttachment = $this->resolveGeminiPdfAttachment($provider, $persistStep);
+
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
-            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment),
             'gemini_deep_research' => $this->requestGeminiDeepResearchRaw(
                 $resolvedModel,
                 $systemPrompt,
@@ -694,6 +726,7 @@ TEXT;
                 $provider,
                 $persistStep,
                 $geminiDeepResearchBrowseMode,
+                $pdfAttachment,
             ),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
@@ -749,10 +782,12 @@ TEXT;
             ]);
         }
 
+        $pdfAttachment = $this->resolveGeminiPdfAttachment($provider, $persistStep);
+
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
-            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider),
-            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep),
+            'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment),
+            'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep, false, $pdfAttachment),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
         };
 
@@ -1174,10 +1209,17 @@ TEXT;
 
     /**
      * @param  array<string, mixed>  $schema
+     * @param  array<string, mixed>|null  $pdfAttachment
      * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
      */
-    private function requestGeminiRaw(string $model, string $systemPrompt, string $userPrompt, array $schema, string $provider): array
-    {
+    private function requestGeminiRaw(
+        string $model,
+        string $systemPrompt,
+        string $userPrompt,
+        array $schema,
+        string $provider,
+        ?array $pdfAttachment = null,
+    ): array {
         $apiKey = config('services.gemini.api_key');
 
         if (! $apiKey) {
@@ -1194,9 +1236,7 @@ TEXT;
             'contents' => [
                 [
                     'role' => 'user',
-                    'parts' => [
-                        ['text' => $userPrompt],
-                    ],
+                    'parts' => $this->geminiPdfAttachmentService->buildGeminiUserParts($userPrompt, $pdfAttachment),
                 ],
             ],
             'generationConfig' => [
@@ -1250,6 +1290,7 @@ TEXT;
         string $provider,
         ?string $persistStep = null,
         bool $browseMode = false,
+        ?array $pdfAttachment = null,
     ): array
     {
         $apiKey = config('services.gemini.api_key');
@@ -1269,11 +1310,14 @@ TEXT;
                 '3) Return exactly one JSON object only. No markdown. No report prose outside JSON.',
             ])
             : 'Bắt buộc trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.';
-        $input = implode("\n\n", [
+        $pdfAppendix = $this->geminiPdfAttachmentService->buildDeepResearchPdfAppendix($pdfAttachment);
+        $inputParts = array_filter([
             $systemPrompt,
             $userPrompt,
+            $pdfAppendix !== '' ? $pdfAppendix : null,
             $outputDirective,
         ]);
+        $input = implode("\n\n", $inputParts);
 
         $start = $this->sendAiRequest(
             fn (): Response => Http::withHeaders([
@@ -1789,6 +1833,24 @@ TEXT;
         return $normalized === '' ? null : $normalized;
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function resolveGeminiPdfAttachment(string $provider, ?string $persistStep): ?array
+    {
+        if (! in_array($provider, ['gemini', 'gemini_deep_research'], true)) {
+            return null;
+        }
+
+        $slot = $this->geminiPdfAttachmentService->resolveSlotForPersistStep($persistStep);
+
+        if ($slot === null) {
+            return null;
+        }
+
+        return $this->geminiPdfAttachmentService->getAttachment($slot);
+    }
+
     private function defaultModelForProvider(string $provider): string
     {
         return match ($provider) {
@@ -1918,6 +1980,44 @@ TEXT;
             '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
             'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
         ]);
+    }
+
+    private function step1ContentOnpageBatchContract(): string
+    {
+        return implode("\n", [
+            '=== RUNTIME BATCH CONTRACT — AUTHORITATIVE ===',
+            'Mode: batch onpage audit with step-1 page data. Process all URLs provided in this chunk in one response.',
+            'Use step-1 page data (title/meta/headings/contentExcerpt/source) for each URL when scoring checklist criteria.',
+            'If a URL has thin or missing step-1 contentExcerpt, score only from available fields and state "không kiểm chứng được" for unverified criteria.',
+            'Do not invent crawl data beyond the provided step-1 payload.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $batchPages
+     */
+    private function batchPagesIncludeStep1Content(array $batchPages): bool
+    {
+        foreach ($batchPages as $item) {
+            if (! is_array($item) || ! is_array($item['page'] ?? null)) {
+                continue;
+            }
+
+            $page = $item['page'];
+
+            if (
+                is_string($page['title'] ?? null)
+                || is_string($page['metaDescription'] ?? null)
+                || is_string($page['contentExcerpt'] ?? null)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function geminiDeepResearchOnpageBatchContract(): string

@@ -103,7 +103,12 @@ class AuditRunService
                 throw new RuntimeException('Không có URL nào đủ dữ liệu bước 2 để chạy từ bước 3. Hãy chạy lại từ bước 2 hoặc chọn các URL đã có keyword + danh mục.');
             }
         } elseif ($startFromStep === self::START_FROM_STEP_2) {
-            $step1SeedResults = $this->loadStep1SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
+            $step1SeedResults = $this->loadValidStep1SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
+            $queuedTargetUrls = $step1SeedResults->pluck('target_url')->values()->all();
+
+            if ($queuedTargetUrls === []) {
+                throw new RuntimeException('Không có URL nào đủ dữ liệu bước 1 hợp lệ để chạy từ bước 2. Hãy chạy bước 1 trước hoặc chọn URL đã crawl thành công (không 404/url_only).');
+            }
         }
 
         if ($this->creditService->getBalance($userUid) <= 0) {
@@ -275,6 +280,69 @@ class AuditRunService
             ->map(fn (string $url): ?WebsiteAuditUrlResult => $resultsByUrl->get($url))
             ->filter(fn (?WebsiteAuditUrlResult $result): bool => $result instanceof WebsiteAuditUrlResult)
             ->values();
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @return \Illuminate\Support\Collection<int, WebsiteAuditUrlResult>
+     */
+    public function loadValidStep1SeedResults(string $websiteId, array $targetUrls): \Illuminate\Support\Collection
+    {
+        return $this->loadStep1SeedResults($websiteId, $targetUrls)
+            ->filter(fn (WebsiteAuditUrlResult $result): bool => $this->isStep1ValidUrlResult($result))
+            ->values();
+    }
+
+    public function isStep1ValidUrlResult(WebsiteAuditUrlResult $result): bool
+    {
+        return $this->isStep1ValidContent(
+            $result->content_source,
+            $result->content_error,
+            $result->page_title,
+            $result->meta_description,
+            $result->content_excerpt,
+        );
+    }
+
+    public function isStep1ValidForAudit(AuditRunItem $item): bool
+    {
+        return $this->isStep1ValidContent(
+            $item->content_source,
+            $item->content_error,
+            $item->page_title,
+            $item->meta_description,
+            $item->content_excerpt,
+        );
+    }
+
+    private function isStep1ValidContent(
+        mixed $contentSource,
+        mixed $contentError,
+        mixed $pageTitle,
+        mixed $metaDescription,
+        mixed $contentExcerpt,
+    ): bool {
+        $source = strtolower(trim((string) ($contentSource ?? '')));
+
+        if ($source === '' || $source === 'url_only') {
+            return false;
+        }
+
+        if (! in_array($source, ['jina', 'html'], true)) {
+            return false;
+        }
+
+        $error = strtolower(trim((string) ($contentError ?? '')));
+
+        if ($error !== '' && (str_contains($error, '404') || str_contains($error, 'not found'))) {
+            return false;
+        }
+
+        if ($this->filledText($pageTitle) || $this->filledText($metaDescription)) {
+            return true;
+        }
+
+        return mb_strlen(trim((string) ($contentExcerpt ?? ''))) > 20;
     }
 
     public function hasStep2SeedData(WebsiteAuditUrlResult $result): bool
@@ -529,6 +597,12 @@ class AuditRunService
         }
 
         if ($state['step1Complete']) {
+            $gate = $this->finalizeStep1Gate($run);
+
+            if (! ($gate['ok'] ?? false)) {
+                return;
+            }
+
             $this->dispatchStep2Batches($run);
         }
     }
@@ -538,7 +612,7 @@ class AuditRunService
         $state = DB::transaction(function () use ($run): array {
             $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
 
-            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+            if (! $freshRun || $this->isRunCancelled($freshRun) || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
                 return ['chunks' => [], 'step2Complete' => false];
             }
 
@@ -602,6 +676,15 @@ class AuditRunService
 
         if ($state['step2Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_2)) {
             $this->finalizeStep2OnlyRun($run);
+
+            return;
+        }
+
+        if ($state['step2Complete'] && $this->runHasStep2Failures($run->fresh())) {
+            $this->abortRunAfterStep2Failure(
+                $run,
+                'Bước 2 có URL lỗi. Run dừng và không chạy bước 3.',
+            );
 
             return;
         }
@@ -837,6 +920,79 @@ class AuditRunService
     }
 
     /**
+     * @return array{processed: int, updated: int, skipped: int, items: array<int, array<string, mixed>>}
+     */
+    public function refetchStep1Content(AuditRun $run, bool $thinOnly = true): array
+    {
+        $run = $run->fresh();
+
+        if (! $run) {
+            throw new RuntimeException('Audit run not found.');
+        }
+
+        $query = $run->items()->orderBy('position');
+
+        if ($thinOnly) {
+            $query->where(function ($builder): void {
+                $builder
+                    ->where('content_source', 'html')
+                    ->orWhereRaw('CHAR_LENGTH(COALESCE(content_excerpt, "")) <= ?', [20]);
+            });
+        }
+
+        $items = $query->get();
+        $results = [];
+        $updated = 0;
+
+        foreach ($items as $item) {
+            $beforeExcerptLength = mb_strlen(trim((string) ($item->content_excerpt ?? '')));
+            $beforeSource = (string) ($item->content_source ?? '');
+
+            $page = $this->contentExtractionService->extractOrFallback($item->target_url);
+
+            $afterExcerptLength = mb_strlen(trim((string) ($page['content'] ?? '')));
+            $afterSource = (string) ($page['source'] ?? '');
+
+            $item->forceFill([
+                'content_source' => $page['source'] ?? null,
+                'content_error' => $page['extractionError'] ?? null,
+                'page_title' => $page['title'] ?? null,
+                'meta_description' => $page['metaDescription'] ?? null,
+                'canonical_url' => $page['canonicalUrl'] ?? null,
+                'extracted_headings' => $page['headings'] ?? [],
+                'extracted_metrics' => $page['metrics'] ?? [],
+                'content_excerpt' => $page['content'] ?? null,
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+
+            $changed = $beforeSource !== $afterSource || $beforeExcerptLength !== $afterExcerptLength;
+
+            if ($changed) {
+                $updated++;
+            }
+
+            $results[] = [
+                'itemId' => $item->id,
+                'targetUrl' => $item->target_url,
+                'beforeSource' => $beforeSource,
+                'afterSource' => $afterSource,
+                'beforeExcerptLength' => $beforeExcerptLength,
+                'afterExcerptLength' => $afterExcerptLength,
+                'changed' => $changed,
+            ];
+        }
+
+        return [
+            'processed' => $items->count(),
+            'updated' => $updated,
+            'skipped' => max(0, $items->count() - $updated),
+            'items' => $results,
+        ];
+    }
+
+    /**
      * @param  array<int, int>  $itemIds
      */
     public function processStep2Batch(AuditRun $run, array $itemIds): void
@@ -930,6 +1086,16 @@ class AuditRunService
         }
 
         $this->refreshRunProgress($run);
+
+        if ($items->contains(fn (AuditRunItem $item): bool => $item->fresh()->status === 'failed')) {
+            $this->abortRunAfterStep2Failure(
+                $run->fresh(),
+                'Bước 2 có URL lỗi. Run dừng và không chạy bước 3.',
+            );
+
+            return;
+        }
+
         $this->dispatchStep2Batches($run);
     }
 
@@ -961,6 +1127,13 @@ class AuditRunService
             'categoryMatchReason' => $item->category_match_reason,
         ])->values()->all();
 
+        $batchPages = $this->stepAiProvider($run, 3) === 'gemini_deep_research'
+            ? []
+            : $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+                ->filter(fn (array $payload): bool => isset($payload['page']))
+                ->values()
+                ->all();
+
         $analysis = $this->seoAiAuditService->analyzeBatchOnpageUrlOnly(
             targetUrls: $items->pluck('target_url')->values()->all(),
             categories: $run->categories ?? [],
@@ -972,6 +1145,7 @@ class AuditRunService
             formatterModel: $run->step3_formatter_model,
             auditRunId: $run->id,
             persistStep: $this->chunkStepKey('batch_onpage_audit', $items),
+            batchPages: $batchPages,
         );
 
         if ($this->isRunCancelled($run->fresh())) {
@@ -1010,6 +1184,202 @@ class AuditRunService
         }
 
         $this->recoverStaleGeminiDeepResearchStep3Batches($freshRun);
+    }
+
+    /**
+     * Re-run bước 3.5 (JSON formatter) từ raw output bước 3 đã lưu — không gọi lại Deep Research.
+     *
+     * @return array{
+     *     batches: array<int, array{stepKey: string, ok: bool, items?: int, error?: string}>,
+     *     changed: bool,
+     *     run: array{publicId: string, status: string|null, processed: int, completed: int, failed: int}
+     * }
+     */
+    public function retryStep3FormatterFromSavedRaw(AuditRun $run): array
+    {
+        $run = $run->fresh(['items']);
+
+        if (! $run) {
+            throw new RuntimeException('Audit run not found.');
+        }
+
+        if ($run->cancelled_at !== null) {
+            throw new RuntimeException('Audit run was cancelled.');
+        }
+
+        $responses = is_array($run->ai_step_responses) ? $run->ai_step_responses : [];
+        /** @var AuditAiStepResponseStorageService $storage */
+        $storage = app(AuditAiStepResponseStorageService::class);
+        $settings = $this->auditSettingsService->getAuditSettings();
+        $batchResults = [];
+        $anyChanged = false;
+
+        if (in_array($run->status, ['failed', 'partial'], true)) {
+            $run->forceFill([
+                'status' => 'processing',
+                'last_error' => null,
+            ])->save();
+            $anyChanged = true;
+        }
+
+        foreach ($responses as $stepKey => $record) {
+            if (! is_array($record) || ! str_starts_with($stepKey, 'batch_onpage_audit')) {
+                continue;
+            }
+
+            if (($record['status'] ?? '') !== 'needs_json_formatter' && empty($record['rawTextPath'])) {
+                continue;
+            }
+
+            if (! preg_match('/_(\d{3})_(\d{3})$/', $stepKey, $matches)) {
+                continue;
+            }
+
+            $items = $run->items()
+                ->whereBetween('position', [(int) $matches[1], (int) $matches[2]])
+                ->orderBy('position')
+                ->get();
+
+            if ($items->isEmpty()) {
+                continue;
+            }
+
+            $rawText = $this->loadSavedStep3RawText($storage, $record, $run, $stepKey);
+
+            if ($rawText === null || trim($rawText) === '') {
+                $batchResults[] = [
+                    'stepKey' => $stepKey,
+                    'ok' => false,
+                    'error' => 'Không tìm thấy raw output bước 3 đã lưu.',
+                ];
+
+                continue;
+            }
+
+            $run->items()
+                ->whereIn('id', $items->pluck('id')->all())
+                ->update([
+                    'status' => 'analyzing',
+                    'extraction_source' => self::SOURCE_STEP3_RUNNING,
+                    'error_message' => null,
+                    'completed_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+            $keywordCategoryItems = $items->map(fn (AuditRunItem $item): array => [
+                'targetUrl' => $item->target_url,
+                'primaryKeyword' => $item->primary_keyword,
+                'categoryName' => $item->category_name,
+                'categoryUrl' => $item->category_url,
+                'categoryMatchReason' => $item->category_match_reason,
+            ])->values()->all();
+
+            try {
+                $analysis = $this->seoAiAuditService->resumeBatchOnpageUrlOnlyFromRaw(
+                    targetUrls: $items->pluck('target_url')->values()->all(),
+                    categories: $run->categories ?? [],
+                    checklistText: $run->checklist_text,
+                    keywordCategoryItems: $keywordCategoryItems,
+                    provider: $this->stepAiProvider($run, 3),
+                    model: $this->stepAiModel($run, 3),
+                    rawText: $rawText,
+                    usage: is_array($record['usage'] ?? null) ? $record['usage'] : [],
+                    formatterProvider: $settings['step3FormatterProvider'],
+                    formatterModel: $settings['step3FormatterModel'],
+                    auditRunId: $run->id,
+                    persistStep: $stepKey,
+                    interactionId: is_string($record['interactionId'] ?? null) ? $record['interactionId'] : null,
+                );
+            } catch (\Throwable $exception) {
+                $this->markBatchItemIdsFailed($run, $items->pluck('id')->values()->all(), $exception->getMessage());
+                $batchResults[] = [
+                    'stepKey' => $stepKey,
+                    'ok' => false,
+                    'error' => $exception->getMessage(),
+                ];
+
+                continue;
+            }
+
+            $firstItem = $items->first();
+
+            if ($firstItem) {
+                foreach ($analysis['usageEvents'] ?? [] as $usage) {
+                    if (is_array($usage)) {
+                        $this->tokenBillingService->chargeForAiCall(
+                            $firstItem->fresh('run'),
+                            (string) ($usage['step'] ?? 'batch_onpage_audit_json_formatter'),
+                            $usage,
+                        );
+                    }
+                }
+            }
+
+            $this->applyStep3BatchAnalysis($run, $items, $analysis);
+            $batchResults[] = [
+                'stepKey' => $stepKey,
+                'ok' => true,
+                'items' => count($analysis['items'] ?? []),
+            ];
+            $anyChanged = true;
+        }
+
+        $run = $run->fresh();
+        $this->reconcileRunProgress($run);
+        $this->syncRunIfEnabled($run->fresh());
+
+        return [
+            'batches' => $batchResults,
+            'changed' => $anyChanged,
+            'run' => [
+                'publicId' => (string) $run->public_id,
+                'status' => $run->status,
+                'processed' => (int) $run->processed_urls,
+                'completed' => (int) $run->completed_urls,
+                'failed' => (int) $run->failed_urls,
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function loadSavedStep3RawText(
+        AuditAiStepResponseStorageService $storage,
+        array $record,
+        AuditRun $run,
+        string $stepKey,
+    ): ?string {
+        $path = trim((string) ($record['rawTextPath'] ?? ''));
+
+        if ($path !== '') {
+            $rawText = $storage->read($path);
+
+            if (is_string($rawText) && trim($rawText) !== '') {
+                return $rawText;
+            }
+        }
+
+        $interactionId = trim((string) ($record['interactionId'] ?? ''));
+
+        if ($interactionId === '') {
+            return null;
+        }
+
+        try {
+            $inspection = $this->seoAiAuditService->inspectGeminiDeepResearchInteraction(
+                interactionId: $interactionId,
+                auditRunId: $run->id,
+                persistStep: $stepKey,
+                model: $this->stepAiModel($run, 3),
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $rawText = $inspection['rawText'] ?? null;
+
+        return is_string($rawText) && trim($rawText) !== '' ? $rawText : null;
     }
 
     /**
@@ -2557,9 +2927,185 @@ class AuditRunService
         $this->syncRunIfEnabled($run->fresh());
     }
 
+    public function reconcileRunProgress(AuditRun $run): void
+    {
+        DB::transaction(function () use ($run): void {
+            $run = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($run->cancelled_at !== null) {
+                return;
+            }
+
+            $items = $run->items()->get(['status']);
+            $completed = $items->where('status', 'completed')->count();
+            $failed = $items->where('status', 'failed')->count();
+            $processed = $completed + $failed;
+
+            $status = $processed >= $run->total_urls
+                ? ($completed === 0 ? 'failed' : ($failed > 0 ? 'partial' : 'completed'))
+                : 'processing';
+
+            $run->forceFill([
+                'status' => $status,
+                'processed_urls' => $processed,
+                'completed_urls' => $completed,
+                'failed_urls' => $failed,
+                'completed_at' => $processed >= $run->total_urls ? now() : null,
+                'last_error' => $status === 'failed'
+                    ? ($run->last_error ?: 'All audit items failed.')
+                    : null,
+            ])->save();
+        });
+    }
+
     private function shouldStopAfterStep(AuditRun $run, int $step): bool
     {
         return (int) ($run->stop_after_step ?? 0) === $step;
+    }
+
+    /**
+     * @return array{ok: bool, validCount: int, minRequired: int, invalidCount: int}
+     */
+    private function finalizeStep1Gate(AuditRun $run): array
+    {
+        $minRequired = $this->auditSettingsService->minValidUrlsAfterStep1();
+        $invalidMessage = 'Bước 1: URL không hợp lệ (404, url_only hoặc thiếu nội dung crawl).';
+        $validCount = 0;
+        $invalidCount = 0;
+
+        DB::transaction(function () use ($run, $minRequired, $invalidMessage, &$validCount, &$invalidCount): void {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
+            $step1Items = $freshRun->items()
+                ->where('extraction_source', self::SOURCE_STEP1_DONE)
+                ->get();
+
+            foreach ($step1Items as $item) {
+                if ($this->isStep1ValidForAudit($item)) {
+                    $validCount++;
+
+                    continue;
+                }
+
+                $invalidCount++;
+                $item->forceFill([
+                    'status' => 'failed',
+                    'error_message' => $invalidMessage,
+                    'completed_at' => now(),
+                ])->save();
+            }
+
+            if ($validCount < $minRequired) {
+                $message = sprintf(
+                    'Bước 1 lọc được %d URL hợp lệ, thấp hơn mức tối thiểu %d URL để chạy audit. Run dừng, không chạy bước 2 và 3.',
+                    $validCount,
+                    $minRequired,
+                );
+
+                $freshRun->items()
+                    ->whereIn('status', ['queued', 'fetching'])
+                    ->update([
+                        'status' => 'failed',
+                        'error_message' => $message,
+                        'completed_at' => now(),
+                    ]);
+
+                $items = $freshRun->items()->get(['status']);
+                $completed = $items->where('status', 'completed')->count();
+                $failed = $items->where('status', 'failed')->count();
+
+                $freshRun->forceFill([
+                    'status' => 'failed',
+                    'last_error' => $message,
+                    'processed_urls' => $completed + $failed,
+                    'completed_urls' => $completed,
+                    'failed_urls' => $failed,
+                    'completed_at' => now(),
+                ])->save();
+            }
+        });
+
+        $freshRun = $run->fresh('items');
+
+        foreach ($freshRun?->items ?? [] as $item) {
+            if ($item->status === 'failed') {
+                $this->syncItemIfEnabled($item);
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+            }
+        }
+
+        if ($validCount < $minRequired) {
+            $this->syncRunIfEnabled($freshRun);
+
+            return [
+                'ok' => false,
+                'validCount' => $validCount,
+                'minRequired' => $minRequired,
+                'invalidCount' => $invalidCount,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'validCount' => $validCount,
+            'minRequired' => $minRequired,
+            'invalidCount' => $invalidCount,
+        ];
+    }
+
+    private function runHasStep2Failures(AuditRun $run): bool
+    {
+        return $run->items()
+            ->where('status', 'failed')
+            ->whereIn('extraction_source', [self::SOURCE_STEP2_DONE, self::SOURCE_STEP2_RUNNING])
+            ->exists();
+    }
+
+    public function abortRunAfterStep2Failure(AuditRun $run, string $message): void
+    {
+        DB::transaction(function () use ($run, $message): void {
+            $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
+
+            if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
+                return;
+            }
+
+            $freshRun->items()
+                ->whereIn('status', ['queued', 'fetching', 'analyzing'])
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $message,
+                    'completed_at' => now(),
+                ]);
+
+            $items = $freshRun->items()->get(['status']);
+            $completed = $items->where('status', 'completed')->count();
+            $failed = $items->where('status', 'failed')->count();
+
+            $freshRun->forceFill([
+                'status' => 'failed',
+                'last_error' => $message,
+                'processed_urls' => $completed + $failed,
+                'completed_urls' => $completed,
+                'failed_urls' => $failed,
+                'completed_at' => now(),
+            ])->save();
+        });
+
+        $freshRun = $run->fresh('items');
+
+        foreach ($freshRun?->items ?? [] as $item) {
+            if ($item->status === 'failed') {
+                $this->syncItemIfEnabled($item);
+                $this->urlResultService->upsertFromItem($item->fresh('run'));
+            }
+        }
+
+        $this->syncRunIfEnabled($freshRun);
     }
 
     private function finalizeStep1OnlyRun(AuditRun $run): void

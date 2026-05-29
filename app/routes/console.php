@@ -181,6 +181,179 @@ Artisan::command('audit:recover-run {publicId} {--json}', function (AuditRunServ
     return SymfonyCommand::SUCCESS;
 })->purpose('Recover one active audit run from stale Gemini Deep Research step-3 polling without touching other runs');
 
+Artisan::command('audit:retry-step3-formatter {publicId} {--json}', function (AuditRunService $auditRunService, string $publicId) use ($resolveAuditRun) {
+    /** @var \App\Models\AuditRun|null $run */
+    try {
+        $run = $resolveAuditRun($publicId);
+    } catch (\RuntimeException $exception) {
+        $payload = ['ok' => false, 'message' => $exception->getMessage()];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    if (! $run) {
+        $payload = [
+            'ok' => false,
+            'message' => "Audit run [{$publicId}] not found. Use the full public id or the short suffix shown on the UI.",
+        ];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    try {
+        $result = $auditRunService->retryStep3FormatterFromSavedRaw($run);
+    } catch (\Throwable $exception) {
+        $payload = ['ok' => false, 'message' => $exception->getMessage()];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    $payload = ['ok' => true, ...$result];
+
+    if ((bool) $this->option('json')) {
+        $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return SymfonyCommand::SUCCESS;
+    }
+
+    $runSummary = $result['run'];
+    $this->line(sprintf(
+        'Retry step 3.5 for %s | status=%s processed=%d completed=%d failed=%d',
+        (string) $runSummary['publicId'],
+        (string) $runSummary['status'],
+        (int) $runSummary['processed'],
+        (int) $runSummary['completed'],
+        (int) $runSummary['failed'],
+    ));
+
+    foreach ($result['batches'] as $batch) {
+        if ($batch['ok'] ?? false) {
+            $this->line(sprintf('  OK %s (%d items)', (string) $batch['stepKey'], (int) ($batch['items'] ?? 0)));
+        } else {
+            $this->error(sprintf('  FAIL %s: %s', (string) $batch['stepKey'], (string) ($batch['error'] ?? 'unknown error')));
+        }
+    }
+
+    return SymfonyCommand::SUCCESS;
+})->purpose('Re-run step 3.5 JSON formatter from saved step-3 raw output without calling Deep Research again');
+
+Artisan::command('audit:refetch-step1 {publicId} {--all} {--json}', function (AuditRunService $auditRunService, string $publicId) use ($resolveAuditRun) {
+    /** @var \App\Models\AuditRun|null $run */
+    try {
+        $run = $resolveAuditRun($publicId);
+    } catch (\RuntimeException $exception) {
+        $payload = ['ok' => false, 'message' => $exception->getMessage()];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    if (! $run) {
+        $payload = [
+            'ok' => false,
+            'message' => "Audit run [{$publicId}] not found. Use the full public id or the short suffix shown on the UI.",
+        ];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    $thinOnly = ! (bool) $this->option('all');
+
+    try {
+        $result = $auditRunService->refetchStep1Content($run, $thinOnly);
+    } catch (\Throwable $exception) {
+        $payload = ['ok' => false, 'message' => $exception->getMessage()];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::FAILURE;
+        }
+
+        $this->error($payload['message']);
+
+        return SymfonyCommand::FAILURE;
+    }
+
+    $payload = [
+        'ok' => true,
+        'publicId' => $run->public_id,
+        'thinOnly' => $thinOnly,
+        ...$result,
+    ];
+
+    if ((bool) $this->option('json')) {
+        $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return SymfonyCommand::SUCCESS;
+    }
+
+    $this->line(sprintf(
+        'Refetch step 1 for %s | processed=%d updated=%d skipped=%d thinOnly=%s',
+        (string) $run->public_id,
+        (int) $result['processed'],
+        (int) $result['updated'],
+        (int) $result['skipped'],
+        $thinOnly ? 'yes' : 'no',
+    ));
+
+    foreach ($result['items'] as $item) {
+        if (! ($item['changed'] ?? false)) {
+            continue;
+        }
+
+        $this->line(sprintf(
+            '  ~ %s | %s/%d -> %s/%d',
+            (string) $item['targetUrl'],
+            (string) $item['beforeSource'],
+            (int) $item['beforeExcerptLength'],
+            (string) $item['afterSource'],
+            (int) $item['afterExcerptLength'],
+        ));
+    }
+
+    return SymfonyCommand::SUCCESS;
+})->purpose('Re-fetch step-1 page content for URLs with html source or thin excerpt');
+
 Artisan::command('audit:recover-stale-runs {--limit=} {--json}', function (AuditRunService $auditRunService) {
     $limitOption = $this->option('limit');
     $limit = is_numeric($limitOption) ? (int) $limitOption : null;

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
+import { AuditStep1ReaderButton } from "@/components/dashboard/audit-step1-reader-button";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -87,6 +88,7 @@ export function AuditWorkbenchTable({
   run,
   canManageUrls,
   canSelectUrls = true,
+  websiteId,
 }: {
   urls: string[];
   selectedUrls: string[];
@@ -98,6 +100,7 @@ export function AuditWorkbenchTable({
   run: { status?: string } | null;
   canManageUrls: boolean;
   canSelectUrls?: boolean;
+  websiteId: string;
 }) {
   const [newUrl, setNewUrl] = useState("");
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
@@ -449,10 +452,18 @@ export function AuditWorkbenchTable({
                           {item?.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             {item?.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
-                            {item?.readerUrl ? (
-                              <a className="underline underline-offset-2" href={item.readerUrl} rel="noreferrer" target="_blank">
-                                Reader
-                              </a>
+                            {item ? (
+                              <AuditStep1ReaderButton
+                                preview={{
+                                  pageTitle: item.pageTitle,
+                                  metaDescription: item.metaDescription,
+                                  contentExcerpt: item.contentExcerpt,
+                                  contentSource: item.contentSource,
+                                  contentError: item.contentError
+                                }}
+                                targetUrl={url}
+                                websiteId={websiteId}
+                              />
                             ) : null}
                           </div>
                         </div>

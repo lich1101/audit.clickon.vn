@@ -31,6 +31,7 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/websites/{websiteId}/audit', [WebsiteController::class, 'showAudit']);
     Route::get('/websites/{websiteId}/audit-runs', [AuditRunController::class, 'indexByWebsite']);
     Route::get('/websites/{websiteId}/audit-board', [AuditRunController::class, 'board']);
+    Route::get('/websites/{websiteId}/audit-step1-content', [AuditRunController::class, 'step1Content']);
     Route::post('/website-audits', [WebsiteController::class, 'storeAudit']);
     Route::get('/plan-requests', [PlanRequestController::class, 'index']);
     Route::post('/plan-requests', [PlanRequestController::class, 'store']);

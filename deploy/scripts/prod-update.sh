@@ -159,6 +159,9 @@ if [[ "$RESTART_QUEUE" == "1" ]]; then
   dc restart queue
 fi
 
+echo "==> Restart nginx (refresh upstream DNS sau khi recreate web/api)"
+dc restart nginx
+
 if [[ "$SKIP_CLEANUP" != "1" && "$DOCKER_PRUNE_AFTER_DEPLOY" == "1" ]]; then
   echo "==> Docker cleanup"
   bash "$ROOT_DIR/deploy/scripts/docker-cleanup.sh"

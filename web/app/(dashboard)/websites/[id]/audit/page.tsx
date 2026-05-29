@@ -747,6 +747,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         run={run}
         canManageUrls={!isRunActive}
         canSelectUrls={urlList.length > 0}
+        websiteId={website.id}
       />
 
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>

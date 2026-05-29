@@ -44,6 +44,47 @@ export async function stopAuditRun(publicId: string) {
   });
 }
 
+export type AuditStep1Content = {
+  targetUrl: string;
+  pageTitle?: string | null;
+  metaDescription?: string | null;
+  canonicalUrl?: string | null;
+  headings?: {
+    h1?: string[];
+    h2?: string[];
+    h3?: string[];
+  };
+  metrics?: Record<string, number | boolean | string | null>;
+  contentExcerpt?: string | null;
+  contentSource?: string | null;
+  contentError?: string | null;
+  updatedAt?: string | null;
+};
+
+export async function fetchAuditStep1Content(input: {
+  websiteId: string;
+  targetUrl: string;
+  itemPublicId?: string;
+}) {
+  const params = new URLSearchParams({
+    targetUrl: input.targetUrl
+  });
+
+  if (input.itemPublicId) {
+    params.set("itemPublicId", input.itemPublicId);
+  }
+
+  const response = await laravelRequest<{ data: AuditStep1Content }>(
+    `/api/websites/${input.websiteId}/audit-step1-content?${params.toString()}`,
+    {
+      method: "GET",
+      cache: "no-store"
+    }
+  );
+
+  return response.data;
+}
+
 export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
   const response = await laravelRequest<{ data: AuditBoard }>(`/api/websites/${websiteId}/audit-board`, {
     method: "GET",

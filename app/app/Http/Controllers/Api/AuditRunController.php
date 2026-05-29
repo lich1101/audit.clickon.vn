@@ -50,6 +50,40 @@ class AuditRunController extends Controller
         ]);
     }
 
+    public function step1Content(Request $request, string $websiteId)
+    {
+        $website = $this->websiteDataService->getWebsite($websiteId);
+
+        if (! $website) {
+            throw new NotFoundHttpException('Website not found.');
+        }
+
+        $this->authorizeWebsiteAccess($request, $website);
+
+        $targetUrl = trim((string) $request->query('targetUrl', ''));
+        $itemPublicId = trim((string) $request->query('itemPublicId', ''));
+
+        if ($targetUrl === '') {
+            return response()->json([
+                'message' => 'targetUrl is required.',
+            ], 422);
+        }
+
+        $content = $this->auditRunService->step1ContentForWebsiteUrl(
+            $websiteId,
+            $targetUrl,
+            $itemPublicId !== '' ? $itemPublicId : null,
+        );
+
+        if (! $content) {
+            throw new NotFoundHttpException('Step 1 content not found for this URL.');
+        }
+
+        return response()->json([
+            'data' => $content,
+        ]);
+    }
+
     public function board(Request $request, string $websiteId)
     {
         $website = $this->websiteDataService->getWebsite($websiteId);

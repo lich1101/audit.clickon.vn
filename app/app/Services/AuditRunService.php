@@ -3562,6 +3562,100 @@ class AuditRunService
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function step1ContentForWebsiteUrl(string $websiteId, string $targetUrl, ?string $itemPublicId = null): ?array
+    {
+        $targetUrl = trim($targetUrl);
+
+        if ($targetUrl === '') {
+            return null;
+        }
+
+        if ($itemPublicId) {
+            /** @var AuditRunItem|null $itemByPublicId */
+            $itemByPublicId = AuditRunItem::query()
+                ->where('public_id', $itemPublicId)
+                ->whereHas('run', fn ($query) => $query->where('website_id', $websiteId))
+                ->first();
+
+            if ($itemByPublicId && $this->itemHasStep1Content($itemByPublicId)) {
+                return $this->serializeStep1Content($itemByPublicId);
+            }
+        }
+
+        /** @var AuditRunItem|null $latestItem */
+        $latestItem = AuditRunItem::query()
+            ->where('target_url', $targetUrl)
+            ->whereHas('run', fn ($query) => $query->where('website_id', $websiteId))
+            ->orderByDesc('updated_at')
+            ->first();
+
+        if ($latestItem && $this->itemHasStep1Content($latestItem)) {
+            return $this->serializeStep1Content($latestItem);
+        }
+
+        /** @var WebsiteAuditUrlResult|null $persisted */
+        $persisted = WebsiteAuditUrlResult::query()
+            ->where('website_id', $websiteId)
+            ->where('target_url', $targetUrl)
+            ->first();
+
+        if ($persisted && $this->hasStep1SeedData($persisted)) {
+            return $this->serializeStep1ContentFromPersisted($persisted);
+        }
+
+        return null;
+    }
+
+    public function itemHasStep1Content(AuditRunItem $item): bool
+    {
+        return $this->filledText($item->page_title)
+            || $this->filledText($item->meta_description)
+            || $this->filledText($item->content_excerpt)
+            || $this->filledText($item->content_source)
+            || $this->filledText($item->content_error);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function serializeStep1Content(AuditRunItem $item): array
+    {
+        return [
+            'targetUrl' => $item->target_url,
+            'pageTitle' => $item->page_title,
+            'metaDescription' => $item->meta_description,
+            'canonicalUrl' => $item->canonical_url,
+            'headings' => $item->extracted_headings ?? [],
+            'metrics' => $item->extracted_metrics ?? [],
+            'contentExcerpt' => $item->content_excerpt,
+            'contentSource' => $item->content_source,
+            'contentError' => $item->content_error,
+            'updatedAt' => optional($item->updated_at)?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeStep1ContentFromPersisted(WebsiteAuditUrlResult $result): array
+    {
+        return [
+            'targetUrl' => $result->target_url,
+            'pageTitle' => $result->page_title,
+            'metaDescription' => $result->meta_description,
+            'canonicalUrl' => $result->canonical_url,
+            'headings' => $result->extracted_headings ?? [],
+            'metrics' => $result->extracted_metrics ?? [],
+            'contentExcerpt' => $result->content_excerpt,
+            'contentSource' => $result->content_source,
+            'contentError' => $result->content_error,
+            'updatedAt' => optional($result->updated_at)?->toIso8601String(),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function serializeItemSummary(AuditRunItem $item, ?AuditRun $run = null): array

@@ -4,6 +4,7 @@ import { Download, Search } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
+import { AuditStep1ReaderButton } from "@/components/dashboard/audit-step1-reader-button";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -143,11 +144,18 @@ export function AuditRunItemsTable({
                       {item.metaDescription ? <p className="line-clamp-3 text-xs text-muted-foreground">{item.metaDescription}</p> : null}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {item.contentSource ? <span className="rounded-full bg-secondary/60 px-2 py-1">{item.contentSource}</span> : null}
-                        {item.readerUrl ? (
-                          <a className="underline underline-offset-2" href={item.readerUrl} rel="noreferrer" target="_blank">
-                            Reader
-                          </a>
-                        ) : null}
+                        <AuditStep1ReaderButton
+                          itemPublicId={item.publicId}
+                          preview={{
+                            pageTitle: item.pageTitle,
+                            metaDescription: item.metaDescription,
+                            contentExcerpt: item.contentExcerpt,
+                            contentSource: item.contentSource,
+                            contentError: item.contentError
+                          }}
+                          targetUrl={item.targetUrl}
+                          websiteId={item.websiteId}
+                        />
                       </div>
                     </div>
                   </TableCell>

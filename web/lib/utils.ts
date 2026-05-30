@@ -31,3 +31,16 @@ export function formatCurrency(value: number, currency = "VND") {
 export function formatNumber(value: number) {
   return new Intl.NumberFormat("vi-VN").format(value);
 }
+
+export function formatUsd(value: number | null | undefined, maximumFractionDigits = 6) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits
+  }).format(value);
+}

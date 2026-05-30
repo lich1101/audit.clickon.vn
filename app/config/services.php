@@ -59,8 +59,10 @@ return [
     ],
 
     'audit' => [
-        'max_content_chars' => (int) env('AUDIT_MAX_CONTENT_CHARS', 18000),
-        'max_category_content_chars' => (int) env('AUDIT_MAX_CATEGORY_CONTENT_CHARS', 7000),
+        'legacy_credit_usd_value' => (float) env('AUDIT_LEGACY_CREDIT_TO_USD', 0.01),
+        'billing_markup' => (float) env('AUDIT_BILLING_MARKUP', 1.0),
+        'max_content_chars' => (int) env('AUDIT_MAX_CONTENT_CHARS', 0),
+        'max_category_content_chars' => (int) env('AUDIT_MAX_CATEGORY_CONTENT_CHARS', 0),
         'content_provider' => env('AUDIT_CONTENT_PROVIDER', ''),
         'jina_html_meta_fallback' => (bool) env('AUDIT_JINA_HTML_META_FALLBACK', true),
         'firecrawl_base_url' => env('AUDIT_FIRECRAWL_BASE_URL', 'http://firecrawl-api-1:3002'),
@@ -86,9 +88,6 @@ return [
         'ai_demand_retry_max_attempts' => (int) env('AUDIT_AI_DEMAND_RETRY_MAX_ATTEMPTS', 0),
         'gemini_max_input_tokens' => (int) env('AUDIT_GEMINI_MAX_INPUT_TOKENS', 1048576),
         'gemini_prompt_reserve_tokens' => (int) env('AUDIT_GEMINI_PROMPT_RESERVE_TOKENS', 200000),
-        'gemini_batch_max_tokens_per_url' => (int) env('AUDIT_GEMINI_BATCH_MAX_TOKENS_PER_URL', 9000),
-        'gemini_chars_per_token_estimate' => (float) env('AUDIT_GEMINI_CHARS_PER_TOKEN_ESTIMATE', 1.5),
-        'batch_ai_page_excerpt_chars' => (int) env('AUDIT_BATCH_AI_PAGE_EXCERPT_CHARS', 0),
         'gemini_temperature' => (float) env('AUDIT_GEMINI_TEMPERATURE', 0.2),
         'gemini_top_p' => (float) env('AUDIT_GEMINI_TOP_P', 0.95),
         'gemini_top_k' => (int) env('AUDIT_GEMINI_TOP_K', 40),

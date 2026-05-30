@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchPlans } from "@/lib/account";
 import { laravelRequest } from "@/lib/laravel";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatUsd } from "@/lib/utils";
 import type { Plan, PlanRequest } from "@/types";
 
 export default function BillingPage() {
@@ -61,7 +61,7 @@ export default function BillingPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Billing"
-        description="Chọn gói cước theo số credit, gửi yêu cầu đăng ký và chờ admin duyệt thủ công trước khi credit được cộng vào tài khoản."
+        description="Chọn gói cước theo số dư USD, gửi yêu cầu đăng ký và chờ admin duyệt thủ công trước khi số dư được cộng vào tài khoản."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Billing" }]}
       />
 
@@ -88,7 +88,7 @@ export default function BillingPage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {formatCurrency(request.price)} · {request.credits} credits
+                        {formatCurrency(request.price)} · {formatUsd(request.balanceUsd, 2)}
                       </p>
                     </div>
                     <div className="text-sm">

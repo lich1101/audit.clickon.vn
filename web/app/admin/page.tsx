@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchAdminCreditTransactions, fetchAdminPlans, fetchAdminUsers } from "@/lib/account";
 import { laravelRequest } from "@/lib/laravel";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { CreditLog, Plan, PlanRequest, AppUser } from "@/types";
 
 export default function AdminHomePage() {
@@ -50,7 +50,7 @@ export default function AdminHomePage() {
     };
   }, []);
 
-  const totalCredits = useMemo(() => users.reduce((sum, user) => sum + user.credits, 0), [users]);
+  const totalBalanceUsd = useMemo(() => users.reduce((sum, user) => sum + (user.balanceUsd ?? 0), 0), [users]);
   const pendingRequests = useMemo(() => planRequests.filter((item) => item.status === "pending").length, [planRequests]);
 
   async function refreshRequests() {
@@ -83,7 +83,7 @@ export default function AdminHomePage() {
         <StatCard title="Total users" value={formatNumber(users.length)} hint="Toàn bộ hồ sơ trong MySQL users" icon={Users} />
         <StatCard title="Published plans" value={formatNumber(plans.length)} hint="Bao gồm active và inactive plans" icon={CreditCard} />
         <StatCard title="Pending requests" value={formatNumber(pendingRequests)} hint="Đăng ký gói cước đang chờ admin duyệt" icon={BarChart3} />
-        <StatCard title="Credits in circulation" value={formatNumber(totalCredits)} hint="Tổng credit đang hiện hữu trên các tài khoản" icon={DatabaseZap} />
+        <StatCard title="USD in circulation" value={formatUsd(totalBalanceUsd, 2)} hint="Tổng số dư USD trên các tài khoản" icon={DatabaseZap} />
       </div>
 
       <Card>
@@ -119,7 +119,7 @@ export default function AdminHomePage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {request.firebaseUid} · {formatCurrency(request.price)} · {request.credits} credits
+                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatUsd(request.balanceUsd, 2)}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {request.status} · {formatDate(request.createdAt)}

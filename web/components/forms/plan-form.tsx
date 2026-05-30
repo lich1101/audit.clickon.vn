@@ -22,7 +22,7 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
     defaultValues: {
       name: plan?.name ?? "",
       price: plan?.price ?? 0,
-      credits: plan?.credits ?? 0,
+      balanceUsd: plan?.balanceUsd ?? 0,
       isActive: plan?.isActive ?? true
     }
   });
@@ -59,14 +59,14 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="plan-price">Giá trị gói cước</Label>
+              <Label htmlFor="plan-price">Giá bán (VND)</Label>
               <Input id="plan-price" type="number" min={0} {...form.register("price")} />
               {form.formState.errors.price ? <p className="text-sm text-destructive">{form.formState.errors.price.message}</p> : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="plan-credits">Số credit</Label>
-              <Input id="plan-credits" type="number" min={1} {...form.register("credits")} />
-              {form.formState.errors.credits ? <p className="text-sm text-destructive">{form.formState.errors.credits.message}</p> : null}
+              <Label htmlFor="plan-balance-usd">Số dư USD cộng vào tài khoản ($)</Label>
+              <Input id="plan-balance-usd" type="number" min={0.01} step={0.01} {...form.register("balanceUsd")} />
+              {form.formState.errors.balanceUsd ? <p className="text-sm text-destructive">{form.formState.errors.balanceUsd.message}</p> : null}
             </div>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">

@@ -430,7 +430,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
         $this->app->instance(WebsiteDataService::class, $websiteData);
 
         $creditService = Mockery::mock(CreditService::class);
-        $creditService->shouldReceive('getBalance')->once()->with('user-test')->andReturn(500);
+        $creditService->shouldReceive('getBalanceUsd')->once()->with('user-test')->andReturn(5.0);
         $this->app->instance(CreditService::class, $creditService);
 
         $run = app(AuditRunService::class)->createRun('user-test', 'test@example.com', [
@@ -510,7 +510,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
         $this->app->instance(WebsiteDataService::class, $websiteData);
 
         $creditService = Mockery::mock(CreditService::class);
-        $creditService->shouldReceive('getBalance')->once()->with('user-test')->andReturn(500);
+        $creditService->shouldReceive('getBalanceUsd')->once()->with('user-test')->andReturn(5.0);
         $this->app->instance(CreditService::class, $creditService);
 
         $run = app(AuditRunService::class)->createRun('user-test', 'test@example.com', [
@@ -587,6 +587,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'search_queries' => 6,
             'provider_reported_cost_usd' => 0.321654,
             'credits_charged' => 9,
+            'usd_charged' => 0.321654,
         ]);
 
         AiUsageEvent::query()->create([
@@ -602,6 +603,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
             'search_queries' => 0,
             'provider_reported_cost_usd' => null,
             'credits_charged' => 12,
+            'usd_charged' => 0.015,
         ]);
 
         $payload = app(AuditRunService::class)->serializeRun($run->fresh('items'));
@@ -613,6 +615,7 @@ class AuditDeepResearchWorkflowTest extends TestCase
         $this->assertSame(300, $payload['usageSummary']['totals']['reasoningTokens']);
         $this->assertSame(6, $payload['usageSummary']['totals']['searchQueries']);
         $this->assertSame(21, $payload['usageSummary']['totals']['creditsCharged']);
+        $this->assertEquals(0.336654, $payload['usageSummary']['totals']['usdCharged']);
         $this->assertEquals(0.321654, $payload['usageSummary']['totals']['providerReportedCostUsd']);
         $this->assertEquals(0.03186, $payload['usageSummary']['totals']['estimatedCostUsd']);
 

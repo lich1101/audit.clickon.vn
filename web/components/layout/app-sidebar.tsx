@@ -17,7 +17,7 @@ import {
   Users2
 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, formatUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
@@ -95,7 +95,7 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
           </nav>
 
           <div className="mt-auto rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
-            {isAdminMode ? "Admin mode" : `${profile?.credits ?? 0} credit`}
+            {isAdminMode ? "Admin mode" : formatUsd(profile?.balanceUsd ?? 0, 4)}
           </div>
         </div>
       </ScrollArea>

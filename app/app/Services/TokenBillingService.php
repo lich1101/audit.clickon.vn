@@ -37,7 +37,9 @@ class TokenBillingService
         array $usage,
     ): AiUsageEvent {
         $item->loadMissing('run');
-        $credits = $this->calculateCredits(
+        $usdResult = $this->calculateUsdForUsage($usage);
+        $usdCharged = (float) ($usdResult['amount'] ?? 0.0);
+        $creditsCharged = $this->calculateCredits(
             $usage['provider'],
             $usage['model'],
             (int) $usage['input_tokens'],
@@ -56,15 +58,23 @@ class TokenBillingService
             'reasoning_tokens' => (int) ($usage['reasoning_tokens'] ?? 0),
             'search_queries' => (int) ($usage['search_queries'] ?? 0),
             'provider_reported_cost_usd' => $this->normalizeUsd($usage['provider_reported_cost_usd'] ?? null),
-            'credits_charged' => $credits,
+            'credits_charged' => $creditsCharged,
+            'usd_charged' => $usdCharged,
         ]);
 
-        if ($credits > 0 && $item->run) {
-            $this->creditService->mutate(
+        if ($usdCharged > 0 && $item->run) {
+            $this->creditService->mutateUsd(
                 firebaseUid: $item->run->user_uid,
                 type: 'subtract',
-                amount: $credits,
-                reason: "Audit AI [{$step}] {$usage['model']} · {$usage['input_tokens']} in / {$usage['output_tokens']} out tokens",
+                amountUsd: $usdCharged,
+                reason: sprintf(
+                    'Audit AI [%s] %s · %d in / %d out tokens · $%.6f',
+                    $step,
+                    $usage['model'],
+                    (int) $usage['input_tokens'],
+                    (int) $usage['output_tokens'],
+                    $usdCharged,
+                ),
                 source: 'audit',
                 referenceType: 'audit_run_item',
                 referenceId: (string) $item->public_id,
@@ -72,6 +82,85 @@ class TokenBillingService
         }
 
         return $event;
+    }
+
+    /**
+     * @param  array{
+     *   provider:string,
+     *   model:string,
+     *   input_tokens?:int,
+     *   output_tokens?:int,
+     *   citation_tokens?:int,
+     *   reasoning_tokens?:int,
+     *   search_queries?:int,
+     *   provider_reported_cost_usd?:float|int|string|null
+     * }  $usage
+     * @return array{amount:float,isExact:bool,source:string}
+     */
+    public function calculateUsdForUsage(array $usage): array
+    {
+        $provider = trim((string) ($usage['provider'] ?? ''));
+        $model = trim((string) ($usage['model'] ?? ''));
+        $markup = max(0.0, (float) config('services.audit.billing_markup', 1.0));
+        $reported = $this->normalizeUsd($usage['provider_reported_cost_usd'] ?? null);
+
+        if ($reported !== null && $reported > 0) {
+            $amount = round($reported * $markup, 6);
+
+            return [
+                'amount' => max($amount, $this->resolveMinUsdPerCall($provider, $model)),
+                'isExact' => true,
+                'source' => 'provider_reported',
+            ];
+        }
+
+        $estimated = $this->estimateUsdForUsage([
+            'provider' => $provider,
+            'model' => $model,
+            'input_tokens' => (int) ($usage['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($usage['output_tokens'] ?? 0),
+            'citation_tokens' => (int) ($usage['citation_tokens'] ?? 0),
+            'reasoning_tokens' => (int) ($usage['reasoning_tokens'] ?? 0),
+            'search_queries' => (int) ($usage['search_queries'] ?? 0),
+        ]);
+
+        if ($estimated['amount'] !== null) {
+            $amount = round((float) $estimated['amount'] * $markup, 6);
+
+            return [
+                'amount' => max($amount, $this->resolveMinUsdPerCall($provider, $model)),
+                'isExact' => (bool) ($estimated['isExact'] ?? false),
+                'source' => 'estimated_tokens',
+            ];
+        }
+
+        $credits = $this->calculateCredits(
+            $provider,
+            $model,
+            (int) ($usage['input_tokens'] ?? 0),
+            (int) ($usage['output_tokens'] ?? 0),
+        );
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+        $amount = round($credits * $legacyRate * $markup, 6);
+
+        return [
+            'amount' => max($amount, $this->resolveMinUsdPerCall($provider, $model)),
+            'isExact' => false,
+            'source' => 'credit_fallback',
+        ];
+    }
+
+    private function resolveMinUsdPerCall(string $provider, string $model): float
+    {
+        $pricing = $this->resolvePricing($provider, $model);
+
+        if (is_numeric($pricing['min_usd_per_call'] ?? null)) {
+            return round((float) $pricing['min_usd_per_call'], 6);
+        }
+
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+
+        return round(((int) ($pricing['min_credits_per_call'] ?? 0)) * $legacyRate, 6);
     }
 
     public function calculateCredits(string $provider, string $model, int $inputTokens, int $outputTokens): int
@@ -240,6 +329,7 @@ class TokenBillingService
                 'usd_per_1m_citation' => null,
                 'usd_per_1k_search_queries' => null,
                 'min_credits_per_call' => 2,
+                'min_usd_per_call' => null,
                 'is_exact_match' => false,
             ];
         });
@@ -267,6 +357,7 @@ class TokenBillingService
                 'usdPer1MCitation' => $this->normalizeNullableFloat($row->usd_per_1m_citation),
                 'usdPer1kSearchQueries' => $this->normalizeNullableFloat($row->usd_per_1k_search_queries),
                 'minCreditsPerCall' => (int) $row->min_credits_per_call,
+                'minUsdPerCall' => $this->normalizeNullableFloat($row->min_usd_per_call),
             ])
             ->values()
             ->all();
@@ -284,7 +375,8 @@ class TokenBillingService
      *   usdPer1MReasoning?:float|int|string|null,
      *   usdPer1MCitation?:float|int|string|null,
      *   usdPer1kSearchQueries?:float|int|string|null,
-     *   minCreditsPerCall?:int|string|null
+     *   minCreditsPerCall?:int|string|null,
+     *   minUsdPerCall?:float|int|string|null
      * }>  $rows
      */
     public function syncPricing(array $rows): void
@@ -312,6 +404,7 @@ class TokenBillingService
                     'usd_per_1m_citation' => $this->normalizeNullableFloat($row['usdPer1MCitation'] ?? null),
                     'usd_per_1k_search_queries' => $this->normalizeNullableFloat($row['usdPer1kSearchQueries'] ?? null),
                     'min_credits_per_call' => max(0, (int) ($row['minCreditsPerCall'] ?? 0)),
+                    'min_usd_per_call' => $this->normalizeNullableFloat($row['minUsdPerCall'] ?? null),
                     'is_active' => true,
                 ],
             );
@@ -355,6 +448,7 @@ class TokenBillingService
             'usd_per_1m_citation' => $this->normalizeNullableFloat($record->usd_per_1m_citation),
             'usd_per_1k_search_queries' => $this->normalizeNullableFloat($record->usd_per_1k_search_queries),
             'min_credits_per_call' => (int) $record->min_credits_per_call,
+            'min_usd_per_call' => $this->normalizeNullableFloat($record->min_usd_per_call),
             'is_exact_match' => $isExactMatch,
         ];
     }

@@ -15,7 +15,7 @@ class CreditMutationRequest extends FormRequest
     {
         return [
             'userId' => ['required', 'string'],
-            'amount' => ['required', 'integer', 'min:1'],
+            'amountUsd' => ['required', 'numeric', 'min:0.000001'],
             'reason' => ['required', 'string', 'min:4'],
         ];
     }

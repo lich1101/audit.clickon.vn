@@ -5,7 +5,9 @@ export type AppUser = {
   email: string;
   displayName?: string;
   role: UserRole;
+  balanceUsd: number;
   credits: number;
+  legacyCreditsPerUsd?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -14,6 +16,7 @@ export type Plan = {
   id: string;
   name: string;
   price: number;
+  balanceUsd: number;
   credits: number;
   isActive: boolean;
   createdAt: string;
@@ -106,8 +109,11 @@ export type CreditLog = {
   userId: string;
   type: "add" | "subtract";
   amount: number;
+  amountUsd: number;
   balanceBefore: number;
   balanceAfter: number;
+  balanceBeforeUsd: number;
+  balanceAfterUsd: number;
   reason: string;
   source: "admin" | "api" | "plan" | "audit" | "system";
   createdAt: string;
@@ -119,6 +125,7 @@ export type PlanRequest = {
   planId: string;
   planName: string;
   price: number;
+  balanceUsd: number;
   credits: number;
   status: "pending" | "approved" | "rejected";
   note?: string | null;
@@ -152,10 +159,11 @@ export type AuditPromptTemplate = {
 
 export type CreditBalanceResponse = {
   userId: string;
+  balanceUsd: number;
   credits: number;
 };
 
-export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "credits" | "displayName">;
+export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "balanceUsd" | "credits" | "displayName">;
 
 export type AuditRunItem = {
   publicId: string;
@@ -270,6 +278,7 @@ export type AuditRunUsageStepSummary = {
   reasoningTokens: number;
   searchQueries: number;
   creditsCharged: number;
+  usdCharged: number;
   providerReportedCostUsd?: number | null;
   estimatedCostUsd?: number | null;
 };
@@ -286,6 +295,7 @@ export type AuditRunUsageSummary = {
     reasoningTokens: number;
     searchQueries: number;
     creditsCharged: number;
+    usdCharged: number;
     providerReportedCostUsd?: number | null;
     estimatedCostUsd?: number | null;
   };

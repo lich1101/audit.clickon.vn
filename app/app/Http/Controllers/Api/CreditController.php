@@ -19,16 +19,17 @@ class CreditController extends Controller
     {
         $payload = $request->validated();
         $source = (string) $request->attributes->get('actor_source', 'api');
-        $result = $this->creditService->mutate(
+        $result = $this->creditService->mutateUsd(
             firebaseUid: $payload['userId'],
             type: 'add',
-            amount: (int) $payload['amount'],
+            amountUsd: (float) $payload['amountUsd'],
             reason: $payload['reason'],
             source: $source === 'admin' ? 'admin' : 'api',
         );
 
         return response()->json([
-            'message' => 'Credits added successfully.',
+            'message' => 'Balance added successfully.',
+            'balanceUsd' => $result['balanceUsd'],
             'credits' => $result['credits'],
             'log' => $result['log'],
         ]);
@@ -39,21 +40,22 @@ class CreditController extends Controller
         try {
             $payload = $request->validated();
             $source = (string) $request->attributes->get('actor_source', 'api');
-            $result = $this->creditService->mutate(
+            $result = $this->creditService->mutateUsd(
                 firebaseUid: $payload['userId'],
                 type: 'subtract',
-                amount: (int) $payload['amount'],
+                amountUsd: (float) $payload['amountUsd'],
                 reason: $payload['reason'],
                 source: $source === 'admin' ? 'admin' : 'api',
             );
 
             return response()->json([
-                'message' => 'Credits subtracted successfully.',
+                'message' => 'Balance subtracted successfully.',
+                'balanceUsd' => $result['balanceUsd'],
                 'credits' => $result['credits'],
                 'log' => $result['log'],
             ]);
         } catch (RuntimeException $exception) {
-            if ($exception->getMessage() === 'Insufficient credits.') {
+            if ($exception->getMessage() === 'Insufficient balance.') {
                 return response()->json([
                     'message' => $exception->getMessage(),
                 ], 422);
@@ -75,6 +77,7 @@ class CreditController extends Controller
 
         return response()->json([
             'userId' => $userId,
+            'balanceUsd' => $this->creditService->getBalanceUsd($userId),
             'credits' => $this->creditService->getBalance($userId),
         ]);
     }

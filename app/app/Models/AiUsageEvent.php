@@ -20,6 +20,7 @@ class AiUsageEvent extends Model
         'search_queries',
         'provider_reported_cost_usd',
         'credits_charged',
+        'usd_charged',
     ];
 
     protected function casts(): array
@@ -33,6 +34,7 @@ class AiUsageEvent extends Model
             'search_queries' => 'integer',
             'provider_reported_cost_usd' => 'float',
             'credits_charged' => 'integer',
+            'usd_charged' => 'float',
         ];
     }
 

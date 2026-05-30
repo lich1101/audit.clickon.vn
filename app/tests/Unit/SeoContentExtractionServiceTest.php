@@ -395,4 +395,22 @@ HTML,
         $this->assertStringNotContainsString('AddToAny', $page['content']);
         $this->assertTrue($page['metrics']['auditReady'] ?? false);
     }
+
+    public function test_finalize_extracted_page_keeps_full_content_when_max_chars_is_zero(): void
+    {
+        config(['services.audit.max_content_chars' => 0]);
+
+        $service = new SeoContentExtractionService;
+        $method = new ReflectionMethod(SeoContentExtractionService::class, 'finalizeExtractedPage');
+        $method->setAccessible(true);
+
+        $longContent = str_repeat('Nội dung bài viết đủ dài để audit SEO onpage theo checklist Clickon. ', 200);
+        $page = $method->invoke($service, [
+            'title' => 'Tiêu đề bài viết',
+            'content' => $longContent,
+            'metrics' => [],
+        ]);
+
+        $this->assertSame(mb_strlen($longContent), mb_strlen((string) $page['content']));
+    }
 }

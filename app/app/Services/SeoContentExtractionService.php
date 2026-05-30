@@ -190,7 +190,7 @@ class SeoContentExtractionService
                 'metaDescriptionLength' => mb_strlen($metaDescription),
                 'h1Count' => count($headings['h1']),
             ],
-            'content' => mb_substr($content, 0, (int) config('services.audit.max_content_chars', 18000)),
+            'content' => $content,
             'checklistEvidence' => $this->buildChecklistEvidenceFromMarkdown(
                 markdown: $parsed['markdown'],
                 pageUrl: $url,
@@ -1157,6 +1157,17 @@ class SeoContentExtractionService
         return trim($content);
     }
 
+    private function applyOptionalContentCharLimit(string $content): string
+    {
+        $maxChars = (int) config('services.audit.max_content_chars', 0);
+
+        if ($maxChars <= 0) {
+            return $content;
+        }
+
+        return mb_substr($content, 0, $maxChars);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -1167,7 +1178,6 @@ class SeoContentExtractionService
         $wordCount = $this->countAuditWords($content);
         $minWords = max(50, (int) config('services.audit.min_audit_content_words', 80));
         $minChars = max(200, (int) config('services.audit.min_audit_content_chars', 500));
-        $maxChars = (int) config('services.audit.max_content_chars', 18000);
         $issues = [];
 
         if ($wordCount < $minWords) {
@@ -1190,7 +1200,7 @@ class SeoContentExtractionService
             $metrics['checklistEvidence'] = $page['checklistEvidence'];
         }
 
-        $page['content'] = mb_substr($content, 0, $maxChars);
+        $page['content'] = $this->applyOptionalContentCharLimit($content);
         $page['metrics'] = $metrics;
 
         return $page;

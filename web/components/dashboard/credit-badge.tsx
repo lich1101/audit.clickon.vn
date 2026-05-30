@@ -1,13 +1,13 @@
-import { Coins } from "lucide-react";
+import { Wallet } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { formatNumber } from "@/lib/utils";
+import { formatUsd } from "@/lib/utils";
 
-export function CreditBadge({ credits }: { credits: number }) {
+export function CreditBadge({ balanceUsd }: { balanceUsd: number }) {
   return (
     <Badge variant="success" className="gap-1.5">
-      <Coins className="size-3.5" />
-      {formatNumber(credits)} credits
+      <Wallet className="size-3.5" />
+      {formatUsd(balanceUsd, 4)}
     </Badge>
   );
 }

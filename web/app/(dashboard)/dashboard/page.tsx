@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchCreditLogs, fetchWebsites } from "@/lib/firestore";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, isActiveAuditRun } from "@/lib/audit-runs";
-import { formatDate, formatNumber } from "@/lib/utils";
+import { formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { CreditLog, Website } from "@/types";
 
 export default function DashboardPage() {
@@ -60,34 +60,34 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Dashboard"
-        description="Tổng quan credit, website đã tạo và các giao dịch credit gần nhất từ MySQL qua Laravel API."
+        description="Tổng quan số dư USD, website đã tạo và các giao dịch gần nhất từ MySQL qua Laravel API."
         breadcrumbs={[{ label: "Dashboard" }]}
         action={{ label: "Tạo audit website", href: "/websites/create" }}
       />
 
       <div className="grid gap-5 xl:grid-cols-3">
-        <StatCard title="Credit hiện tại" value={formatNumber(profile?.credits ?? 0)} hint="Lấy từ phiên đăng nhập và Laravel API" icon={Wallet} />
+        <StatCard title="Số dư hiện tại" value={formatUsd(profile?.balanceUsd ?? 0, 4)} hint="Trừ theo chi phí API thực tế sau mỗi lần gọi AI" icon={Wallet} />
         <StatCard title="Website đang quản lý" value={formatNumber(websites.length)} hint="Mỗi user chỉ thấy dữ liệu của chính mình" icon={Globe2} />
-        <StatCard title="Giao dịch credit gần đây" value={formatNumber(logs.length)} hint="Log được cập nhật ngay sau mutation" icon={Sparkles} />
+        <StatCard title="Giao dịch gần đây" value={formatNumber(logs.length)} hint="Log được cập nhật ngay sau mutation" icon={Sparkles} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <DataTable
-          title="Recent credit activity"
+          title="Recent balance activity"
           columns={[
             { key: "type", header: "Loại", render: (row: CreditLog) => row.type },
-            { key: "amount", header: "Amount", render: (row: CreditLog) => `${row.type === "subtract" ? "-" : "+"}${formatNumber(row.amount)}` },
+            { key: "amount", header: "Amount", render: (row: CreditLog) => `${row.type === "subtract" ? "-" : "+"}${formatUsd(row.amountUsd, 6)}` },
             { key: "reason", header: "Lý do", render: (row: CreditLog) => row.reason },
             { key: "createdAt", header: "Thời gian", render: (row: CreditLog) => formatDate(row.createdAt) }
           ]}
           rows={logs.slice(0, 5)}
-          empty={<EmptyState title="Chưa có credit log" description="Các lần cộng hoặc trừ credit sẽ xuất hiện ở đây." />}
+          empty={<EmptyState title="Chưa có lịch sử giao dịch" description="Các lần cộng hoặc trừ số dư sẽ xuất hiện ở đây." />}
         />
 
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>Quick actions</CardTitle>
-            <CreditBadge credits={profile?.credits ?? 0} />
+            <CreditBadge balanceUsd={profile?.balanceUsd ?? 0} />
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Button asChild className="justify-start">

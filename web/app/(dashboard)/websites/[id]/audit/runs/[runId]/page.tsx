@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
 import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
-import { formatDate, formatNumber } from "@/lib/utils";
+import { formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { AuditRun, AuditRunItem, Website } from "@/types";
 
 function buildDeepResearchFlowLabel(run: AuditRun) {
@@ -39,14 +39,6 @@ function buildStandardFlowLabel(run: AuditRun) {
   }
 
   return base;
-}
-
-function formatUsd(value?: number | null) {
-  if (value == null || Number.isNaN(value)) {
-    return "—";
-  }
-
-  return `$${value.toFixed(6)}`;
 }
 
 export default function AuditRunDetailPage({
@@ -249,8 +241,8 @@ export default function AuditRunDetailPage({
               <StatCard title="Tổng token" value={formatNumber(usageSummary.totals.totalTokens)} hint={`${formatNumber(usageSummary.totals.eventCount)} AI call`} icon={Waypoints} />
               <StatCard title="Input / Output" value={`${formatNumber(usageSummary.totals.inputTokens)} / ${formatNumber(usageSummary.totals.outputTokens)}`} icon={Waves} />
               <StatCard title="Reasoning / Citation" value={`${formatNumber(usageSummary.totals.reasoningTokens)} / ${formatNumber(usageSummary.totals.citationTokens)}`} icon={ListChecks} />
-              <StatCard title="USD thực tế" value={formatUsd(usageSummary.totals.providerReportedCostUsd)} icon={FileSpreadsheet} />
-              <StatCard title="USD ước tính / Credit" value={`${formatUsd(usageSummary.totals.estimatedCostUsd)} / ${formatNumber(usageSummary.totals.creditsCharged)}`} icon={FileSpreadsheet} />
+              <StatCard title="USD đã trừ" value={formatUsd(usageSummary.totals.usdCharged, 6)} hint="Trừ thực tế theo giá API / token" icon={FileSpreadsheet} />
+              <StatCard title="USD ước tính" value={formatUsd(usageSummary.totals.estimatedCostUsd, 6)} icon={FileSpreadsheet} />
             </div>
 
             <div className="overflow-x-auto">
@@ -266,8 +258,8 @@ export default function AuditRunDetailPage({
                     <th className="py-2 pr-4">Citation</th>
                     <th className="py-2 pr-4">Search</th>
                     <th className="py-2 pr-4">Total token</th>
-                    <th className="py-2 pr-4">Credit</th>
-                    <th className="py-2 pr-4">USD thực tế</th>
+                    <th className="py-2 pr-4">USD đã trừ</th>
+                    <th className="py-2 pr-4">USD provider</th>
                     <th className="py-2 pr-4">USD ước tính</th>
                   </tr>
                 </thead>
@@ -289,8 +281,8 @@ export default function AuditRunDetailPage({
                       <td className="py-3 pr-4">{formatNumber(step.citationTokens)}</td>
                       <td className="py-3 pr-4">{formatNumber(step.searchQueries)}</td>
                       <td className="py-3 pr-4">{formatNumber(step.totalTokens)}</td>
-                      <td className="py-3 pr-4">{formatNumber(step.creditsCharged)}</td>
-                      <td className="py-3 pr-4">{formatUsd(step.providerReportedCostUsd)}</td>
+                      <td className="py-3 pr-4">{formatUsd(step.usdCharged, 6)}</td>
+                      <td className="py-3 pr-4">{formatUsd(step.providerReportedCostUsd, 6)}</td>
                       <td className="py-3 pr-4">{formatUsd(step.estimatedCostUsd)}</td>
                     </tr>
                   ))}

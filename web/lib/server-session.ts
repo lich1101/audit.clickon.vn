@@ -19,6 +19,7 @@ export async function getVerifiedSession() {
     uid: decoded.uid,
     email: decoded.email ?? "",
     role,
+    balanceUsd: 0,
     credits: 0
   };
 }

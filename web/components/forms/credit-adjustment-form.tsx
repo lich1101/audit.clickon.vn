@@ -26,7 +26,7 @@ export function CreditAdjustmentForm({
     resolver: zodResolver(creditMutationSchema),
     defaultValues: {
       userId,
-      amount: 0,
+      amountUsd: 0,
       reason: ""
     }
   });
@@ -41,13 +41,13 @@ export function CreditAdjustmentForm({
       }
       form.reset({
         userId,
-        amount: 0,
+        amountUsd: 0,
         reason: ""
       });
       await onMutated?.();
-      toast.success(type === "add" ? "Đã cộng credit." : "Đã trừ credit.");
+      toast.success(type === "add" ? "Đã cộng số dư USD." : "Đã trừ số dư USD.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Không thể cập nhật credit.");
+      toast.error(error instanceof Error ? error.message : "Không thể cập nhật số dư.");
     } finally {
       setSubmitting(false);
     }
@@ -56,15 +56,15 @@ export function CreditAdjustmentForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{type === "add" ? "Cộng credit" : "Trừ credit"}</CardTitle>
+        <CardTitle>{type === "add" ? "Cộng số dư USD" : "Trừ số dư USD"}</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={onSubmit}>
           <input type="hidden" {...form.register("userId")} />
           <div className="flex flex-col gap-2">
-            <Label htmlFor={`${type}-amount`}>Số lượng credit</Label>
-            <Input id={`${type}-amount`} type="number" min={1} {...form.register("amount")} />
-            {form.formState.errors.amount ? <p className="text-sm text-destructive">{form.formState.errors.amount.message}</p> : null}
+            <Label htmlFor={`${type}-amount`}>Số tiền USD ($)</Label>
+            <Input id={`${type}-amount`} type="number" min={0.000001} step={0.01} {...form.register("amountUsd")} />
+            {form.formState.errors.amountUsd ? <p className="text-sm text-destructive">{form.formState.errors.amountUsd.message}</p> : null}
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${type}-reason`}>Lý do</Label>
@@ -72,7 +72,7 @@ export function CreditAdjustmentForm({
             {form.formState.errors.reason ? <p className="text-sm text-destructive">{form.formState.errors.reason.message}</p> : null}
           </div>
           <Button type="submit" variant={type === "add" ? "default" : "destructive"} disabled={submitting}>
-            {submitting ? "Đang xử lý..." : type === "add" ? "Cộng credit" : "Trừ credit"}
+            {submitting ? "Đang xử lý..." : type === "add" ? "Cộng USD" : "Trừ USD"}
           </Button>
         </form>
       </CardContent>

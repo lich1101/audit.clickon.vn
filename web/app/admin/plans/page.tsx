@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { fetchAdminPlans, updatePlan } from "@/lib/account";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, formatUsd } from "@/lib/utils";
 import type { Plan } from "@/types";
 
 export default function AdminPlansPage() {
@@ -57,7 +57,7 @@ export default function AdminPlansPage() {
         columns={[
           { key: "name", header: "Plan", render: (row: Plan) => row.name },
           { key: "price", header: "Giá", render: (row: Plan) => formatCurrency(row.price) },
-          { key: "credits", header: "Credits", render: (row: Plan) => formatNumber(row.credits) },
+          { key: "balanceUsd", header: "Số dư USD", render: (row: Plan) => formatUsd(row.balanceUsd, 2) },
           { key: "status", header: "Status", render: (row: Plan) => (row.isActive ? "active" : "inactive") },
           { key: "createdAt", header: "Ngày tạo", render: (row: Plan) => formatDate(row.createdAt) },
           {

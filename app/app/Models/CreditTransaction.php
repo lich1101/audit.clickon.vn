@@ -12,8 +12,11 @@ class CreditTransaction extends Model
         'user_uid',
         'type',
         'amount',
+        'amount_usd',
         'balance_before',
         'balance_after',
+        'balance_before_usd',
+        'balance_after_usd',
         'reason',
         'source',
         'reference_type',
@@ -24,8 +27,11 @@ class CreditTransaction extends Model
     {
         return [
             'amount' => 'integer',
+            'amount_usd' => 'float',
             'balance_before' => 'integer',
             'balance_after' => 'integer',
+            'balance_before_usd' => 'float',
+            'balance_after_usd' => 'float',
         ];
     }
 

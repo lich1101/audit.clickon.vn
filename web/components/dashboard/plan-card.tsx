@@ -22,7 +22,7 @@ export function PlanCard({
           <div className="flex flex-col gap-1.5">
             <CardTitle>{plan.name}</CardTitle>
           </div>
-          <CreditBadge credits={plan.credits} />
+          <CreditBadge balanceUsd={plan.balanceUsd} />
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

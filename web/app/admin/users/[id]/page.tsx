@@ -92,7 +92,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
             <div>
               <p className="text-sm text-muted-foreground">Credits</p>
               <div className="mt-2">
-                <CreditBadge credits={user.credits} />
+                <CreditBadge balanceUsd={user.balanceUsd} />
               </div>
             </div>
             <div>

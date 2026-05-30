@@ -13,12 +13,14 @@ class AppUser extends Model
         'display_name',
         'role',
         'credits',
+        'balance_usd',
     ];
 
     protected function casts(): array
     {
         return [
             'credits' => 'integer',
+            'balance_usd' => 'float',
         ];
     }
 

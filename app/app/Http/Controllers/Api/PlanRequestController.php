@@ -41,6 +41,8 @@ class PlanRequestController extends Controller
             ], 422);
         }
 
+        $balanceUsd = $this->resolvePlanBalanceUsd($plan);
+
         $planRequest = PlanRequest::query()->create([
             'firebase_uid' => (string) $request->attributes->get('firebase_uid'),
             'user_email' => (string) $request->attributes->get('firebase_email'),
@@ -48,6 +50,7 @@ class PlanRequestController extends Controller
             'plan_name' => $plan->name,
             'price' => (int) $plan->price,
             'credits' => (int) $plan->credits,
+            'balance_usd' => $balanceUsd,
             'status' => 'pending',
         ]);
 
@@ -76,10 +79,10 @@ class PlanRequestController extends Controller
             ], 422);
         }
 
-        $this->creditService->mutate(
+        $this->creditService->mutateUsd(
             firebaseUid: $planRequest->firebase_uid,
             type: 'add',
-            amount: $planRequest->credits,
+            amountUsd: $this->resolvePlanRequestBalanceUsd($planRequest),
             reason: "Approved plan {$planRequest->plan_name}",
             source: 'plan',
             referenceType: 'plan_request',
@@ -129,6 +132,7 @@ class PlanRequestController extends Controller
             'planName' => $planRequest->plan_name,
             'price' => $planRequest->price,
             'credits' => $planRequest->credits,
+            'balanceUsd' => $this->resolvePlanRequestBalanceUsd($planRequest),
             'status' => $planRequest->status,
             'note' => $planRequest->note,
             'approvedBy' => $planRequest->approved_by,
@@ -136,5 +140,27 @@ class PlanRequestController extends Controller
             'createdAt' => optional($planRequest->created_at)?->toIso8601String(),
             'updatedAt' => optional($planRequest->updated_at)?->toIso8601String(),
         ];
+    }
+
+    private function resolvePlanRequestBalanceUsd(PlanRequest $planRequest): float
+    {
+        if (is_numeric($planRequest->balance_usd ?? null)) {
+            return round((float) $planRequest->balance_usd, 2);
+        }
+
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+
+        return round(((int) $planRequest->credits) * $legacyRate, 2);
+    }
+
+    private function resolvePlanBalanceUsd(Plan $plan): float
+    {
+        if (is_numeric($plan->balance_usd ?? null)) {
+            return round((float) $plan->balance_usd, 2);
+        }
+
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+
+        return round(((int) $plan->credits) * $legacyRate, 2);
     }
 }

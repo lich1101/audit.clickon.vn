@@ -242,6 +242,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
             reasoningTokens: Number(run.usageSummary.totals?.reasoningTokens ?? 0),
             searchQueries: Number(run.usageSummary.totals?.searchQueries ?? 0),
             creditsCharged: Number(run.usageSummary.totals?.creditsCharged ?? 0),
+            usdCharged: Number(run.usageSummary.totals?.usdCharged ?? 0),
             providerReportedCostUsd:
               run.usageSummary.totals?.providerReportedCostUsd == null
                 ? null
@@ -266,6 +267,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
                 reasoningTokens: Number(step.reasoningTokens ?? 0),
                 searchQueries: Number(step.searchQueries ?? 0),
                 creditsCharged: Number(step.creditsCharged ?? 0),
+                usdCharged: Number(step.usdCharged ?? 0),
                 providerReportedCostUsd: step.providerReportedCostUsd == null ? null : Number(step.providerReportedCostUsd),
                 estimatedCostUsd: step.estimatedCostUsd == null ? null : Number(step.estimatedCostUsd)
               }))

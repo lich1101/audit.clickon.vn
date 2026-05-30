@@ -30,7 +30,7 @@ import {
   stopAuditRun
 } from "@/lib/audit-runs";
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatUsd } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { AuditWorkbenchRow } from "@/lib/audit-workbench-data";
@@ -387,7 +387,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   ).length;
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
   const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
-  const currentCredits = profile?.credits ?? 0;
+  const currentBalanceUsd = profile?.balanceUsd ?? 0;
 
   async function persistUrlList(nextUrls: string[]) {
     if (!audit || !website || !profile) {
@@ -499,10 +499,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     try {
       setRunning(true);
       const latestProfile = await refreshProfile().catch(() => profile);
-      const latestCredits = latestProfile?.credits ?? currentCredits;
+      const latestBalanceUsd = latestProfile?.balanceUsd ?? currentBalanceUsd;
 
-      if (latestCredits <= 0) {
-        toast.error(`Không đủ credit. Cần có credit trong tài khoản để chạy audit; hệ thống sẽ trừ theo token AI thực tế. Hiện có ${latestCredits}.`);
+      if (latestBalanceUsd <= 0) {
+        toast.error(`Không đủ số dư. Cần có số dư USD trong tài khoản để chạy audit; hệ thống sẽ trừ theo chi phí API thực tế. Hiện có ${formatUsd(latestBalanceUsd, 4)}.`);
         return;
       }
 
@@ -626,7 +626,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{urlList.length} URL</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{audit?.categories.length ?? 0} danh mục</span>
-            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{currentCredits} credit</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{formatUsd(currentBalanceUsd, 4)}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2 {stepCounts.step2Ready}/{urlList.length}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B3 {stepCounts.step3Ready}/{urlList.length}</span>

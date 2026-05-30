@@ -6,7 +6,7 @@ export default function CreatePlanPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Tạo gói cước"
-        description="Khai báo tên gói cước, giá trị, số credit và trạng thái active/inactive."
+        description="Khai báo tên gói cước, giá bán VND, số dư USD cộng vào tài khoản và trạng thái active/inactive."
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Plans", href: "/admin/plans" },

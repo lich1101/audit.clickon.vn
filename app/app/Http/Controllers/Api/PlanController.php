@@ -30,15 +30,19 @@ class PlanController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'price' => ['required', 'integer', 'min:0'],
-            'credits' => ['required', 'integer', 'min:1'],
+            'balanceUsd' => ['required', 'numeric', 'min:0.01'],
             'isActive' => ['nullable', 'boolean'],
         ]);
+
+        $balanceUsd = round((float) $validated['balanceUsd'], 2);
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
 
         $plan = Plan::query()->create([
             'id' => strtolower(str_replace('-', '', (string) Str::ulid())),
             'name' => $validated['name'],
             'price' => (int) $validated['price'],
-            'credits' => (int) $validated['credits'],
+            'credits' => (int) ceil($balanceUsd / $legacyRate),
+            'balance_usd' => $balanceUsd,
             'is_active' => $validated['isActive'] ?? true,
         ]);
 
@@ -63,14 +67,20 @@ class PlanController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'price' => ['sometimes', 'integer', 'min:0'],
-            'credits' => ['sometimes', 'integer', 'min:1'],
+            'balanceUsd' => ['sometimes', 'numeric', 'min:0.01'],
             'isActive' => ['sometimes', 'boolean'],
         ]);
+
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+        $balanceUsd = array_key_exists('balanceUsd', $validated)
+            ? round((float) $validated['balanceUsd'], 2)
+            : $this->resolvePlanBalanceUsd($plan);
 
         $plan->forceFill([
             'name' => $validated['name'] ?? $plan->name,
             'price' => array_key_exists('price', $validated) ? (int) $validated['price'] : $plan->price,
-            'credits' => array_key_exists('credits', $validated) ? (int) $validated['credits'] : $plan->credits,
+            'balance_usd' => $balanceUsd,
+            'credits' => (int) ceil($balanceUsd / $legacyRate),
             'is_active' => array_key_exists('isActive', $validated) ? (bool) $validated['isActive'] : $plan->is_active,
         ])->save();
 
@@ -86,10 +96,22 @@ class PlanController extends Controller
             'id' => $plan->id,
             'name' => $plan->name,
             'price' => (int) $plan->price,
+            'balanceUsd' => $this->resolvePlanBalanceUsd($plan),
             'credits' => (int) $plan->credits,
             'isActive' => (bool) $plan->is_active,
             'createdAt' => optional($plan->created_at)?->toIso8601String(),
             'updatedAt' => optional($plan->updated_at)?->toIso8601String(),
         ];
+    }
+
+    private function resolvePlanBalanceUsd(Plan $plan): float
+    {
+        if (is_numeric($plan->balance_usd ?? null)) {
+            return round((float) $plan->balance_usd, 2);
+        }
+
+        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+
+        return round(((int) $plan->credits) * $legacyRate, 2);
     }
 }

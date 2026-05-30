@@ -8,7 +8,6 @@ use App\Jobs\ProcessAuditRunItemJob;
 use App\Jobs\ProcessAuditRunStep1BatchJob;
 use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
-use App\Support\AuditBatchInputLimiter;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use App\Models\WebsiteAuditUrlResult;
@@ -112,8 +111,8 @@ class AuditRunService
             }
         }
 
-        if ($this->creditService->getBalance($userUid) <= 0) {
-            throw new RuntimeException('Không đủ credit. Cần có credit trong tài khoản để khởi chạy audit; hệ thống sẽ trừ theo token AI thực tế sau mỗi lần gọi model.');
+        if ($this->creditService->getBalanceUsd($userUid) <= 0) {
+            throw new RuntimeException('Không đủ số dư USD. Cần có số dư trong tài khoản để khởi chạy audit; hệ thống sẽ trừ theo chi phí API thực tế sau mỗi lần gọi model.');
         }
 
         $activeRun = AuditRun::query()
@@ -400,7 +399,7 @@ class AuditRunService
     /**
      * @return array<string, mixed>
      */
-    private function step2BatchPagePayload(AuditRunItem $item, ?int $maxExcerptChars = null): array
+    private function step2BatchPagePayload(AuditRunItem $item): array
     {
         $hasStep1Data = $this->filledText($item->page_title)
             || $this->filledText($item->meta_description)
@@ -418,10 +417,6 @@ class AuditRunService
 
         $metrics = is_array($item->extracted_metrics) ? $item->extracted_metrics : [];
         $contentExcerpt = trim((string) ($item->content_excerpt ?? ''));
-
-        if ($contentExcerpt !== null && $maxExcerptChars !== null && $maxExcerptChars > 0) {
-            $contentExcerpt = mb_substr($contentExcerpt, 0, $maxExcerptChars);
-        }
 
         if ($contentExcerpt === '') {
             $contentExcerpt = null;
@@ -513,7 +508,9 @@ class AuditRunService
                 'metaDescription' => $page['metaDescription'] ?? '',
                 'headings' => $page['headings'] ?? [],
                 'metrics' => $page['metrics'] ?? [],
-                'contentExcerpt' => mb_substr((string) ($page['content'] ?? ''), 0, $maxChars),
+                'contentExcerpt' => $maxChars > 0
+                    ? mb_substr((string) ($page['content'] ?? ''), 0, $maxChars)
+                    : (string) ($page['content'] ?? ''),
                 'source' => $page['source'] ?? 'unknown',
                 'error' => $page['extractionError'] ?? null,
             ];
@@ -1183,9 +1180,8 @@ class AuditRunService
             return;
         }
 
-        $excerptLimit = AuditBatchInputLimiter::pageExcerptCharLimit($items->count());
         $batchPages = $items
-            ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item, $excerptLimit))
+            ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
             ->values()
             ->all();
 
@@ -1312,10 +1308,9 @@ class AuditRunService
             'categoryMatchReason' => $item->category_match_reason,
         ])->values()->all();
 
-        $excerptLimit = AuditBatchInputLimiter::pageExcerptCharLimit($items->count());
         $batchPages = $this->stepAiProvider($run, 3) === 'gemini_deep_research'
             ? []
-            : $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item, $excerptLimit))
+            : $items->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
                 ->filter(fn (array $payload): bool => isset($payload['page']))
                 ->values()
                 ->all();
@@ -2527,6 +2522,7 @@ class AuditRunService
                         ? round((float) $usage['provider_reported_cost_usd'], 6)
                         : null,
                     'creditsCharged' => (int) $event->credits_charged,
+                    'usdCharged' => round((float) $event->usd_charged, 6),
                 ];
                 $totalCredits += (int) $event->credits_charged;
 
@@ -4004,6 +4000,7 @@ class AuditRunService
                 'ai_usage_events.search_queries',
                 'ai_usage_events.provider_reported_cost_usd',
                 'ai_usage_events.credits_charged',
+                'ai_usage_events.usd_charged',
             ]);
 
         $totals = [
@@ -4015,6 +4012,7 @@ class AuditRunService
             'reasoningTokens' => 0,
             'searchQueries' => 0,
             'creditsCharged' => 0,
+            'usdCharged' => 0.0,
             'providerReportedCostUsd' => null,
             'estimatedCostUsd' => null,
         ];
@@ -4057,6 +4055,7 @@ class AuditRunService
                     'reasoningTokens' => 0,
                     'searchQueries' => 0,
                     'creditsCharged' => 0,
+                    'usdCharged' => 0.0,
                     'providerReportedCostUsd' => null,
                     'estimatedCostUsd' => null,
                 ];
@@ -4073,6 +4072,7 @@ class AuditRunService
             $byStep[$groupKey]['reasoningTokens'] += (int) ($row->reasoning_tokens ?? 0);
             $byStep[$groupKey]['searchQueries'] += (int) ($row->search_queries ?? 0);
             $byStep[$groupKey]['creditsCharged'] += (int) ($row->credits_charged ?? 0);
+            $byStep[$groupKey]['usdCharged'] = round(((float) ($byStep[$groupKey]['usdCharged'] ?? 0)) + (float) ($row->usd_charged ?? 0), 6);
 
             if ($reportedCostUsd !== null) {
                 $stepTotalUsd = (float) ($byStep[$groupKey]['providerReportedCostUsd'] ?? 0);
@@ -4096,6 +4096,7 @@ class AuditRunService
             $totals['reasoningTokens'] += (int) ($row->reasoning_tokens ?? 0);
             $totals['searchQueries'] += (int) ($row->search_queries ?? 0);
             $totals['creditsCharged'] += (int) ($row->credits_charged ?? 0);
+            $totals['usdCharged'] = round(((float) ($totals['usdCharged'] ?? 0)) + (float) ($row->usd_charged ?? 0), 6);
         }
 
         $groups = array_values(array_map(function (array $group): array {

@@ -34,6 +34,7 @@ export function mapUser(docId: string, data: DocumentData): AppUser {
     email: data.email ?? "",
     displayName: data.displayName ?? undefined,
     role: data.role === "admin" ? "admin" : "user",
+    balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
@@ -45,8 +46,8 @@ export function mapPlan(docId: string, data: DocumentData): Plan {
     id: docId,
     name: data.name ?? "",
     price: Number(data.price ?? 0),
+    balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
-    isActive: Boolean(data.isActive),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -362,7 +363,7 @@ export async function updatePlan(id: string, data: Partial<Plan>) {
   return payload.data;
 }
 
-export async function createPlan(data: Pick<Plan, "name" | "price" | "credits" | "isActive">) {
+export async function createPlan(data: Pick<Plan, "name" | "price" | "balanceUsd" | "isActive">) {
   const payload = await laravelRequest<{ data: Plan }>("/api/admin/plans", {
     method: "POST",
     body: JSON.stringify(data)

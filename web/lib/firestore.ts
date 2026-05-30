@@ -29,11 +29,15 @@ function serializeTimestamp(value: unknown) {
 }
 
 export function mapUser(docId: string, data: DocumentData): AppUser {
+  const role = data.role === "admin" ? "admin" : "user";
+
   return {
     uid: docId,
     email: data.email ?? "",
     displayName: data.displayName ?? undefined,
-    role: data.role === "admin" ? "admin" : "user",
+    role,
+    realRole: role,
+    isImpersonating: false,
     balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
     createdAt: serializeTimestamp(data.createdAt),
@@ -48,6 +52,7 @@ export function mapPlan(docId: string, data: DocumentData): Plan {
     price: Number(data.price ?? 0),
     balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
+    isActive: Boolean(data.isActive ?? data.is_active ?? true),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -59,6 +64,11 @@ export function mapWebsite(docId: string, data: DocumentData): Website {
     userId: data.userId ?? "",
     name: data.name ?? "",
     url: data.url ?? "",
+    sameDayReauditGrantedUntil: data.sameDayReauditGrantedUntil ?? data.same_day_reaudit_granted_until ?? null,
+    sameDayReauditGrantedBy: data.sameDayReauditGrantedBy ?? data.same_day_reaudit_granted_by ?? null,
+    todayRunCount: typeof data.todayRunCount === "number" ? data.todayRunCount : undefined,
+    dailyLimit: typeof data.dailyLimit === "number" ? data.dailyLimit : undefined,
+    canRunAuditToday: typeof data.canRunAuditToday === "boolean" ? data.canRunAuditToday : undefined,
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -78,13 +88,20 @@ export function mapAudit(docId: string, data: DocumentData): WebsiteAudit {
 }
 
 export function mapCreditLog(docId: string, data: DocumentData): CreditLog {
+  const amountUsd = Number(data.amountUsd ?? data.amount_usd ?? (Number(data.amount ?? 0) * 0.01));
+  const balanceBeforeUsd = Number(data.balanceBeforeUsd ?? data.balance_before_usd ?? (Number(data.balanceBefore ?? 0) * 0.01));
+  const balanceAfterUsd = Number(data.balanceAfterUsd ?? data.balance_after_usd ?? (Number(data.balanceAfter ?? 0) * 0.01));
+
   return {
     id: docId,
     userId: data.userId ?? "",
     type: data.type === "subtract" ? "subtract" : "add",
     amount: Number(data.amount ?? 0),
+    amountUsd,
     balanceBefore: Number(data.balanceBefore ?? 0),
     balanceAfter: Number(data.balanceAfter ?? 0),
+    balanceBeforeUsd,
+    balanceAfterUsd,
     reason: data.reason ?? "",
     source: ["admin", "api", "plan", "audit", "system"].includes(data.source) ? data.source : "system",
     createdAt: serializeTimestamp(data.createdAt)

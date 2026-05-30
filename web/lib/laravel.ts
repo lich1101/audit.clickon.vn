@@ -1,6 +1,7 @@
 "use client";
 
 import { auth } from "@/lib/firebase";
+import { IMPERSONATE_UID_COOKIE, readClientCookie } from "@/lib/auth";
 
 let tokenPromise: Promise<string | undefined> | null = null;
 let tokenExpiresAt = 0;
@@ -22,11 +23,13 @@ async function getAuthHeaders() {
   }
 
   const token = await tokenPromise;
+  const impersonateUid = readClientCookie(IMPERSONATE_UID_COOKIE);
 
   return {
     Accept: "application/json",
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {})
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(impersonateUid ? { "X-Impersonate-Uid": impersonateUid } : {})
   };
 }
 
@@ -86,12 +89,19 @@ export async function laravelRequest<T>(path: string, init?: RequestInit) {
   }
 
   const headers = await getAuthHeaders();
+  const shouldBypassImpersonation = path.startsWith("/api/admin") || path.startsWith("/api/credits");
+  const mergedHeaders = {
+    ...headers,
+    ...(init?.headers ?? {})
+  } as Record<string, string>;
+
+  if (shouldBypassImpersonation) {
+    delete mergedHeaders["X-Impersonate-Uid"];
+  }
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: {
-      ...headers,
-      ...(init?.headers ?? {})
-    }
+    headers: mergedHeaders
   });
 
   return parse<T>(response);

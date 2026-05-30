@@ -16,7 +16,16 @@ class Website extends Model
         'user_uid',
         'name',
         'url',
+        'same_day_reaudit_granted_until',
+        'same_day_reaudit_granted_by',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'same_day_reaudit_granted_until' => 'datetime',
+        ];
+    }
 
     public function audit(): HasOne
     {

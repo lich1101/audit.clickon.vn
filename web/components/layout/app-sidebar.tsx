@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { usePathname } from "next/navigation";
 import {
   CreditCard,
@@ -14,7 +16,8 @@ import {
   ReceiptText,
   Settings,
   SlidersHorizontal,
-  Users2
+  Users2,
+  ShieldCheck
 } from "lucide-react";
 
 import { cn, formatUsd } from "@/lib/utils";
@@ -22,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
 import { useDashboardMode } from "@/hooks/use-dashboard-mode";
+import { stopImpersonation } from "@/lib/impersonation";
 
 const userItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -41,11 +45,25 @@ const adminItems = [
 ];
 
 export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
+  const router = useRouter();
   const pathname = usePathname();
-  const { profile } = useAuth();
-  const { mode } = useDashboardMode();
-  const isAdminMode = profile?.role === "admin" && mode === "admin";
+  const { profile, refreshProfile } = useAuth();
+  const { mode, isImpersonating, setDashboardMode } = useDashboardMode();
+  const isAdminMode = profile?.realRole === "admin" && mode === "admin" && !isImpersonating;
   const items = isAdminMode ? adminItems : userItems;
+
+  async function handleReturnToAdmin() {
+    try {
+      await stopImpersonation();
+      await refreshProfile();
+      setDashboardMode("admin");
+      router.push("/admin");
+      router.refresh();
+      toast.success("Đã quay lại tài khoản admin.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể thoát đăng nhập nhanh.");
+    }
+  }
 
   return (
     <aside className={cn("flex h-full w-full flex-col bg-sidebar text-sidebar-foreground", mobile ? "h-screen" : "h-full")}>
@@ -94,8 +112,16 @@ export function AppSidebar({ mobile = false }: { mobile?: boolean }) {
             })}
           </nav>
 
-          <div className="mt-auto rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
-            {isAdminMode ? "Admin mode" : formatUsd(profile?.balanceUsd ?? 0, 4)}
+          <div className="mt-auto space-y-2">
+            {profile?.isImpersonating ? (
+              <Button type="button" variant="secondary" className="w-full rounded-xl" onClick={() => void handleReturnToAdmin()}>
+                <ShieldCheck className="size-4" />
+                Trở về admin
+              </Button>
+            ) : null}
+            <div className="rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+              {profile?.isImpersonating ? "Đăng nhập nhanh" : isAdminMode ? "Admin mode" : formatUsd(profile?.balanceUsd ?? 0, 4)}
+            </div>
           </div>
         </div>
       </ScrollArea>

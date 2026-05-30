@@ -10,7 +10,9 @@ use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Jobs\ProcessAuditRunStep3BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
+use App\Models\Website;
 use App\Models\WebsiteAuditUrlResult;
+use Carbon\CarbonInterface;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -74,7 +76,9 @@ class AuditRunService
      */
     public function createRun(string $userUid, string $userEmail, array $payload): AuditRun
     {
-        $website = $this->websiteDataService->getWebsite((string) $payload['websiteId']);
+        $websiteId = (string) $payload['websiteId'];
+        $website = $this->websiteDataService->getWebsite($websiteId);
+        $websiteModel = Website::query()->find($websiteId);
 
         if (! $website) {
             throw new RuntimeException('Website does not exist.');
@@ -103,7 +107,7 @@ class AuditRunService
                 throw new RuntimeException('Không có URL nào đủ dữ liệu bước 2 để chạy từ bước 3. Hãy chạy lại từ bước 2 hoặc chọn các URL đã có keyword + danh mục.');
             }
         } elseif ($startFromStep === self::START_FROM_STEP_2) {
-            $step1SeedResults = $this->loadValidStep1SeedResults((string) $payload['websiteId'], $requestedTargetUrls);
+            $step1SeedResults = $this->loadValidStep1SeedResults($websiteId, $requestedTargetUrls);
             $queuedTargetUrls = $step1SeedResults->pluck('target_url')->values()->all();
 
             if ($queuedTargetUrls === []) {
@@ -115,12 +119,17 @@ class AuditRunService
             throw new RuntimeException('Không đủ số dư USD. Cần có số dư trong tài khoản để khởi chạy audit; hệ thống sẽ trừ theo chi phí API thực tế sau mỗi lần gọi model.');
         }
 
+        if ($websiteModel) {
+            $this->ensureWebsiteCanRunToday($websiteModel);
+        }
+
         $activeRun = AuditRun::query()
+            ->where('user_uid', $userUid)
             ->whereIn('status', ['queued', 'processing'])
             ->first();
 
         if ($activeRun) {
-            throw new RuntimeException('Hệ thống đang có một audit run đang chạy. Mỗi lần chỉ chạy một dự án audit để tránh quá tải quota AI.');
+            throw new RuntimeException('Tài khoản này đang có một audit run khác đang chạy. Hãy chờ website hiện tại chạy xong rồi mới chạy website tiếp theo.');
         }
 
         /** @var AuditRun $run */
@@ -204,6 +213,29 @@ class AuditRunService
         return $run;
     }
 
+    /**
+     * @return array{todayRunCount:int,dailyLimit:int,canRunAuditToday:bool,sameDayReauditGrantedUntil:?string,sameDayReauditGrantedBy:?string}
+     */
+    public function websiteRunPolicy(string $websiteId): array
+    {
+        $website = $this->websiteDataService->findWebsiteModel($websiteId);
+        $todayRunCount = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->whereDate('created_at', now()->toDateString())
+            ->count();
+
+        $grantUntil = $website?->same_day_reaudit_granted_until;
+        $grantActive = $this->isSameDayReauditGrantActive($grantUntil);
+
+        return [
+            'todayRunCount' => $todayRunCount,
+            'dailyLimit' => 1,
+            'canRunAuditToday' => $todayRunCount === 0 || $grantActive,
+            'sameDayReauditGrantedUntil' => $grantUntil instanceof CarbonInterface ? $grantUntil->toIso8601String() : null,
+            'sameDayReauditGrantedBy' => $website?->same_day_reaudit_granted_by,
+        ];
+    }
+
     public function requestedTargetUrlsForRun(array $payload): array
     {
         return array_values(array_unique(array_filter(
@@ -234,6 +266,31 @@ class AuditRunService
         }
 
         return $step >= $startFromStep ? $step : null;
+    }
+
+    private function ensureWebsiteCanRunToday(Website $website): void
+    {
+        $todayRunCount = AuditRun::query()
+            ->where('website_id', $website->id)
+            ->whereDate('created_at', now()->toDateString())
+            ->count();
+
+        if ($todayRunCount === 0) {
+            return;
+        }
+
+        if ($this->isSameDayReauditGrantActive($website->same_day_reaudit_granted_until)) {
+            return;
+        }
+
+        throw new RuntimeException('Website này đã được audit một lần trong hôm nay. Cần admin cấp quyền audit lại trong ngày để chạy thêm.');
+    }
+
+    private function isSameDayReauditGrantActive(mixed $value): bool
+    {
+        return $value instanceof CarbonInterface
+            && $value->isFuture()
+            && $value->isSameDay(now());
     }
 
     /**
@@ -1365,6 +1422,7 @@ class AuditRunService
         }
 
         $this->recoverStaleStep1Batches($freshRun);
+        $this->recoverStaleGeminiDeepResearchStep3Batches($freshRun);
         $this->recoverStep3DbApplyFromSavedParsed($freshRun);
     }
 

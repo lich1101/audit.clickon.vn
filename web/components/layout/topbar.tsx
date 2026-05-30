@@ -5,8 +5,10 @@ import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
+import { stopImpersonation } from "@/lib/impersonation";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -17,8 +19,8 @@ import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 
 export function Topbar() {
   const router = useRouter();
-  const { profile } = useAuth();
-  const { mode, isAdmin, setDashboardMode } = useDashboardMode();
+  const { profile, refreshProfile } = useAuth();
+  const { mode, isAdmin, isImpersonating, setDashboardMode } = useDashboardMode();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -27,6 +29,26 @@ export function Topbar() {
   }, []);
 
   const isDark = mounted && resolvedTheme === "dark";
+  const displayModeLabel = profile?.isImpersonating
+    ? "đăng nhập nhanh"
+    : isAdmin
+      ? mode === "admin"
+        ? "admin mode"
+        : "user mode"
+      : profile?.role ?? "user";
+
+  async function handleReturnToAdmin() {
+    try {
+      await stopImpersonation();
+      await refreshProfile();
+      setDashboardMode("admin");
+      router.push("/admin");
+      router.refresh();
+      toast.success("Đã quay lại tài khoản admin.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể thoát đăng nhập nhanh.");
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -53,6 +75,12 @@ export function Topbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-3">
+          {profile?.isImpersonating ? (
+            <Button type="button" variant="secondary" className="hidden rounded-full px-4 md:inline-flex" onClick={() => void handleReturnToAdmin()}>
+              <ShieldCheck className="size-4" />
+              Trở về admin
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="icon"
@@ -72,28 +100,40 @@ export function Topbar() {
                 <div className="hidden text-left lg:block">
                   <p className="max-w-[140px] truncate text-sm font-medium">{profile?.displayName ?? profile?.email ?? "Guest"}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {isAdmin ? (mode === "admin" ? "admin mode" : profile?.role ?? "user") : profile?.role ?? "user"}
+                    {displayModeLabel}
                   </p>
                 </div>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {profile?.isImpersonating ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    void handleReturnToAdmin();
+                  }}
+                >
+                  <ShieldCheck className="size-4" />
+                  Thoát đăng nhập nhanh
+                </DropdownMenuItem>
+              ) : null}
               {isAdmin && mode === "user" ? (
                 <DropdownMenuItem
                   onSelect={() => {
                     setDashboardMode("admin");
                     router.push("/admin");
+                    router.refresh();
                   }}
                 >
                   <ShieldCheck className="size-4" />
                   Chế độ quản trị
                 </DropdownMenuItem>
               ) : null}
-              {isAdmin && mode === "admin" ? (
+              {isAdmin && mode === "admin" && !isImpersonating ? (
                 <DropdownMenuItem
                   onSelect={() => {
                     setDashboardMode("user");
                     router.push("/dashboard");
+                    router.refresh();
                   }}
                 >
                   <LayoutDashboard className="size-4" />

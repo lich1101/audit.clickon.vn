@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 
 import { getAdminAuth } from "@/lib/firebase-admin";
-import { ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
+import { IMPERSONATE_EMAIL_COOKIE, IMPERSONATE_NAME_COOKIE, IMPERSONATE_UID_COOKIE, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
 
 export async function getVerifiedSession() {
   const store = await cookies();
@@ -13,12 +13,17 @@ export async function getVerifiedSession() {
 
   const adminAuth = getAdminAuth();
   const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const role = store.get(ROLE_COOKIE)?.value === "admin" ? "admin" : "user";
+  const realRole = store.get(ROLE_COOKIE)?.value === "admin" ? "admin" : "user";
 
   return {
     uid: decoded.uid,
     email: decoded.email ?? "",
-    role,
+    role: realRole,
+    realRole,
+    isImpersonating: Boolean(store.get(IMPERSONATE_UID_COOKIE)?.value),
+    impersonateUid: store.get(IMPERSONATE_UID_COOKIE)?.value ?? null,
+    impersonateEmail: store.get(IMPERSONATE_EMAIL_COOKIE)?.value ?? null,
+    impersonateName: store.get(IMPERSONATE_NAME_COOKIE)?.value ?? null,
     balanceUsd: 0,
     credits: 0
   };
@@ -28,4 +33,7 @@ export async function clearSessionCookies() {
   const store = await cookies();
   store.delete(SESSION_COOKIE);
   store.delete(ROLE_COOKIE);
+  store.delete(IMPERSONATE_UID_COOKIE);
+  store.delete(IMPERSONATE_EMAIL_COOKIE);
+  store.delete(IMPERSONATE_NAME_COOKIE);
 }

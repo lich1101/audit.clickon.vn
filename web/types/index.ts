@@ -5,6 +5,8 @@ export type AppUser = {
   email: string;
   displayName?: string;
   role: UserRole;
+  realRole?: UserRole;
+  isImpersonating?: boolean;
   balanceUsd: number;
   credits: number;
   legacyCreditsPerUsd?: number;
@@ -48,6 +50,11 @@ export type Website = {
   userId: string;
   name: string;
   url: string;
+  sameDayReauditGrantedUntil?: string | null;
+  sameDayReauditGrantedBy?: string | null;
+  todayRunCount?: number;
+  dailyLimit?: number;
+  canRunAuditToday?: boolean;
   createdAt: string;
   updatedAt: string;
   activeRun?: WebsiteActiveRunSummary | null;
@@ -163,7 +170,7 @@ export type CreditBalanceResponse = {
   credits: number;
 };
 
-export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "balanceUsd" | "credits" | "displayName">;
+export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "realRole" | "isImpersonating" | "balanceUsd" | "credits" | "displayName">;
 
 export type AuditRunItem = {
   publicId: string;

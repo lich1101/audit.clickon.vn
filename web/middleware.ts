@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
+import { IMPERSONATE_UID_COOKIE, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
 
 const protectedPrefixes = [
   "/dashboard",
@@ -15,6 +15,7 @@ export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
   const role = request.cookies.get(ROLE_COOKIE)?.value;
+  const isImpersonating = Boolean(request.cookies.get(IMPERSONATE_UID_COOKIE)?.value);
 
   const isProtected = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isAuthPage = pathname === "/login" || pathname === "/register";
@@ -27,6 +28,10 @@ export function middleware(request: NextRequest) {
 
   if (pathname.startsWith("/admin") && role !== "admin") {
     return NextResponse.redirect(new URL("/unauthorized", request.url));
+  }
+
+  if (pathname.startsWith("/admin") && isImpersonating) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   if (isAuthPage && hasSession) {

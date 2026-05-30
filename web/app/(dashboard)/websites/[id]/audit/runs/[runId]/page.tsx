@@ -67,7 +67,9 @@ export default function AuditRunDetailPage({
 
       const [nextWebsite, nextRun] = await Promise.all([getWebsiteById(id), getAuditRun(runId)]);
 
-      if (!nextWebsite || nextWebsite.userId !== profile?.uid || nextRun.websiteId !== id) {
+      const canAccessAsAdmin = profile?.realRole === "admin" && !profile?.isImpersonating;
+
+      if (!nextWebsite || (nextWebsite.userId !== profile?.uid && !canAccessAsAdmin) || nextRun.websiteId !== id) {
         setWebsite(null);
         setRun(null);
         setItems([]);

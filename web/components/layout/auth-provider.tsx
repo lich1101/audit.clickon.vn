@@ -7,7 +7,19 @@ import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { fetchMe } from "@/lib/account";
 import { clearClientSession, syncClientSession } from "@/lib/session-client";
 import { AuthContext } from "@/hooks/use-auth";
-import type { AppUser } from "@/types";
+import type { AppUser, UserRole } from "@/types";
+
+function normalizeProfile(profile: AppUser | null): AppUser | null {
+  if (!profile) {
+    return null;
+  }
+
+  return {
+    ...profile,
+    realRole: (profile.realRole === "admin" ? "admin" : profile.role) as UserRole,
+    isImpersonating: Boolean(profile.isImpersonating),
+  };
+}
 
 function isSameProfile(current: AppUser | null, next: AppUser): boolean {
   if (!current) {
@@ -19,6 +31,9 @@ function isSameProfile(current: AppUser | null, next: AppUser): boolean {
     current.email === next.email &&
     current.displayName === next.displayName &&
     current.role === next.role &&
+    current.realRole === next.realRole &&
+    current.isImpersonating === next.isImpersonating &&
+    current.balanceUsd === next.balanceUsd &&
     current.credits === next.credits &&
     current.updatedAt === next.updatedAt
   );
@@ -36,8 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
 
-    const nextProfile = await fetchMe();
-    setProfile((current) => (isSameProfile(current, nextProfile) ? current : nextProfile));
+    const nextProfile = normalizeProfile(await fetchMe());
+    setProfile((current) => (nextProfile && isSameProfile(current, nextProfile) ? current : nextProfile));
 
     return nextProfile;
   }, []);
@@ -65,8 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         setLoading(true);
         const token = await nextUser.getIdToken();
-        const sessionProfile = await syncClientSession(token);
-        setProfile((current) => (isSameProfile(current, sessionProfile) ? current : sessionProfile));
+        const sessionProfile = normalizeProfile(await syncClientSession(token));
+        setProfile((current) => (sessionProfile && isSameProfile(current, sessionProfile) ? current : sessionProfile));
       } catch (sessionError) {
         setProfile(null);
         setError(sessionError instanceof Error ? sessionError.message : "Không thể đồng bộ phiên đăng nhập.");

@@ -150,16 +150,22 @@ class AuditRunController extends Controller
             $auditUrlCount,
             $systemSettings,
         );
+        $runPolicy = $this->auditRunService->websiteRunPolicy($websiteId);
+        $userActiveRun = AuditRun::query()
+            ->where('user_uid', (string) $request->attributes->get('firebase_uid'))
+            ->whereIn('status', ['queued', 'processing'])
+            ->orderByDesc('created_at')
+            ->first();
 
         return response()->json([
             'data' => [
                 'website' => [
-                    'id' => $websiteId,
-                    'name' => (string) ($website['name'] ?? ''),
-                    'url' => (string) ($website['url'] ?? ''),
+                    ...$website,
+                    ...$runPolicy,
                 ],
                 'audit' => $audit ? $this->serializeAuditDocument($audit) : null,
                 'run' => $runPayload,
+                'userActiveRun' => $userActiveRun ? $this->auditRunService->serializeRunSummary($userActiveRun) : null,
                 'urlResults' => $urlResults,
                 'systemAi' => [
                     'aiProvider' => $systemSettings['aiProvider'],
@@ -213,6 +219,13 @@ class AuditRunController extends Controller
         $requestedTargetUrls = $this->auditRunService->requestedTargetUrlsForRun($payload);
         $startFromStep = $this->auditRunService->normalizeStartFromStep($payload['startFromStep'] ?? null);
         $stopAfterStep = $this->auditRunService->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
+        $role = (string) $request->attributes->get('firebase_role', 'user');
+
+        if ($role !== 'admin' && ($startFromStep !== AuditRunService::START_FROM_STEP_1 || $stopAfterStep !== null)) {
+            return response()->json([
+                'message' => 'Tài khoản người dùng thường chỉ được chạy Run mặc định. Các nút debug bước 1/2/3 chỉ dành cho admin.',
+            ], 403);
+        }
 
         try {
             $run = $this->auditRunService->createRun(

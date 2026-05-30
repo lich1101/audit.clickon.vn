@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Play, Settings, Square } from "lucide-react";
+import { Download, Play, Settings, ShieldCheck, Square } from "lucide-react";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { grantWebsiteSameDayReaudit, revokeWebsiteSameDayReaudit } from "@/lib/account";
 import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-step-errors";
 import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
 import { mergeAuditWorkbenchRow } from "@/lib/audit-workbench-data";
@@ -110,6 +111,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
+  const [userActiveRun, setUserActiveRun] = useState<AuditRun | null>(null);
   const [urlResults, setUrlResults] = useState<WebsiteAuditUrlResult[]>([]);
   const [systemAi, setSystemAi] = useState<PublicAuditSettings>({
     aiProvider: "openai",
@@ -142,6 +144,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [exporting, setExporting] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [grantingReaudit, setGrantingReaudit] = useState(false);
   const [urlList, setUrlList] = useState<string[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [savingUrls, setSavingUrls] = useState(false);
@@ -177,16 +180,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
       const board = await fetchAuditBoard(id);
 
-      setWebsite({
-        id: board.website.id,
-        name: board.website.name,
-        url: board.website.url,
-        userId: profile?.uid ?? "",
-        createdAt: "",
-        updatedAt: ""
-      });
+      setWebsite(board.website);
       setAudit(board.audit);
       setRun(board.run);
+      setUserActiveRun(board.userActiveRun ?? null);
       setUrlResults(board.urlResults ?? []);
       setSystemAi(board.systemAi ?? {
         aiProvider: "openai",
@@ -219,6 +216,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         setWebsite(null);
         setAudit(null);
         setRun(null);
+        setUserActiveRun(null);
         toast.error(error instanceof Error ? error.message : "Không thể tải dữ liệu audit.");
       }
     } finally {
@@ -242,6 +240,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }, [id, profileUid]);
 
   const isRunActive = isActiveAuditRun(run?.status);
+  const canUseAdminDebugActions = profile?.realRole === "admin" && !profile?.isImpersonating;
+  const canOperateAsOwner = website?.userId === profile?.uid;
+  const otherWebsiteActiveRun = userActiveRun && isActiveAuditRun(userActiveRun.status) && userActiveRun.websiteId !== website?.id ? userActiveRun : null;
+  const canRunAuditToday = website?.canRunAuditToday !== false;
+  const canStartRun = canOperateAsOwner && canRunAuditToday && !otherWebsiteActiveRun;
+  const sameDayGrantActive = Boolean(
+    website?.sameDayReauditGrantedUntil && new Date(website.sameDayReauditGrantedUntil).getTime() > Date.now()
+  );
 
   function refreshProfileFromAuditSignal(force = false) {
     const now = Date.now();
@@ -486,6 +492,23 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       return;
     }
 
+    if (!canOperateAsOwner) {
+      toast.error("Website này không thuộc phiên người dùng hiện tại. Hãy dùng đăng nhập nhanh vào đúng tài khoản chủ website để chạy audit.");
+      return;
+    }
+
+    if (otherWebsiteActiveRun) {
+      toast.error(
+        `Tài khoản này đang có website khác chạy audit (${otherWebsiteActiveRun.websiteName ?? otherWebsiteActiveRun.websiteId}). Hãy chờ run hiện tại hoàn tất rồi mới chạy tiếp.`
+      );
+      return;
+    }
+
+    if (!canRunAuditToday) {
+      toast.error("Website này đã được audit một lần trong hôm nay. Cần admin cấp quyền audit lại trong ngày để chạy thêm.");
+      return;
+    }
+
     if (startFromStep === 2 && step2FromStep1ReadySelectedUrls.length === 0) {
       toast.error("Không có URL nào trong lựa chọn hiện tại đã crawl bước 1 hợp lệ (không 404/url_only) để chạy từ bước 2.");
       return;
@@ -548,6 +571,50 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       toast.error(error instanceof Error ? error.message : "Không thể dừng audit run.");
     } finally {
       setStopping(false);
+    }
+  }
+
+  async function handleGrantSameDayReaudit(nextActive: boolean) {
+    if (!website || !canUseAdminDebugActions) {
+      return;
+    }
+
+    try {
+      setGrantingReaudit(true);
+
+      if (nextActive) {
+        const response = await grantWebsiteSameDayReaudit(website.id);
+        setWebsite((current) =>
+          current
+            ? {
+                ...current,
+                sameDayReauditGrantedUntil: response.data.sameDayReauditGrantedUntil ?? null,
+                sameDayReauditGrantedBy: response.data.sameDayReauditGrantedBy ?? null,
+                canRunAuditToday: true,
+              }
+            : current
+        );
+        toast.success(response.message ?? "Đã cấp quyền audit lại trong ngày.");
+      } else {
+        const response = await revokeWebsiteSameDayReaudit(website.id);
+        setWebsite((current) =>
+          current
+            ? {
+                ...current,
+                sameDayReauditGrantedUntil: response.data.sameDayReauditGrantedUntil ?? null,
+                sameDayReauditGrantedBy: response.data.sameDayReauditGrantedBy ?? null,
+                canRunAuditToday: (current.todayRunCount ?? 0) === 0,
+              }
+            : current
+        );
+        toast.success(response.message ?? "Đã thu hồi quyền audit lại trong ngày.");
+      }
+
+      await loadBoard({ silent: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể cập nhật quyền audit lại trong ngày.");
+    } finally {
+      setGrantingReaudit(false);
     }
   }
 
@@ -630,6 +697,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2 {stepCounts.step2Ready}/{urlList.length}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B3 {stepCounts.step3Ready}/{urlList.length}</span>
+            {typeof website?.todayRunCount === "number" ? (
+              <span className="rounded-full bg-secondary/50 px-2.5 py-1">Hôm nay {website.todayRunCount}/{website.dailyLimit ?? 1}</span>
+            ) : null}
+            {sameDayGrantActive ? (
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">Đã mở re-audit hôm nay</span>
+            ) : null}
             {run ? <span className="rounded-full bg-secondary/50 px-2.5 py-1">Run #{run.publicId.slice(-8)}</span> : null}
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -637,6 +710,21 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span>Thiếu B2: {stepCounts.step2Missing}</span>
             <span>Thiếu B3: {stepCounts.step3Missing}</span>
           </div>
+          {!canOperateAsOwner && canUseAdminDebugActions ? (
+            <p className="text-xs text-muted-foreground">
+              Website này thuộc user khác. Dùng đăng nhập nhanh vào tài khoản chủ website nếu cần chạy audit như người dùng đó.
+            </p>
+          ) : null}
+          {otherWebsiteActiveRun ? (
+            <p className="text-xs text-muted-foreground">
+              Tài khoản này đang chạy website khác: {otherWebsiteActiveRun.websiteName ?? otherWebsiteActiveRun.websiteId}. Hãy chờ run đó xong rồi mới chạy tiếp.
+            </p>
+          ) : null}
+          {!canRunAuditToday ? (
+            <p className="text-xs text-muted-foreground">
+              Website này đã audit hôm nay. Chỉ admin mới có thể mở quyền audit lại trong ngày.
+            </p>
+          ) : null}
           {run ? (
             <div className="space-y-1.5">
               <ProgressBar className="h-2 max-w-md" value={progressPercent} />
@@ -648,62 +736,79 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void handleRun(1)} disabled={running || isRunActive || selectedUrls.length === 0}>
+          <Button type="button" onClick={() => void handleRun(1)} disabled={running || isRunActive || selectedUrls.length === 0 || !canStartRun}>
             <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run full (${selectedUrls.length})`}
+            {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
           </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void handleRun(1, 1)}
-            disabled={running || isRunActive || selectedUrls.length === 0}
-          >
-            <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run bước 1 (${selectedUrls.length})`}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void handleRun(2, 2)}
-            disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
-          >
-            <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run bước 2 only (${step2FromStep1ReadySelectedUrls.length})`}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void handleRun(2)}
-            disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
-          >
-            <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run từ bước 2 (${step2FromStep1ReadySelectedUrls.length})`}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void handleRun(3)}
-            disabled={running || isRunActive || selectedUrls.length === 0 || step3ReadySelectedUrls.length === 0}
-          >
-            <Play className="size-4" />
-            {running ? "Đang khởi chạy..." : `Run từ bước 3 (${step3ReadySelectedUrls.length})`}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setSelectedUrls(step2FromStep1ReadySelectedUrls)}
-            disabled={isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
-          >
-            Chọn URL đủ B1
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setSelectedUrls(step3ReadySelectedUrls)}
-            disabled={isRunActive || step3ReadySelectedUrls.length === 0}
-          >
-            Chọn URL đủ B2
-          </Button>
+          {canUseAdminDebugActions ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(1, 1)}
+                disabled={running || isRunActive || selectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run bước 1 (${selectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(2, 2)}
+                disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run bước 2 only (${step2FromStep1ReadySelectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(2)}
+                disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run từ bước 2 (${step2FromStep1ReadySelectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(3)}
+                disabled={running || isRunActive || selectedUrls.length === 0 || step3ReadySelectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run từ bước 3 (${step3ReadySelectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSelectedUrls(step2FromStep1ReadySelectedUrls)}
+                disabled={isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
+              >
+                Chọn URL đủ B1
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSelectedUrls(step3ReadySelectedUrls)}
+                disabled={isRunActive || step3ReadySelectedUrls.length === 0}
+              >
+                Chọn URL đủ B2
+              </Button>
+              <Button
+                type="button"
+                variant={sameDayGrantActive ? "secondary" : "outline"}
+                onClick={() => void handleGrantSameDayReaudit(!sameDayGrantActive)}
+                disabled={grantingReaudit}
+              >
+                <ShieldCheck className="size-4" />
+                {grantingReaudit
+                  ? "Đang cập nhật..."
+                  : sameDayGrantActive
+                    ? "Thu hồi re-audit hôm nay"
+                    : "Cho phép re-audit hôm nay"}
+              </Button>
+            </>
+          ) : null}
           {isRunActive ? (
             <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>
               <Square className="size-4" />

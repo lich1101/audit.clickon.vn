@@ -17,6 +17,7 @@ class EnsureFirebaseToken
     public function handle(Request $request, Closure $next): Response
     {
         $token = $request->bearerToken();
+        $impersonateUid = trim((string) $request->header('X-Impersonate-Uid', ''));
 
         if (! $token) {
             return response()->json([
@@ -24,7 +25,10 @@ class EnsureFirebaseToken
             ], 401);
         }
 
-        $request->attributes->add($this->identityService->authenticate($token));
+        $request->attributes->add($this->identityService->authenticate(
+            $token,
+            $impersonateUid !== '' ? $impersonateUid : null,
+        ));
 
         return $next($request);
     }

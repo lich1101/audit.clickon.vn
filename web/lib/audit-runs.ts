@@ -2,19 +2,16 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { parseArticleUrls, parseCategories, formatCategoriesInput } from "@/lib/validators";
-import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
+import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 
 export const ACTIVE_AUDIT_POLL_INTERVAL_MS = 3000;
 
 export type AuditBoard = {
-  website: {
-    id: string;
-    name: string;
-    url: string;
-  };
+  website: Website;
   audit: WebsiteAudit | null;
   run: AuditRun | null;
+  userActiveRun?: AuditRun | null;
   urlResults?: WebsiteAuditUrlResult[];
   systemAi?: PublicAuditSettings;
 };
@@ -128,6 +125,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
         }
       : null,
     run: response.data.run ? normalizeAuditRun(response.data.run) : null,
+    userActiveRun: response.data.userActiveRun ? normalizeAuditRun(response.data.userActiveRun) : null,
     urlResults: Array.isArray(response.data.urlResults)
       ? response.data.urlResults.map((result) => ({
           ...result,

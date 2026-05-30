@@ -1,6 +1,8 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { CreditAdjustmentForm } from "@/components/forms/credit-adjustment-form";
 import { CreditBadge } from "@/components/dashboard/credit-badge";
@@ -8,17 +10,23 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { RoleBadge } from "@/components/dashboard/role-badge";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
 import { fetchAdminUser, fetchCreditTransactions } from "@/lib/account";
+import { startImpersonation } from "@/lib/impersonation";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { AppUser, CreditLog } from "@/types";
 
 export default function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
+  const { profile, refreshProfile } = useAuth();
   const [user, setUser] = useState<AppUser | null>(null);
   const [logs, setLogs] = useState<CreditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [impersonating, setImpersonating] = useState(false);
 
   async function loadUser() {
     const [profile, creditLogs] = await Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })]);
@@ -72,6 +80,30 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
           { label: user.email }
         ]}
       />
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={impersonating || profile?.uid === user.uid}
+          onClick={async () => {
+            try {
+              setImpersonating(true);
+              const result = await startImpersonation(user);
+              await refreshProfile();
+              router.push("/dashboard");
+              router.refresh();
+              toast.success(result.message ?? `Đã đăng nhập nhanh vào ${user.email}.`);
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Không thể đăng nhập nhanh vào tài khoản này.");
+            } finally {
+              setImpersonating(false);
+            }
+          }}
+        >
+          {profile?.uid === user.uid ? "Tài khoản hiện tại" : impersonating ? "Đang vào..." : "Đăng nhập nhanh"}
+        </Button>
+      </div>
 
       <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
         <Card>

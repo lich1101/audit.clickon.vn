@@ -27,7 +27,9 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
         setLoading(true);
         const [nextWebsite, nextAudit] = await Promise.all([getWebsiteById(id), getAuditByWebsiteId(id)]);
 
-        if (!nextWebsite || nextWebsite.userId !== profile?.uid) {
+        const canAccessAsAdmin = profile?.realRole === "admin" && !profile?.isImpersonating;
+
+        if (!nextWebsite || (nextWebsite.userId !== profile?.uid && !canAccessAsAdmin)) {
           setWebsite(null);
           setAudit(null);
           return;

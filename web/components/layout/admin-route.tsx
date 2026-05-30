@@ -11,8 +11,8 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && profile?.role !== "admin") {
-      router.replace("/unauthorized");
+    if (!loading && (profile?.realRole !== "admin" || profile?.isImpersonating)) {
+      router.replace("/dashboard");
     }
   }, [loading, profile, router]);
 
@@ -20,7 +20,7 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
     return <LoadingState title="Đang tải quyền truy cập..." description="Đang xác nhận vai trò quản trị." />;
   }
 
-  if (profile.role !== "admin") {
+  if (profile.realRole !== "admin" || profile.isImpersonating) {
     return null;
   }
 

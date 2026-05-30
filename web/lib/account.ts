@@ -1,11 +1,19 @@
 "use client";
 
 import { laravelRequest } from "@/lib/laravel";
-import type { AppUser, CreditLog, Plan } from "@/types";
+import { IMPERSONATE_UID_COOKIE, readClientCookie, ROLE_COOKIE } from "@/lib/auth";
+import type { AppUser, CreditLog, Plan, UserRole } from "@/types";
 
-export async function fetchMe() {
+export async function fetchMe(): Promise<AppUser> {
   const response = await laravelRequest<{ data: AppUser }>("/api/me", { method: "GET", cache: "no-store" });
-  return response.data;
+  const realRole = (readClientCookie(ROLE_COOKIE) === "admin" ? "admin" : "user") as UserRole;
+  const isImpersonating = Boolean(readClientCookie(IMPERSONATE_UID_COOKIE));
+
+  return {
+    ...response.data,
+    realRole,
+    isImpersonating,
+  };
 }
 
 export async function updateMe(input: { displayName?: string | null }) {
@@ -33,6 +41,28 @@ export async function updateAdminUser(uid: string, input: { displayName?: string
     body: JSON.stringify(input)
   });
   return response.data;
+}
+
+export async function grantWebsiteSameDayReaudit(websiteId: string) {
+  const response = await laravelRequest<{ data: { sameDayReauditGrantedUntil?: string | null; sameDayReauditGrantedBy?: string | null }; message?: string }>(
+    `/api/admin/websites/${websiteId}/same-day-reaudit`,
+    {
+      method: "POST",
+    }
+  );
+
+  return response;
+}
+
+export async function revokeWebsiteSameDayReaudit(websiteId: string) {
+  const response = await laravelRequest<{ data: { sameDayReauditGrantedUntil?: string | null; sameDayReauditGrantedBy?: string | null }; message?: string }>(
+    `/api/admin/websites/${websiteId}/same-day-reaudit`,
+    {
+      method: "DELETE",
+    }
+  );
+
+  return response;
 }
 
 export async function fetchPlans(activeOnly = true) {

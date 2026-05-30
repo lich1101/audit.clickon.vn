@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { getAdminAuth } from "@/lib/firebase-admin";
-import { getRoleCookieOptions, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth";
+import {
+  getClientCookieOptions,
+  getRoleCookieOptions,
+  IMPERSONATE_EMAIL_COOKIE,
+  IMPERSONATE_NAME_COOKIE,
+  IMPERSONATE_UID_COOKIE,
+  ROLE_COOKIE,
+  SESSION_COOKIE
+} from "@/lib/auth";
 import { sessionSchema } from "@/lib/validators";
 
 export async function POST(request: Request) {
@@ -20,6 +28,9 @@ export async function POST(request: Request) {
       email: string;
       displayName: string;
       role: "admin" | "user";
+      realRole: "admin" | "user";
+      isImpersonating: false;
+      balanceUsd: number;
       credits: number;
       createdAt: string;
       updatedAt: string;
@@ -47,6 +58,7 @@ export async function POST(request: Request) {
         email: string;
         displayName?: string;
         role: "admin" | "user";
+        balanceUsd?: number;
         credits: number;
         createdAt: string;
         updatedAt: string;
@@ -62,6 +74,9 @@ export async function POST(request: Request) {
       email: mePayload.data.email || decoded.email || "",
       displayName: mePayload.data.displayName ?? "",
       role: mePayload.data.role === "admin" ? "admin" : "user",
+      realRole: mePayload.data.role === "admin" ? "admin" : "user",
+      isImpersonating: false,
+      balanceUsd: Number(mePayload.data.balanceUsd ?? 0),
       credits: Number(mePayload.data.credits ?? 0),
       createdAt: mePayload.data.createdAt,
       updatedAt: mePayload.data.updatedAt
@@ -78,6 +93,18 @@ export async function POST(request: Request) {
     response.cookies.set(ROLE_COOKIE, profile.role, {
       ...getRoleCookieOptions(),
       maxAge: 60 * 60 * 24 * 5
+    });
+    response.cookies.set(IMPERSONATE_UID_COOKIE, "", {
+      ...getClientCookieOptions(),
+      maxAge: 0
+    });
+    response.cookies.set(IMPERSONATE_EMAIL_COOKIE, "", {
+      ...getClientCookieOptions(),
+      maxAge: 0
+    });
+    response.cookies.set(IMPERSONATE_NAME_COOKIE, "", {
+      ...getClientCookieOptions(),
+      maxAge: 0
     });
 
     return response;

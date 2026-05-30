@@ -8,6 +8,7 @@ use App\Http\Requests\StoreWebsiteRequest;
 use App\Services\WebsiteDataService;
 use App\Support\CategoryInputParser;
 use Illuminate\Http\Request;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -98,6 +99,37 @@ class WebsiteController extends Controller
         return response()->json([
             'message' => 'Website audit saved.',
             'data' => $audit,
+        ]);
+    }
+
+    public function grantSameDayReaudit(Request $request, string $websiteId)
+    {
+        try {
+            $website = $this->websiteDataService->grantSameDayReaudit(
+                websiteId: $websiteId,
+                grantedByUid: (string) $request->attributes->get('firebase_uid'),
+            );
+        } catch (RuntimeException $exception) {
+            throw new NotFoundHttpException($exception->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Đã cấp quyền audit lại trong ngày cho website này.',
+            'data' => $website,
+        ]);
+    }
+
+    public function revokeSameDayReaudit(string $websiteId)
+    {
+        try {
+            $website = $this->websiteDataService->revokeSameDayReaudit($websiteId);
+        } catch (RuntimeException $exception) {
+            throw new NotFoundHttpException($exception->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Đã thu hồi quyền audit lại trong ngày cho website này.',
+            'data' => $website,
         ]);
     }
 

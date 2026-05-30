@@ -53,6 +53,8 @@ Route::prefix('admin')
         Route::get('/users', [AdminUserController::class, 'index']);
         Route::get('/users/{firebaseUid}', [AdminUserController::class, 'show']);
         Route::put('/users/{firebaseUid}', [AdminUserController::class, 'update']);
+        Route::post('/websites/{websiteId}/same-day-reaudit', [WebsiteController::class, 'grantSameDayReaudit']);
+        Route::delete('/websites/{websiteId}/same-day-reaudit', [WebsiteController::class, 'revokeSameDayReaudit']);
         Route::get('/plans', [PlanController::class, 'index']);
         Route::post('/plans', [PlanController::class, 'store']);
         Route::get('/plans/{planId}', [PlanController::class, 'show']);

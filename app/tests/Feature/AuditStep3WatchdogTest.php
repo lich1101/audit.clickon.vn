@@ -341,7 +341,7 @@ class AuditStep3WatchdogTest extends TestCase
 
     private function makeStep3Item(AuditRun $run, \Illuminate\Support\Carbon $updatedAt): AuditRunItem
     {
-        return AuditRunItem::query()->create([
+        $item = AuditRunItem::query()->create([
             'public_id' => (string) Str::ulid(),
             'audit_run_id' => $run->id,
             'position' => 1,
@@ -352,8 +352,15 @@ class AuditStep3WatchdogTest extends TestCase
             'category_name' => 'Phế liệu đồng',
             'category_url' => 'https://example.com/phe-lieu-dong',
             'category_match_reason' => 'Khớp seed.',
-            'updated_at' => $updatedAt,
-            'created_at' => now(),
         ]);
+
+        AuditRunItem::query()
+            ->whereKey($item->id)
+            ->update([
+            'created_at' => now(),
+            'updated_at' => $updatedAt,
+        ]);
+
+        return $item->fresh();
     }
 }

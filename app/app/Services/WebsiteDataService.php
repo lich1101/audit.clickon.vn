@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\AuditRun;
 use App\Models\Website;
 use App\Models\WebsiteAudit;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class WebsiteDataService
 {
@@ -37,6 +39,19 @@ class WebsiteDataService
         return $this->importLegacyWebsite($websiteId);
     }
 
+    public function findWebsiteModel(string $websiteId): ?Website
+    {
+        $website = Website::query()->find($websiteId);
+
+        if ($website) {
+            return $website;
+        }
+
+        $this->importLegacyWebsite($websiteId);
+
+        return Website::query()->find($websiteId);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -50,6 +65,44 @@ class WebsiteDataService
         ]);
 
         return $this->serializeWebsite($website);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function grantSameDayReaudit(string $websiteId, ?string $grantedByUid): array
+    {
+        $website = $this->findWebsiteModel($websiteId);
+
+        if (! $website) {
+            throw new RuntimeException('Website not found.');
+        }
+
+        $website->forceFill([
+            'same_day_reaudit_granted_until' => now()->endOfDay(),
+            'same_day_reaudit_granted_by' => $grantedByUid,
+        ])->save();
+
+        return $this->serializeWebsite($website->fresh());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function revokeSameDayReaudit(string $websiteId): array
+    {
+        $website = $this->findWebsiteModel($websiteId);
+
+        if (! $website) {
+            throw new RuntimeException('Website not found.');
+        }
+
+        $website->forceFill([
+            'same_day_reaudit_granted_until' => null,
+            'same_day_reaudit_granted_by' => null,
+        ])->save();
+
+        return $this->serializeWebsite($website->fresh());
     }
 
     /**
@@ -147,11 +200,17 @@ class WebsiteDataService
      */
     public function serializeWebsite(Website $website): array
     {
+        $grantUntil = $website->same_day_reaudit_granted_until;
+
         return [
             'id' => $website->id,
             'userId' => $website->user_uid,
             'name' => $website->name,
             'url' => $website->url,
+            'sameDayReauditGrantedUntil' => $grantUntil instanceof CarbonInterface
+                ? $grantUntil->toIso8601String()
+                : null,
+            'sameDayReauditGrantedBy' => $website->same_day_reaudit_granted_by,
             'createdAt' => optional($website->created_at)?->toIso8601String(),
             'updatedAt' => optional($website->updated_at)?->toIso8601String(),
             'activeRun' => $website->relationLoaded('activeRun') && $website->activeRun

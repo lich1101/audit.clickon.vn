@@ -34,7 +34,7 @@ class EnsureAdminOrApiKey
             ], 401);
         }
 
-        $identity = $this->identityService->authenticate($token);
+        $identity = $this->identityService->authenticate($token, null);
 
         if (($identity['firebase_role'] ?? 'user') !== 'admin') {
             return response()->json([

@@ -98,7 +98,7 @@ return [
         'gemini_batch_thinking_budget' => (int) env('AUDIT_GEMINI_BATCH_THINKING_BUDGET', 4096),
         'gemini_formatter_thinking_budget' => (int) env('AUDIT_GEMINI_FORMATTER_THINKING_BUDGET', 1024),
         'gemini_pdf_max_bytes' => (int) env('AUDIT_GEMINI_PDF_MAX_BYTES', 10 * 1024 * 1024),
-        'gemini_deep_research_watchdog_stale_seconds' => (int) env('AUDIT_GEMINI_DEEP_RESEARCH_WATCHDOG_STALE_SECONDS', 1800),
+        'gemini_deep_research_watchdog_stale_seconds' => (int) env('AUDIT_GEMINI_DEEP_RESEARCH_WATCHDOG_STALE_SECONDS', 120),
         'step3_recovery_stale_seconds' => (int) env('AUDIT_STEP3_RECOVERY_STALE_SECONDS', 120),
         'stale_run_recovery_enabled' => (bool) env('AUDIT_STALE_RUN_RECOVERY_ENABLED', true),
         'stale_run_recovery_limit' => (int) env('AUDIT_STALE_RUN_RECOVERY_LIMIT', 20),

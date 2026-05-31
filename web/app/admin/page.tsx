@@ -119,7 +119,7 @@ export default function AdminHomePage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
+                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)} · {formatNumber(request.captchaCredits)} captcha
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {request.status} · {formatDate(request.createdAt)}

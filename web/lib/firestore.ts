@@ -40,6 +40,7 @@ export function mapUser(docId: string, data: DocumentData): AppUser {
     isImpersonating: false,
     balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
+    captchaCredits: Number(data.captchaCredits ?? data.captcha_credits ?? 0),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)
   };
@@ -52,6 +53,7 @@ export function mapPlan(docId: string, data: DocumentData): Plan {
     price: Number(data.price ?? 0),
     balanceUsd: Number(data.balanceUsd ?? data.balance_usd ?? (Number(data.credits ?? 0) * 0.01)),
     credits: Number(data.credits ?? 0),
+    captchaCredits: Number(data.captchaCredits ?? data.captcha_credits ?? 0),
     isActive: Boolean(data.isActive ?? data.is_active ?? true),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt)

@@ -15,6 +15,7 @@ class Plan extends Model
         'name',
         'price',
         'credits',
+        'captcha_credits',
         'balance_usd',
         'is_active',
     ];
@@ -24,6 +25,7 @@ class Plan extends Model
         return [
             'price' => 'integer',
             'credits' => 'integer',
+            'captcha_credits' => 'integer',
             'balance_usd' => 'float',
             'is_active' => 'boolean',
         ];

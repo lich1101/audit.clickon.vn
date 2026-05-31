@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Clickon Keyword Rank Checker",
+  "description": "Check Google keyword rankings from the user's Chrome instead of the server.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Clickon Rank Checker",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://audit.clickon.vn/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.google.com/*",
+    "https://www.google.com.vn/*",
+    "https://audit.clickon.vn/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]
+}

@@ -61,6 +61,7 @@ export function mapSessionUser(data: Record<string, unknown>): SessionUser {
     isImpersonating: Boolean(data.isImpersonating),
     balanceUsd: Number(data.balanceUsd ?? 0),
     credits: Number(data.credits ?? 0),
+    captchaCredits: Number(data.captchaCredits ?? 0),
     displayName: data.displayName ? String(data.displayName) : undefined
   };
 }

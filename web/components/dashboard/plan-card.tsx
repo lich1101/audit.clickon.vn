@@ -31,6 +31,10 @@ export function PlanCard({
           <CheckCircle2 className="size-4 text-emerald-500" />
           Kích hoạt thủ công sau khi admin duyệt
         </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-blue-500" />
+          {plan.captchaCredits.toLocaleString("vi-VN")} lượt giải captcha tự động
+        </div>
       </CardContent>
       <CardFooter>
         <Button className="w-full" disabled={!plan.isActive || loading} onClick={() => onSelect?.(plan)}>

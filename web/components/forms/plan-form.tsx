@@ -27,6 +27,7 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
       name: plan?.name ?? "",
       price: plan?.price ?? 0,
       credits: plan?.credits ?? 1,
+      captchaCredits: plan?.captchaCredits ?? 0,
       isActive: plan?.isActive ?? true
     }
   });
@@ -77,6 +78,14 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
                 Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1.
               </p>
             </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="plan-captcha-credits">Lượt giải captcha tự động</Label>
+            <Input id="plan-captcha-credits" type="number" min={0} step={1} {...form.register("captchaCredits")} />
+            {form.formState.errors.captchaCredits ? <p className="text-sm text-destructive">{form.formState.errors.captchaCredits.message}</p> : null}
+            <p className="text-xs text-muted-foreground">
+              Dùng cho check thứ hạng keyword bằng extension khi người dùng bật tự động giải captcha qua 2captcha.
+            </p>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">
             <input className="size-4 accent-indigo-600" type="checkbox" {...form.register("isActive")} />

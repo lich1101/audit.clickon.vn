@@ -13,6 +13,7 @@ class PlanRequest extends Model
         'plan_name',
         'price',
         'credits',
+        'captcha_credits',
         'balance_usd',
         'status',
         'note',
@@ -25,6 +26,7 @@ class PlanRequest extends Model
         return [
             'price' => 'integer',
             'credits' => 'integer',
+            'captcha_credits' => 'integer',
             'balance_usd' => 'float',
             'approved_at' => 'datetime',
         ];

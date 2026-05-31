@@ -10,6 +10,7 @@ import { AuditWorkbenchTable } from "@/components/dashboard/audit-workbench-tabl
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { ProgressBar } from "@/components/dashboard/progress-bar";
+import { WebsiteSectionTabs } from "@/components/dashboard/website-section-tabs";
 import { SeoAuditRunForm } from "@/components/forms/seo-audit-run-form";
 import { urlsToInput } from "@/components/forms/audit-target-url-editor";
 import { PageHeader } from "@/components/layout/page-header";
@@ -668,6 +669,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           { label: "Audit" }
         ]}
       />
+
+      <WebsiteSectionTabs websiteId={website.id} />
 
       <div className="flex flex-col gap-3 rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-soft md:flex-row md:items-center md:justify-between">
         <div className="min-w-0 space-y-3">

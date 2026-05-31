@@ -29,6 +29,7 @@ class CreditService
             'display_name' => $displayName,
             'role' => 'user',
             'credits' => 0,
+            'captcha_credits' => 0,
             'balance_usd' => 0,
         ]);
     }
@@ -56,6 +57,47 @@ class CreditService
     public function creditsForUsd(float $amountUsd): int
     {
         return (int) ceil(max(0.0, $amountUsd) / $this->legacyCreditUsdRate());
+    }
+
+    public function getCaptchaCredits(string $firebaseUid): int
+    {
+        return (int) (AppUser::query()->where('firebase_uid', $firebaseUid)->value('captcha_credits') ?? 0);
+    }
+
+    public function addCaptchaCredits(string $firebaseUid, int $amount): int
+    {
+        if ($amount <= 0) {
+            return $this->getCaptchaCredits($firebaseUid);
+        }
+
+        return DB::transaction(function () use ($firebaseUid, $amount): int {
+            /** @var AppUser $user */
+            $user = AppUser::query()->where('firebase_uid', $firebaseUid)->lockForUpdate()->firstOrFail();
+            $user->forceFill([
+                'captcha_credits' => (int) $user->captcha_credits + $amount,
+            ])->save();
+
+            return (int) $user->captcha_credits;
+        });
+    }
+
+    public function consumeCaptchaCredit(string $firebaseUid): int
+    {
+        return DB::transaction(function () use ($firebaseUid): int {
+            /** @var AppUser $user */
+            $user = AppUser::query()->where('firebase_uid', $firebaseUid)->lockForUpdate()->firstOrFail();
+            $before = (int) $user->captcha_credits;
+
+            if ($before <= 0) {
+                throw new RuntimeException('Insufficient captcha credits.');
+            }
+
+            $user->forceFill([
+                'captcha_credits' => $before - 1,
+            ])->save();
+
+            return (int) $user->captcha_credits;
+        });
     }
 
     /**
@@ -193,6 +235,7 @@ class CreditService
             'role' => $user->role === 'admin' ? 'admin' : 'user',
             'balanceUsd' => $balanceUsd,
             'credits' => (int) $user->credits,
+            'captchaCredits' => (int) $user->captcha_credits,
             'legacyCreditsPerUsd' => (int) round(1 / $this->legacyCreditUsdRate()),
             'createdAt' => optional($user->created_at)?->toIso8601String(),
             'updatedAt' => optional($user->updated_at)?->toIso8601String(),

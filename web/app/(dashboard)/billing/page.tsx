@@ -88,7 +88,7 @@ export default function BillingPage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
+                        {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)} · {formatNumber(request.captchaCredits)} captcha
                       </p>
                     </div>
                     <div className="text-sm">

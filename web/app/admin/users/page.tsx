@@ -55,6 +55,7 @@ export default function AdminUsersPage() {
           { key: "email", header: "Email", render: (row: AppUser) => row.email },
           { key: "role", header: "Role", render: (row: AppUser) => <RoleBadge role={row.role} /> },
           { key: "balanceUsd", header: "Số dư", render: (row: AppUser) => <CreditBadge balanceUsd={row.balanceUsd} credits={row.credits} /> },
+          { key: "captchaCredits", header: "Captcha", render: (row: AppUser) => row.captchaCredits.toLocaleString("vi-VN") },
           { key: "createdAt", header: "Ngày tạo", render: (row: AppUser) => formatDate(row.createdAt) },
           {
             key: "actions",

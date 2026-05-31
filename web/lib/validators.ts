@@ -40,6 +40,7 @@ export const planSchema = z.object({
   name: trimmedString.min(2, "Tên gói cước tối thiểu 2 ký tự."),
   price: z.coerce.number().int("Giá VND phải là số nguyên.").min(0, "Giá phải lớn hơn hoặc bằng 0."),
   credits: z.coerce.number().int("Credit phải là số nguyên.").min(1, "Số credit phải lớn hơn 0."),
+  captchaCredits: z.coerce.number().int("Lượt captcha phải là số nguyên.").min(0, "Lượt captcha phải lớn hơn hoặc bằng 0."),
   isActive: z.boolean()
 });
 

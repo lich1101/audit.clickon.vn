@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       isImpersonating: false;
       balanceUsd: number;
       credits: number;
+      captchaCredits: number;
       createdAt: string;
       updatedAt: string;
     };
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
         role: "admin" | "user";
         balanceUsd?: number;
         credits: number;
+        captchaCredits?: number;
         createdAt: string;
         updatedAt: string;
       };
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
       isImpersonating: false,
       balanceUsd: Number(mePayload.data.balanceUsd ?? 0),
       credits: Number(mePayload.data.credits ?? 0),
+      captchaCredits: Number(mePayload.data.captchaCredits ?? 0),
       createdAt: mePayload.data.createdAt,
       updatedAt: mePayload.data.updatedAt
     };

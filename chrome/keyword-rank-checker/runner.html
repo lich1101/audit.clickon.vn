@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clickon Keyword Rank Checker</title>
+    <link rel="stylesheet" href="runner.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Clickon Audit Extension</p>
+          <h1>Check thứ hạng keyword bằng Chrome người dùng</h1>
+          <p class="hero-copy">Công cụ quét Google SERP theo từng keyword, tìm vị trí tốt nhất của domain trong tối đa 10 trang đầu. Tác vụ chạy trên máy người dùng, không đẩy cào Google lên VPS.</p>
+        </div>
+        <div class="hero-card">
+          <strong id="summary-state">Sẵn sàng</strong>
+          <span id="summary-detail">Chưa có phiên chạy.</span>
+        </div>
+      </section>
+
+      <section class="panel config-panel">
+        <div class="field field-wide">
+          <label for="target-domain">Domain cần tìm</label>
+          <input id="target-domain" type="text" placeholder="phelieuthienlong.com">
+        </div>
+        <div class="field">
+          <label for="pages">Số trang Google</label>
+          <input id="pages" type="number" min="1" max="10" value="10">
+        </div>
+        <div class="field">
+          <label for="google-host">Google host</label>
+          <select id="google-host">
+            <option value="https://www.google.com">google.com</option>
+            <option value="https://www.google.com.vn">google.com.vn</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="gl">Quốc gia</label>
+          <input id="gl" type="text" value="vn" maxlength="4">
+        </div>
+        <div class="field">
+          <label for="hl">Ngôn ngữ</label>
+          <input id="hl" type="text" value="vi" maxlength="8">
+        </div>
+        <div class="field">
+          <label for="delay-min">Delay min (giây)</label>
+          <input id="delay-min" type="number" min="1" max="120" value="4">
+        </div>
+        <div class="field">
+          <label for="delay-max">Delay max (giây)</label>
+          <input id="delay-max" type="number" min="1" max="180" value="9">
+        </div>
+        <div class="field field-wide">
+          <label for="callback-url">Callback URL (tùy chọn)</label>
+          <input id="callback-url" type="url" placeholder="https://audit.clickon.vn/api/...">
+        </div>
+        <div class="field field-full">
+          <label for="keywords">Keyword, mỗi dòng một keyword</label>
+          <textarea id="keywords" rows="10" placeholder="thu mua phế liệu giá cao&#10;thu mua phế liệu tphcm"></textarea>
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="start" type="button">Chạy check rank</button>
+        <button id="stop" class="secondary danger" type="button" disabled>Dừng</button>
+        <button id="export-csv" class="secondary" type="button" disabled>Xuất CSV</button>
+        <button id="clear-results" class="secondary" type="button">Xóa kết quả</button>
+      </section>
+
+      <section class="panel progress-panel">
+        <div class="progress-meta">
+          <span id="progress-text">Chưa chạy</span>
+          <span id="progress-count">0/0</span>
+        </div>
+        <div class="progress-track">
+          <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="result-head">
+          <h2>Kết quả</h2>
+          <span id="result-count">0 keyword</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Keyword</th>
+                <th>Trạng thái</th>
+                <th>Rank</th>
+                <th>Trang</th>
+                <th>URL tìm thấy</th>
+                <th>Tiêu đề</th>
+                <th>Lỗi</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+              <tr>
+                <td colspan="8" class="empty">Chưa có dữ liệu.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="runner.js"></script>
+  </body>
+</html>

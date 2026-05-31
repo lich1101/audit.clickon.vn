@@ -50,6 +50,7 @@ class PlanRequestController extends Controller
             'plan_name' => $plan->name,
             'price' => (int) $plan->price,
             'credits' => (int) $plan->credits,
+            'captcha_credits' => (int) $plan->captcha_credits,
             'balance_usd' => $balanceUsd,
             'status' => 'pending',
         ]);
@@ -87,6 +88,11 @@ class PlanRequestController extends Controller
             source: 'plan',
             referenceType: 'plan_request',
             referenceId: (string) $planRequest->id,
+        );
+
+        $this->creditService->addCaptchaCredits(
+            firebaseUid: $planRequest->firebase_uid,
+            amount: (int) $planRequest->captcha_credits,
         );
 
         $planRequest->forceFill([
@@ -132,6 +138,7 @@ class PlanRequestController extends Controller
             'planName' => $planRequest->plan_name,
             'price' => $planRequest->price,
             'credits' => $planRequest->credits,
+            'captchaCredits' => (int) $planRequest->captcha_credits,
             'balanceUsd' => $this->resolvePlanRequestBalanceUsd($planRequest),
             'status' => $planRequest->status,
             'note' => $planRequest->note,

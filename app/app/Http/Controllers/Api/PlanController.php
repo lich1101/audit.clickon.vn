@@ -38,6 +38,7 @@ class PlanController extends Controller
             'price' => ['required', 'integer', 'min:0'],
             'credits' => ['required_without:balanceUsd', 'integer', 'min:1'],
             'balanceUsd' => ['required_without:credits', 'numeric', 'min:0.01'],
+            'captchaCredits' => ['nullable', 'integer', 'min:0'],
             'isActive' => ['nullable', 'boolean'],
         ]);
 
@@ -49,6 +50,7 @@ class PlanController extends Controller
             'name' => $validated['name'],
             'price' => (int) $validated['price'],
             'credits' => $credits,
+            'captcha_credits' => (int) ($validated['captchaCredits'] ?? 0),
             'balance_usd' => $balanceUsd,
             'is_active' => $validated['isActive'] ?? true,
         ]);
@@ -76,6 +78,7 @@ class PlanController extends Controller
             'price' => ['sometimes', 'integer', 'min:0'],
             'credits' => ['sometimes', 'integer', 'min:1'],
             'balanceUsd' => ['sometimes', 'numeric', 'min:0.01'],
+            'captchaCredits' => ['sometimes', 'integer', 'min:0'],
             'isActive' => ['sometimes', 'boolean'],
         ]);
 
@@ -89,6 +92,7 @@ class PlanController extends Controller
             'price' => array_key_exists('price', $validated) ? (int) $validated['price'] : $plan->price,
             'balance_usd' => $balanceUsd,
             'credits' => $credits,
+            'captcha_credits' => array_key_exists('captchaCredits', $validated) ? (int) $validated['captchaCredits'] : (int) $plan->captcha_credits,
             'is_active' => array_key_exists('isActive', $validated) ? (bool) $validated['isActive'] : $plan->is_active,
         ])->save();
 
@@ -106,6 +110,7 @@ class PlanController extends Controller
             'price' => (int) $plan->price,
             'balanceUsd' => $this->resolvePlanBalanceUsd($plan),
             'credits' => (int) $plan->credits,
+            'captchaCredits' => (int) $plan->captcha_credits,
             'isActive' => (bool) $plan->is_active,
             'createdAt' => optional($plan->created_at)?->toIso8601String(),
             'updatedAt' => optional($plan->updated_at)?->toIso8601String(),

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
+import { WebsiteSectionTabs } from "@/components/dashboard/website-section-tabs";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,6 +70,8 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
         ]}
         action={{ label: audit ? "Cập nhật audit" : "Tạo audit", href: `/websites/${website.id}/audit` }}
       />
+
+      <WebsiteSectionTabs websiteId={website.id} />
 
       <div className="grid gap-5 xl:grid-cols-[0.86fr_1.14fr]">
         <Card>

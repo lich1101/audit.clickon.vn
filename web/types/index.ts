@@ -9,6 +9,7 @@ export type AppUser = {
   isImpersonating?: boolean;
   balanceUsd: number;
   credits: number;
+  captchaCredits: number;
   legacyCreditsPerUsd?: number;
   createdAt: string;
   updatedAt: string;
@@ -20,6 +21,7 @@ export type Plan = {
   price: number;
   balanceUsd: number;
   credits: number;
+  captchaCredits: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -134,12 +136,81 @@ export type PlanRequest = {
   price: number;
   balanceUsd: number;
   credits: number;
+  captchaCredits: number;
   status: "pending" | "approved" | "rejected";
   note?: string | null;
   approvedBy?: string | null;
   approvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type KeywordRankStatus = "queued" | "found" | "not_found" | "blocked" | "error" | "stopped";
+
+export type KeywordRankKeyword = {
+  id: string;
+  websiteId: string;
+  keyword: string;
+  latestStatus?: KeywordRankStatus | null;
+  latestRank?: number | null;
+  latestPage?: number | null;
+  latestUrl?: string | null;
+  latestTitle?: string | null;
+  latestError?: string | null;
+  latestCheckedAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type KeywordRankRunItem = {
+  keywordId?: string | null;
+  keyword: string;
+  status: KeywordRankStatus;
+  rank?: number | null;
+  page?: number | null;
+  matchedUrl?: string | null;
+  title?: string | null;
+  error?: string | null;
+  checkedAt?: string | null;
+};
+
+export type KeywordRankRun = {
+  publicId: string;
+  websiteId: string;
+  targetDomain: string;
+  status: "queued" | "processing" | "completed" | "partial" | "failed" | "stopped";
+  captchaEnabled: boolean;
+  totalKeywords: number;
+  processedKeywords: number;
+  completedKeywords: number;
+  failedKeywords: number;
+  captchaSolveAttempts: number;
+  captchaSolveSuccesses: number;
+  lastError?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  items: KeywordRankRunItem[];
+};
+
+export type KeywordRankBoard = {
+  website: Pick<Website, "id" | "name" | "url" | "userId">;
+  targetDomain: string;
+  keywords: KeywordRankKeyword[];
+  latestRun?: KeywordRankRun | null;
+  captchaCredits: number;
+  extension: {
+    bridgeMessageVersion: number;
+    required: boolean;
+  };
+};
+
+export type CaptchaSolveTask = {
+  id: string;
+  status: "processing" | "ready" | "failed";
+  solutionToken?: string | null;
+  costUsd?: number | null;
+  charged: boolean;
+  errorMessage?: string | null;
+  captchaCredits: number;
 };
 
 export type JsonFormatterProvider = "openai" | "gemini";
@@ -170,7 +241,7 @@ export type CreditBalanceResponse = {
   credits: number;
 };
 
-export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "realRole" | "isImpersonating" | "balanceUsd" | "credits" | "displayName">;
+export type SessionUser = Pick<AppUser, "uid" | "email" | "role" | "realRole" | "isImpersonating" | "balanceUsd" | "credits" | "captchaCredits" | "displayName">;
 
 export type AuditRunItem = {
   publicId: string;

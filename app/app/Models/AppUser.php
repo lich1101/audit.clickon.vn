@@ -13,6 +13,7 @@ class AppUser extends Model
         'display_name',
         'role',
         'credits',
+        'captcha_credits',
         'balance_usd',
     ];
 
@@ -20,6 +21,7 @@ class AppUser extends Model
     {
         return [
             'credits' => 'integer',
+            'captcha_credits' => 'integer',
             'balance_usd' => 'float',
         ];
     }

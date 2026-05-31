@@ -35,6 +35,7 @@ function isSameProfile(current: AppUser | null, next: AppUser): boolean {
     current.isImpersonating === next.isImpersonating &&
     current.balanceUsd === next.balanceUsd &&
     current.credits === next.credits &&
+    current.captchaCredits === next.captchaCredits &&
     current.updatedAt === next.updatedAt
   );
 }

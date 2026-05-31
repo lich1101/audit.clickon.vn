@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clickon Rank Checker</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --text: #172033;
+        --muted: #657084;
+        --line: #dbe3ee;
+        --blue: #2563eb;
+        --bg: #f7f9fc;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 320px;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        padding: 18px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 14px;
+        background: var(--blue);
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 12px 14px;
+      }
+
+      .note {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Clickon Rank Checker</h1>
+      <p>Quét thứ hạng keyword bằng Chrome của người dùng. Server chỉ nhận kết quả nếu bạn cấu hình callback.</p>
+      <button id="open-runner" type="button">Mở công cụ check rank</button>
+      <div class="note">Không tự vượt captcha, không dùng cookie hardcode. Nếu Google chặn, công cụ sẽ báo blocked để người dùng xử lý thủ công.</div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

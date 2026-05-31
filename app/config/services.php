@@ -58,6 +58,12 @@ return [
         'models' => env('PERPLEXITY_MODELS', ''),
     ],
 
+    'two_captcha' => [
+        'api_key' => env('TWO_CAPTCHA_API_KEY'),
+        'base_url' => env('TWO_CAPTCHA_BASE_URL', 'https://api.2captcha.com'),
+        'poll_interval_seconds' => (int) env('TWO_CAPTCHA_POLL_INTERVAL_SECONDS', 5),
+    ],
+
     'audit' => [
         'legacy_credit_usd_value' => (float) env('AUDIT_LEGACY_CREDIT_TO_USD', 0.01),
         'billing_markup' => (float) env('AUDIT_BILLING_MARKUP', 1.0),

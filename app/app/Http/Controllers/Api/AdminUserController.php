@@ -55,11 +55,13 @@ class AdminUserController extends Controller
         $validated = $request->validate([
             'displayName' => ['nullable', 'string', 'max:255'],
             'role' => ['nullable', 'string', 'in:user,admin'],
+            'captchaCredits' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $user->forceFill([
             'display_name' => array_key_exists('displayName', $validated) ? $validated['displayName'] : $user->display_name,
             'role' => $validated['role'] ?? $user->role,
+            'captcha_credits' => array_key_exists('captchaCredits', $validated) ? (int) $validated['captchaCredits'] : $user->captcha_credits,
         ])->save();
 
         return response()->json([

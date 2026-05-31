@@ -33,6 +33,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const [savingProfile, setSavingProfile] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<UserRole>("user");
+  const [captchaCredits, setCaptchaCredits] = useState(0);
 
   async function loadUser() {
     const [profile, creditLogs] = await Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })]);
@@ -40,6 +41,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
     setLogs(creditLogs);
     setDisplayName(profile.displayName ?? "");
     setRole(profile.role);
+    setCaptchaCredits(profile.captchaCredits ?? 0);
   }
 
   useEffect(() => {
@@ -56,6 +58,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
       setLogs(creditLogs);
       setDisplayName(profile.displayName ?? "");
       setRole(profile.role);
+      setCaptchaCredits(profile.captchaCredits ?? 0);
     }
 
     setLoading(true);
@@ -138,6 +141,10 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
               </div>
             </div>
             <div>
+              <p className="text-sm text-muted-foreground">Lượt giải captcha tự động</p>
+              <p className="mt-1 font-medium">{formatNumber(user.captchaCredits ?? 0)}</p>
+            </div>
+            <div>
               <p className="text-sm text-muted-foreground">Created At</p>
               <p className="mt-1 font-medium">{formatDate(user.createdAt)}</p>
             </div>
@@ -158,6 +165,17 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin-user-captcha-credits">Lượt giải captcha</Label>
+                <Input
+                  id="admin-user-captcha-credits"
+                  min={0}
+                  step={1}
+                  type="number"
+                  value={captchaCredits}
+                  onChange={(event) => setCaptchaCredits(Number(event.target.value || 0))}
+                />
+              </div>
               <Button
                 type="button"
                 className="w-full"
@@ -168,10 +186,12 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
                     const nextUser = await updateAdminUser(user.uid, {
                       displayName: displayName.trim(),
                       role,
+                      captchaCredits,
                     });
                     setUser(nextUser);
                     setDisplayName(nextUser.displayName ?? "");
                     setRole(nextUser.role);
+                    setCaptchaCredits(nextUser.captchaCredits ?? 0);
                     toast.success("Đã cập nhật user.");
                   } catch (error) {
                     toast.error(error instanceof Error ? error.message : "Không thể cập nhật user.");

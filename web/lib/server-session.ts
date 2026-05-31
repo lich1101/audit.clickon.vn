@@ -25,7 +25,8 @@ export async function getVerifiedSession() {
     impersonateEmail: store.get(IMPERSONATE_EMAIL_COOKIE)?.value ?? null,
     impersonateName: store.get(IMPERSONATE_NAME_COOKIE)?.value ?? null,
     balanceUsd: 0,
-    credits: 0
+    credits: 0,
+    captchaCredits: 0
   };
 }
 

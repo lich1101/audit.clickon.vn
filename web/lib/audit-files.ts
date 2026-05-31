@@ -84,6 +84,15 @@ function isChecklistHeader(value: string) {
   ]).has(normalizeHeaderToken(value));
 }
 
+function isKeywordHeader(value: string) {
+  return new Set([
+    "keyword",
+    "tu khoa",
+    "tu khoa seo",
+    "keyword seo",
+  ]).has(normalizeHeaderToken(value));
+}
+
 export async function parseUrlFile(file: File) {
   const lines = fileLooksLikeSpreadsheet(file)
     ? (await readSpreadsheetRows(file)).flatMap((row) => {
@@ -156,6 +165,22 @@ export async function parseChecklistFile(file: File) {
   return uniqueStrings(lines).join("\n");
 }
 
+export async function parseKeywordFile(file: File) {
+  const lines = fileLooksLikeSpreadsheet(file)
+    ? (await readSpreadsheetRows(file)).flatMap((row) => {
+        const firstCell = String(row.find((cell) => String(cell ?? "").trim()) ?? "").trim();
+
+        if (!firstCell || isKeywordHeader(firstCell)) {
+          return [];
+        }
+
+        return [firstCell];
+      })
+    : splitLines(await file.text());
+
+  return uniqueStrings(lines);
+}
+
 async function writeTemplateFile(filename: string, rows: string[][]) {
   const XLSX = await import("xlsx");
   const workbook = XLSX.utils.book_new();
@@ -189,5 +214,14 @@ export async function downloadChecklistTemplateFile() {
     ["STT 1 - Title có chứa keyword chính"],
     ["STT 2 - Meta description rõ ràng và đúng intent"],
     ["STT 3 - Có internal link liên quan"],
+  ]);
+}
+
+export async function downloadKeywordTemplateFile() {
+  await writeTemplateFile("mau-keyword-check-rank.xlsx", [
+    ["Keyword"],
+    ["thu mua phế liệu giá cao"],
+    ["thu mua phế liệu tphcm"],
+    ["thu mua đồng phế liệu"],
   ]);
 }

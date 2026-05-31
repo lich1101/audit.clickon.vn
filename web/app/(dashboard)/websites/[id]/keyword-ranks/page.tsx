@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, FileUp, Play, Save, Square } from "lucide-react";
+import { Download, ExternalLink, FileUp, Play, Save, Square } from "lucide-react";
+import Link from "next/link";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -24,9 +25,10 @@ import {
   pollCaptchaSolveTask,
   recordKeywordRankRunItem,
   saveKeywordRankKeywords,
+  updateKeywordRankPreferences,
 } from "@/lib/keyword-ranks";
 import { formatDate, formatNumber } from "@/lib/utils";
-import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRankRunItem } from "@/types";
+import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRankPreferences, KeywordRankRunItem } from "@/types";
 
 type ExtensionMessage =
   | { source: "clickon-rank-extension"; type: "CLICKON_RANK_EXTENSION_READY"; version: number }
@@ -87,11 +89,49 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const [extensionReady, setExtensionReady] = useState(false);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [selectedKeywordIds, setSelectedKeywordIds] = useState<string[]>([]);
-  const [pages, setPages] = useState(10);
   const [delayMin, setDelayMin] = useState(4);
   const [delayMax, setDelayMax] = useState(9);
   const [autoCaptcha, setAutoCaptcha] = useState(false);
+  const [googleHost, setGoogleHost] = useState("https://www.google.com");
+  const [hl, setHl] = useState("vi");
+  const [gl, setGl] = useState("vn");
   const [statusText, setStatusText] = useState("Chưa chạy");
+  const prefsSaveTimerRef = useRef<number | null>(null);
+
+  function applyPreferences(preferences: KeywordRankPreferences) {
+    setDelayMin(preferences.delayMin);
+    setDelayMax(preferences.delayMax);
+    setAutoCaptcha(preferences.autoCaptcha);
+    setGoogleHost(preferences.googleHost);
+    setHl(preferences.hl);
+    setGl(preferences.gl);
+  }
+
+  function syncPrefsToExtension(preferences: KeywordRankPreferences) {
+    window.postMessage(
+      {
+        source: "clickon-web",
+        type: "CLICKON_RANK_SYNC_PREFS",
+        payload: preferences,
+      },
+      window.location.origin
+    );
+  }
+
+  function schedulePreferenceSave(next: Partial<KeywordRankPreferences>) {
+    if (prefsSaveTimerRef.current) {
+      window.clearTimeout(prefsSaveTimerRef.current);
+    }
+
+    prefsSaveTimerRef.current = window.setTimeout(() => {
+      void updateKeywordRankPreferences(next)
+        .then((saved) => {
+          applyPreferences(saved);
+          syncPrefsToExtension(saved);
+        })
+        .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể lưu cấu hình keyword rank."));
+    }, 400);
+  }
   const activeRunPublicIdRef = useRef<string | null>(null);
   const inputFileRef = useRef<HTMLInputElement | null>(null);
 
@@ -99,6 +139,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     const nextBoard = await fetchKeywordRankBoard(id);
     setBoard(nextBoard);
     setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
+    applyPreferences(nextBoard.preferences);
+    syncPrefsToExtension(nextBoard.preferences);
     setSelectedKeywordIds((current) => {
       const ids = new Set(nextBoard.keywords.map((item) => item.id));
       const retained = current.filter((item) => ids.has(item));
@@ -115,6 +157,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
         if (!mounted) return;
         setBoard(nextBoard);
         setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
+        applyPreferences(nextBoard.preferences);
+        syncPrefsToExtension(nextBoard.preferences);
         setSelectedKeywordIds(nextBoard.keywords.map((item) => item.id));
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải keyword rank."))
@@ -254,7 +298,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   async function handleRun() {
     if (!board) return;
     if (!extensionReady) {
-      toast.error("Trình duyệt hiện tại chưa phát hiện Clickon Rank Checker extension.");
+      toast.error("Cần cài Clickon Rank Checker extension trước khi chạy.");
       return;
     }
 
@@ -270,11 +314,22 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     }
 
     if (autoCaptcha && board.captchaCredits <= 0) {
-      toast.error("Không còn lượt giải captcha tự động.");
+      toast.error("Không còn lượt giải captcha tự động. Mua thêm tại trang Sản phẩm.");
       return;
     }
 
+    const preferences: KeywordRankPreferences = {
+      delayMin,
+      delayMax,
+      autoCaptcha,
+      googleHost,
+      hl,
+      gl,
+    };
+
     try {
+      await updateKeywordRankPreferences(preferences);
+      syncPrefsToExtension(preferences);
       setRunning(true);
       const response = await createKeywordRankRun(id, {
         keywordIds: runKeywords.map((item) => item.id),
@@ -291,12 +346,12 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
             runPublicId: response.data.publicId,
             websiteId: id,
             targetDomain: board.targetDomain,
-            pages,
+            pages: board.serpPages,
             delayMin,
             delayMax,
-            googleHost: "https://www.google.com",
-            hl: "vi",
-            gl: "vn",
+            googleHost,
+            hl,
+            gl,
             autoCaptcha,
             keywords: runKeywords.map((item) => ({ id: item.id, keyword: item.keyword })),
           },
@@ -356,6 +411,29 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
 
       <WebsiteSectionTabs websiteId={board.website.id} />
 
+      {!extensionReady ? (
+        <button
+          type="button"
+          className="flex w-full items-start gap-3 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-4 text-left text-amber-950 transition hover:bg-amber-100"
+          onClick={() => {
+            const installUrl = board.extension.installUrl?.trim();
+            if (installUrl) {
+              window.open(installUrl, "_blank", "noopener,noreferrer");
+              return;
+            }
+            toast.error("Admin chưa cấu hình link cài extension.");
+          }}
+        >
+          <ExternalLink className="mt-0.5 size-5 shrink-0" />
+          <span>
+            <span className="block font-semibold">Cần cài Clickon Rank Checker extension</span>
+            <span className="mt-1 block text-sm opacity-90">
+              Bấm vào banner này để mở trang cài extension. Nút Run chỉ bật sau khi trình duyệt phát hiện extension.
+            </span>
+          </span>
+        </button>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Cấu hình check rank</CardTitle>
@@ -376,12 +454,24 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
               <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
                 <p className="font-medium">Lượt captcha</p>
                 <p className="mt-2 text-2xl font-semibold">{formatNumber(board.captchaCredits)}</p>
+                <Link className="mt-2 inline-block text-xs text-primary underline-offset-4 hover:underline" href="/products">
+                  Mua thêm lượt captcha
+                </Link>
               </div>
               <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 p-4 text-sm">
-                <Checkbox checked={autoCaptcha} onChange={(event) => setAutoCaptcha(event.target.checked)} />
+                <Checkbox
+                  checked={autoCaptcha}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setAutoCaptcha(checked);
+                    schedulePreferenceSave({ autoCaptcha: checked });
+                  }}
+                />
                 <span>
                   <span className="block font-medium">Tự động giải captcha bằng 2captcha</span>
-                  <span className="mt-1 block text-muted-foreground">Chỉ trừ 1 lượt khi 2captcha trả token thành công.</span>
+                  <span className="mt-1 block text-muted-foreground">
+                    Bật: giải ngầm qua 2captcha, trừ 1 lượt khi thành công. Tắt: mở tab Google để bạn giải captcha thủ công rồi tiếp tục.
+                  </span>
                 </span>
               </label>
             </div>
@@ -390,15 +480,35 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="pages">Số trang Google</Label>
-              <Input id="pages" min={1} max={10} type="number" value={pages} onChange={(event) => setPages(Math.max(1, Math.min(10, Number(event.target.value || 10))))} />
+              <Input id="pages" readOnly value={`${board.serpPages} trang (tối thiểu, dừng khi tìm thấy domain)`} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="delay-min">Delay min</Label>
-              <Input id="delay-min" min={1} type="number" value={delayMin} onChange={(event) => setDelayMin(Math.max(1, Number(event.target.value || 1)))} />
+              <Label htmlFor="delay-min">Delay min (giây)</Label>
+              <Input
+                id="delay-min"
+                min={1}
+                type="number"
+                value={delayMin}
+                onChange={(event) => {
+                  const value = Math.max(1, Number(event.target.value || 1));
+                  setDelayMin(value);
+                  schedulePreferenceSave({ delayMin: value, delayMax: Math.max(value, delayMax) });
+                }}
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="delay-max">Delay max</Label>
-              <Input id="delay-max" min={1} type="number" value={delayMax} onChange={(event) => setDelayMax(Math.max(delayMin, Number(event.target.value || delayMin)))} />
+              <Label htmlFor="delay-max">Delay max (giây)</Label>
+              <Input
+                id="delay-max"
+                min={1}
+                type="number"
+                value={delayMax}
+                onChange={(event) => {
+                  const value = Math.max(delayMin, Number(event.target.value || delayMin));
+                  setDelayMax(value);
+                  schedulePreferenceSave({ delayMax: value });
+                }}
+              />
             </div>
             <div className="space-y-2">
               <Label>Domain</Label>

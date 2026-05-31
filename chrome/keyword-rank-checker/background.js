@@ -1,3 +1,6 @@
+const MANUAL_CAPTCHA_TIMEOUT_MS = 600000;
+const manualCaptchaTabs = new Map();
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") {
     return false;
@@ -44,6 +47,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
       })
       .catch((error) => sendResponse({ ok: false, status: 0, url: message.actionUrl, text: "", error: error.message }));
+
+    return true;
+  }
+
+  if (message.type === "CLICKON_RANK_OPEN_CAPTCHA_TAB") {
+    void chrome.tabs
+      .create({ url: message.url, active: true })
+      .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
+  if (message.type === "CLICKON_RANK_CLOSE_TAB") {
+    void chrome.tabs
+      .remove(message.tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
 
     return true;
   }

@@ -21,7 +21,7 @@
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["storage"],
+  "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://www.google.com/*",
     "https://www.google.com.vn/*",

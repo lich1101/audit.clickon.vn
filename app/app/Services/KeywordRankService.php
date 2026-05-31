@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\CaptchaSolveTask;
+use App\Models\AppUser;
 use App\Models\KeywordRankKeyword;
 use App\Models\KeywordRankRun;
 use App\Models\KeywordRankRunItem;
@@ -16,6 +17,7 @@ class KeywordRankService
     public function __construct(
         private readonly CreditService $creditService,
         private readonly TwoCaptchaService $twoCaptchaService,
+        private readonly KeywordRankSettingsService $keywordRankSettingsService,
     ) {
     }
 
@@ -37,6 +39,8 @@ class KeywordRankService
             ->with('items')
             ->first();
 
+        $rankSettings = $this->keywordRankSettingsService->getSettings();
+
         return [
             'website' => [
                 'id' => $website->id,
@@ -48,10 +52,76 @@ class KeywordRankService
             'keywords' => $keywords,
             'latestRun' => $latestRun ? $this->serializeRun($latestRun, true) : null,
             'captchaCredits' => $this->creditService->getCaptchaCredits($userUid),
+            'preferences' => $this->getUserPreferences($userUid),
             'extension' => [
                 'bridgeMessageVersion' => 1,
                 'required' => true,
+                'installUrl' => $rankSettings['extensionInstallUrl'],
             ],
+            'serpPages' => KeywordRankSettingsService::SERP_PAGES,
+        ];
+    }
+
+    /**
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string}
+     */
+    public function getUserPreferences(string $userUid): array
+    {
+        $defaults = $this->defaultPreferences();
+        $user = AppUser::query()->where('firebase_uid', $userUid)->first();
+        $stored = is_array($user?->keyword_rank_prefs) ? $user->keyword_rank_prefs : [];
+
+        return $this->normalizePreferences(array_merge($defaults, $stored));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string}
+     */
+    public function updateUserPreferences(string $userUid, array $payload): array
+    {
+        $user = AppUser::query()->where('firebase_uid', $userUid)->firstOrFail();
+        $merged = $this->normalizePreferences(array_merge($this->getUserPreferences($userUid), $payload));
+        $user->forceFill(['keyword_rank_prefs' => $merged])->save();
+
+        return $merged;
+    }
+
+    /**
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string}
+     */
+    private function defaultPreferences(): array
+    {
+        return [
+            'delayMin' => 4,
+            'delayMax' => 9,
+            'autoCaptcha' => false,
+            'googleHost' => 'https://www.google.com',
+            'hl' => 'vi',
+            'gl' => 'vn',
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $prefs
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string}
+     */
+    private function normalizePreferences(array $prefs): array
+    {
+        $delayMin = max(1, min(120, (int) ($prefs['delayMin'] ?? 4)));
+        $delayMax = max($delayMin, min(180, (int) ($prefs['delayMax'] ?? 9)));
+        $googleHost = trim((string) ($prefs['googleHost'] ?? 'https://www.google.com'));
+        if (! in_array($googleHost, ['https://www.google.com', 'https://www.google.com.vn'], true)) {
+            $googleHost = 'https://www.google.com';
+        }
+
+        return [
+            'delayMin' => $delayMin,
+            'delayMax' => $delayMax,
+            'autoCaptcha' => (bool) ($prefs['autoCaptcha'] ?? false),
+            'googleHost' => $googleHost,
+            'hl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['hl'] ?? 'vi'))) ?: 'vi',
+            'gl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['gl'] ?? 'vn'))) ?: 'vn',
         ];
     }
 

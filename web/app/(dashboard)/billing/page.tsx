@@ -60,9 +60,9 @@ export default function BillingPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Billing"
-        description="Chọn gói cước theo credit, gửi yêu cầu đăng ký và chờ admin duyệt thủ công trước khi số dư được cộng vào tài khoản."
-        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Billing" }]}
+        title="Gói cước"
+        description="Chọn gói cước audit theo credit, gửi yêu cầu đăng ký và chờ admin duyệt. Lượt captcha mua riêng tại trang Sản phẩm."
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Gói cước" }]}
       />
 
       {plans.length ? (
@@ -88,7 +88,7 @@ export default function BillingPage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)} · {formatNumber(request.captchaCredits)} captcha
+                        {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
                       </p>
                     </div>
                     <div className="text-sm">

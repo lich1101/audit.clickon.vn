@@ -82,7 +82,7 @@ async function saveResults() {
 function readSettings() {
   const targetDomain = normalizeDomain(els.targetDomain.value);
   const keywords = uniqueLines(els.keywords.value);
-  const pages = clampNumber(els.pages.value, 1, 10, 10);
+  const pages = clampNumber(els.pages.value, 10, 10, 10);
   const delayMin = clampNumber(els.delayMin.value, 1, 120, 4);
   const delayMax = Math.max(delayMin, clampNumber(els.delayMax.value, 1, 180, 9));
   const googleHost = els.googleHost.value === "https://www.google.com.vn"

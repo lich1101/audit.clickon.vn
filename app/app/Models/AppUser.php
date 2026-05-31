@@ -15,6 +15,7 @@ class AppUser extends Model
         'credits',
         'captcha_credits',
         'balance_usd',
+        'keyword_rank_prefs',
     ];
 
     protected function casts(): array
@@ -23,6 +24,7 @@ class AppUser extends Model
             'credits' => 'integer',
             'captcha_credits' => 'integer',
             'balance_usd' => 'float',
+            'keyword_rank_prefs' => 'array',
         ];
     }
 

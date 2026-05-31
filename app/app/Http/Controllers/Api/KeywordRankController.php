@@ -116,6 +116,24 @@ class KeywordRankController extends Controller
         ]);
     }
 
+    public function updatePreferences(Request $request)
+    {
+        $uid = (string) $request->attributes->get('firebase_uid');
+
+        $validated = $request->validate([
+            'delayMin' => ['nullable', 'integer', 'min:1', 'max:120'],
+            'delayMax' => ['nullable', 'integer', 'min:1', 'max:180'],
+            'autoCaptcha' => ['nullable', 'boolean'],
+            'googleHost' => ['nullable', 'string', 'in:https://www.google.com,https://www.google.com.vn'],
+            'hl' => ['nullable', 'string', 'max:8'],
+            'gl' => ['nullable', 'string', 'max:8'],
+        ]);
+
+        return response()->json([
+            'data' => $this->keywordRankService->updateUserPreferences($uid, $validated),
+        ]);
+    }
+
     private function authorizedWebsite(Request $request, string $websiteId): Website
     {
         $website = $this->websiteDataService->findWebsiteModel($websiteId);

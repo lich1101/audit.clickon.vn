@@ -90,11 +90,6 @@ class PlanRequestController extends Controller
             referenceId: (string) $planRequest->id,
         );
 
-        $this->creditService->addCaptchaCredits(
-            firebaseUid: $planRequest->firebase_uid,
-            amount: (int) $planRequest->captcha_credits,
-        );
-
         $planRequest->forceFill([
             'status' => 'approved',
             'note' => $request->validated('note'),

@@ -1,7 +1,7 @@
 "use client";
 
 import { laravelRequest } from "@/lib/laravel";
-import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRankRun, KeywordRankRunItem } from "@/types";
+import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRankPreferences, KeywordRankRun, KeywordRankRunItem } from "@/types";
 
 export async function fetchKeywordRankBoard(websiteId: string) {
   const response = await laravelRequest<{ data: KeywordRankBoard }>(`/api/websites/${websiteId}/keyword-ranks`, {
@@ -16,6 +16,15 @@ export async function saveKeywordRankKeywords(websiteId: string, keywords: strin
   const response = await laravelRequest<{ data: KeywordRankKeyword[] }>(`/api/websites/${websiteId}/keyword-ranks/keywords`, {
     method: "PUT",
     body: JSON.stringify({ keywords }),
+  });
+
+  return response.data;
+}
+
+export async function updateKeywordRankPreferences(input: Partial<KeywordRankPreferences>) {
+  const response = await laravelRequest<{ data: KeywordRankPreferences }>("/api/me/keyword-rank-preferences", {
+    method: "PUT",
+    body: JSON.stringify(input),
   });
 
   return response.data;

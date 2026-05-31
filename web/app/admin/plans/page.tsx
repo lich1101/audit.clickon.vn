@@ -58,7 +58,6 @@ export default function AdminPlansPage() {
           { key: "name", header: "Plan", render: (row: Plan) => row.name },
           { key: "price", header: "Giá", render: (row: Plan) => formatCurrency(row.price) },
           { key: "credits", header: "Credit", render: (row: Plan) => formatNumber(row.credits) },
-          { key: "captchaCredits", header: "Captcha", render: (row: Plan) => formatNumber(row.captchaCredits) },
           { key: "balanceUsd", header: "Số dư USD", render: (row: Plan) => formatUsd(row.balanceUsd, 2) },
           { key: "status", header: "Status", render: (row: Plan) => (row.isActive ? "active" : "inactive") },
           { key: "createdAt", header: "Ngày tạo", render: (row: Plan) => formatDate(row.createdAt) },

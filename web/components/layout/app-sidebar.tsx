@@ -30,7 +30,8 @@ import { stopImpersonation } from "@/lib/impersonation";
 const userItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/websites", label: "Websites", icon: Globe },
-  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/billing", label: "Gói cước", icon: CreditCard },
+  { href: "/products", label: "Sản phẩm", icon: ReceiptText },
   { href: "/credit-history", label: "Credit History", icon: History },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
@@ -39,6 +40,8 @@ const adminItems = [
   { href: "/admin", label: "Admin Dashboard", icon: Gauge },
   { href: "/admin/users", label: "Users", icon: Users2 },
   { href: "/admin/plans", label: "Plans", icon: ReceiptText },
+  { href: "/admin/products", label: "Sản phẩm", icon: CreditCard },
+  { href: "/admin/keyword-rank-settings", label: "Keyword Rank", icon: ShieldCheck },
   { href: "/admin/audit-prompts", label: "Audit Prompts", icon: MessageSquareText },
   { href: "/admin/settings", label: "Audit Settings", icon: SlidersHorizontal },
   { href: "/admin/credit-logs", label: "Credit Logs", icon: FolderSearch2 }

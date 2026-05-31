@@ -10,26 +10,36 @@ import { PageHeader } from "@/components/layout/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchAdminCreditTransactions, fetchAdminPlans, fetchAdminUsers } from "@/lib/account";
+import { fetchAdminCreditTransactions, fetchAdminPlans, fetchAdminProductRequests, fetchAdminUsers } from "@/lib/account";
 import { laravelRequest } from "@/lib/laravel";
 import { formatCurrency, formatDate, formatNumber, formatUsd } from "@/lib/utils";
-import type { CreditLog, Plan, PlanRequest, AppUser } from "@/types";
+import type { CreditLog, Plan, PlanRequest, ProductRequest, AppUser } from "@/types";
+
+function productRequestSummary(request: ProductRequest) {
+  if (request.productType === "captcha_pack") {
+    return `${formatNumber(request.captchaCredits)} captcha`;
+  }
+
+  return `${formatNumber(request.credits)} credit · ${formatUsd(request.balanceUsd, 2)}`;
+}
 
 export default function AdminHomePage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [creditLogs, setCreditLogs] = useState<CreditLog[]>([]);
   const [planRequests, setPlanRequests] = useState<PlanRequest[]>([]);
+  const [productRequests, setProductRequests] = useState<ProductRequest[]>([]);
 
   useEffect(() => {
     let mounted = true;
 
     async function loadAdminOverview() {
-      const [nextUsers, nextPlans, nextCreditLogs, requestsPayload] = await Promise.all([
+      const [nextUsers, nextPlans, nextCreditLogs, requestsPayload, productRequestsPayload] = await Promise.all([
         fetchAdminUsers(),
         fetchAdminPlans(),
         fetchAdminCreditTransactions(100),
-        laravelRequest<{ data: PlanRequest[] }>("/api/admin/plan-requests")
+        laravelRequest<{ data: PlanRequest[] }>("/api/admin/plan-requests"),
+        fetchAdminProductRequests()
       ]);
 
       if (!mounted) {
@@ -40,6 +50,7 @@ export default function AdminHomePage() {
       setPlans(nextPlans);
       setCreditLogs(nextCreditLogs);
       setPlanRequests(requestsPayload.data);
+      setProductRequests(productRequestsPayload);
     }
 
     void loadAdminOverview()
@@ -51,11 +62,30 @@ export default function AdminHomePage() {
   }, []);
 
   const totalBalanceUsd = useMemo(() => users.reduce((sum, user) => sum + (user.balanceUsd ?? 0), 0), [users]);
-  const pendingRequests = useMemo(() => planRequests.filter((item) => item.status === "pending").length, [planRequests]);
+  const pendingPlanRequests = useMemo(() => planRequests.filter((item) => item.status === "pending").length, [planRequests]);
+  const pendingProductRequests = useMemo(() => productRequests.filter((item) => item.status === "pending").length, [productRequests]);
+  const pendingRequests = pendingPlanRequests + pendingProductRequests;
 
   async function refreshRequests() {
     const payload = await laravelRequest<{ data: PlanRequest[] }>("/api/admin/plan-requests");
     setPlanRequests(payload.data);
+  }
+
+  async function refreshProductRequests() {
+    setProductRequests(await fetchAdminProductRequests());
+  }
+
+  async function handleProductDecision(requestId: number, action: "approve" | "reject") {
+    try {
+      await laravelRequest(`/api/admin/product-requests/${requestId}/${action}`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      toast.success(action === "approve" ? "Đã duyệt sản phẩm." : "Đã từ chối sản phẩm.");
+      await refreshProductRequests();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể cập nhật product request.");
+    }
   }
 
   async function handleDecision(requestId: number, action: "approve" | "reject") {
@@ -82,7 +112,7 @@ export default function AdminHomePage() {
       <div className="grid gap-5 xl:grid-cols-4">
         <StatCard title="Total users" value={formatNumber(users.length)} hint="Toàn bộ hồ sơ trong MySQL users" icon={Users} />
         <StatCard title="Published plans" value={formatNumber(plans.length)} hint="Bao gồm active và inactive plans" icon={CreditCard} />
-        <StatCard title="Pending requests" value={formatNumber(pendingRequests)} hint="Đăng ký gói cước đang chờ admin duyệt" icon={BarChart3} />
+        <StatCard title="Pending requests" value={formatNumber(pendingRequests)} hint="Gói cước và sản phẩm đang chờ admin duyệt" icon={BarChart3} />
         <StatCard title="USD in circulation" value={formatUsd(totalBalanceUsd, 2)} hint="Tổng số dư USD trên các tài khoản" icon={DatabaseZap} />
       </div>
 
@@ -119,7 +149,7 @@ export default function AdminHomePage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)} · {formatNumber(request.captchaCredits)} captcha
+                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {request.status} · {formatDate(request.createdAt)}
@@ -153,6 +183,57 @@ export default function AdminHomePage() {
             </div>
           ) : (
             <EmptyState title="Không có yêu cầu chờ duyệt" description="Plan request mới sẽ xuất hiện tại đây để admin xử lý thủ công." />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pending product approvals</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {productRequests.length ? (
+            <div className="grid gap-2">
+              {productRequests.map((request) => (
+                <div key={request.id} className="mail-row rounded-xl border border-border bg-background/70 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="font-semibold">{request.productName}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {request.firebaseUid} · {formatCurrency(request.price)} · {productRequestSummary(request)}
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {request.status} · {formatDate(request.createdAt)}
+                      </p>
+                    </div>
+                    {request.status === "pending" ? (
+                      <div className="flex gap-2">
+                        <ConfirmDialog
+                          trigger={<Button size="sm">Approve</Button>}
+                          title="Duyệt sản phẩm"
+                          description="User sẽ được cộng captcha hoặc credit audit ngay sau khi xác nhận."
+                          actionLabel="Approve"
+                          onConfirm={() => void handleProductDecision(request.id, "approve")}
+                        />
+                        <ConfirmDialog
+                          trigger={
+                            <Button size="sm" variant="outline">
+                              Reject
+                            </Button>
+                          }
+                          title="Từ chối sản phẩm"
+                          description="Yêu cầu mua sản phẩm này sẽ chuyển sang trạng thái rejected."
+                          actionLabel="Reject"
+                          onConfirm={() => void handleProductDecision(request.id, "reject")}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Không có yêu cầu sản phẩm chờ duyệt" description="Product request mới sẽ xuất hiện tại đây để admin xử lý thủ công." />
           )}
         </CardContent>
       </Card>

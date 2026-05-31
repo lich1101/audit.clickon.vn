@@ -27,7 +27,6 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
       name: plan?.name ?? "",
       price: plan?.price ?? 0,
       credits: plan?.credits ?? 1,
-      captchaCredits: plan?.captchaCredits ?? 0,
       isActive: plan?.isActive ?? true
     }
   });
@@ -71,21 +70,13 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
               {form.formState.errors.price ? <p className="text-sm text-destructive">{form.formState.errors.price.message}</p> : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="plan-credits">Credit cộng vào tài khoản</Label>
+              <Label htmlFor="plan-credits">Credit audit cộng vào tài khoản</Label>
               <Input id="plan-credits" type="number" min={1} step={1} {...form.register("credits")} />
               {form.formState.errors.credits ? <p className="text-sm text-destructive">{form.formState.errors.credits.message}</p> : null}
               <p className="text-xs text-muted-foreground">
-                Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1.
+                Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1. Lượt captcha mua riêng tại trang Sản phẩm.
               </p>
             </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="plan-captcha-credits">Lượt giải captcha tự động</Label>
-            <Input id="plan-captcha-credits" type="number" min={0} step={1} {...form.register("captchaCredits")} />
-            {form.formState.errors.captchaCredits ? <p className="text-sm text-destructive">{form.formState.errors.captchaCredits.message}</p> : null}
-            <p className="text-xs text-muted-foreground">
-              Dùng cho check thứ hạng keyword bằng extension khi người dùng bật tự động giải captcha qua 2captcha.
-            </p>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">
             <input className="size-4 accent-indigo-600" type="checkbox" {...form.register("isActive")} />

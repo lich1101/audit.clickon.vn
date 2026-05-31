@@ -1,5 +1,6 @@
 const WEB_SOURCE = "clickon-web";
 const EXT_SOURCE = "clickon-rank-extension";
+const PREFS_STORAGE_KEY = "clickon_rank_checker_user_prefs";
 
 let running = false;
 let stopRequested = false;
@@ -29,6 +30,11 @@ window.addEventListener("message", (event) => {
     }
 
     void runRankCheck(event.data.payload);
+    return;
+  }
+
+  if (event.data.type === "CLICKON_RANK_SYNC_PREFS") {
+    void saveExtensionPrefs(event.data.payload || {});
   }
 });
 
@@ -40,15 +46,20 @@ async function runRankCheck(payload) {
   running = true;
   stopRequested = false;
   const keywords = Array.isArray(payload.keywords) ? payload.keywords : [];
+  const storedPrefs = await loadExtensionPrefs();
+  const googleHostRaw = payload.googleHost || storedPrefs.googleHost || "https://www.google.com";
   const settings = {
     runPublicId: payload.runPublicId,
     targetDomain: normalizeDomain(payload.targetDomain),
-    pages: clampNumber(payload.pages, 1, 10, 10),
-    delayMin: clampNumber(payload.delayMin, 1, 120, 4),
-    delayMax: Math.max(clampNumber(payload.delayMin, 1, 120, 4), clampNumber(payload.delayMax, 1, 180, 9)),
-    googleHost: payload.googleHost === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
-    hl: sanitizeLocalePart(payload.hl, "vi"),
-    gl: sanitizeLocalePart(payload.gl, "vn"),
+    pages: clampNumber(payload.pages, 10, 10, 10),
+    delayMin: clampNumber(payload.delayMin ?? storedPrefs.delayMin, 1, 120, 4),
+    delayMax: Math.max(
+      clampNumber(payload.delayMin ?? storedPrefs.delayMin, 1, 120, 4),
+      clampNumber(payload.delayMax ?? storedPrefs.delayMax, 1, 180, 9),
+    ),
+    googleHost: googleHostRaw === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
+    hl: sanitizeLocalePart(payload.hl ?? storedPrefs.hl, "vi"),
+    gl: sanitizeLocalePart(payload.gl ?? storedPrefs.gl, "vn"),
     autoCaptcha: payload.autoCaptcha === true,
   };
 
@@ -114,6 +125,17 @@ async function checkKeyword(keyword, settings, keywordIndex, totalKeywords) {
       }
     }
 
+    if (blockedReason && !settings.autoCaptcha) {
+      const manual = await waitForManualCaptcha(url, responseUrl);
+      if (manual.ok) {
+        html = manual.text;
+        responseUrl = manual.url || url;
+        blockedReason = detectBlockedPage(html);
+      } else {
+        return buildResult(keyword, checkedAt, { status: "blocked", page, error: manual.error || blockedReason });
+      }
+    }
+
     if (blockedReason) {
       return buildResult(keyword, checkedAt, { status: "blocked", page, error: blockedReason });
     }
@@ -142,6 +164,38 @@ async function checkKeyword(keyword, settings, keywordIndex, totalKeywords) {
     status: "not_found",
     error: `Không tìm thấy domain trong ${settings.pages * 10} kết quả đầu.`,
   });
+}
+
+async function waitForManualCaptcha(searchUrl, blockedPageUrl) {
+  postStatus("Google yêu cầu captcha — đang mở tab để bạn giải thủ công.");
+
+  const opened = await sendRuntimeMessage({
+    type: "CLICKON_RANK_OPEN_CAPTCHA_TAB",
+    url: blockedPageUrl || searchUrl,
+  });
+
+  if (!opened?.ok || !opened.tabId) {
+    return { ok: false, error: "Không mở được tab captcha." };
+  }
+
+  const tabId = opened.tabId;
+  const deadline = Date.now() + 600000;
+
+  while (Date.now() < deadline && !stopRequested) {
+    await wait(5000);
+    const retry = await fetchSerp(searchUrl);
+
+    if (retry.ok && !detectBlockedPage(retry.text)) {
+      await sendRuntimeMessage({ type: "CLICKON_RANK_CLOSE_TAB", tabId });
+      return { ok: true, text: retry.text, url: retry.url || searchUrl };
+    }
+
+    postStatus("Đang chờ bạn giải captcha trong tab trình duyệt...");
+  }
+
+  await sendRuntimeMessage({ type: "CLICKON_RANK_CLOSE_TAB", tabId });
+
+  return { ok: false, error: stopRequested ? "Stopped by user." : "Hết thời gian chờ giải captcha thủ công." };
 }
 
 async function trySolveAndSubmitCaptcha(html, responseUrl, settings) {
@@ -462,4 +516,18 @@ function stripUrlHash(url) {
   } catch {
     return url;
   }
+}
+
+function loadExtensionPrefs() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(PREFS_STORAGE_KEY, (stored) => {
+      resolve(stored[PREFS_STORAGE_KEY] || {});
+    });
+  });
+}
+
+function saveExtensionPrefs(prefs) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [PREFS_STORAGE_KEY]: prefs }, () => resolve());
+  });
 }

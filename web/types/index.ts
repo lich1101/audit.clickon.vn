@@ -15,6 +15,37 @@ export type AppUser = {
   updatedAt: string;
 };
 
+export type Product = {
+  id: string;
+  name: string;
+  type: "captcha_pack" | "audit_credit";
+  price: number;
+  captchaCredits: number;
+  balanceUsd: number;
+  credits: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProductRequest = {
+  id: number;
+  firebaseUid: string;
+  productId: string;
+  productName: string;
+  productType: "captcha_pack" | "audit_credit";
+  price: number;
+  captchaCredits: number;
+  balanceUsd: number;
+  credits: number;
+  status: "pending" | "approved" | "rejected";
+  note?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Plan = {
   id: string;
   name: string;
@@ -191,15 +222,27 @@ export type KeywordRankRun = {
   items: KeywordRankRunItem[];
 };
 
+export type KeywordRankPreferences = {
+  delayMin: number;
+  delayMax: number;
+  autoCaptcha: boolean;
+  googleHost: string;
+  hl: string;
+  gl: string;
+};
+
 export type KeywordRankBoard = {
   website: Pick<Website, "id" | "name" | "url" | "userId">;
   targetDomain: string;
   keywords: KeywordRankKeyword[];
   latestRun?: KeywordRankRun | null;
   captchaCredits: number;
+  serpPages: number;
+  preferences: KeywordRankPreferences;
   extension: {
     bridgeMessageVersion: number;
     required: boolean;
+    installUrl?: string;
   };
 };
 

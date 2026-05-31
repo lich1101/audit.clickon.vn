@@ -40,9 +40,36 @@ export const planSchema = z.object({
   name: trimmedString.min(2, "Tên gói cước tối thiểu 2 ký tự."),
   price: z.coerce.number().int("Giá VND phải là số nguyên.").min(0, "Giá phải lớn hơn hoặc bằng 0."),
   credits: z.coerce.number().int("Credit phải là số nguyên.").min(1, "Số credit phải lớn hơn 0."),
-  captchaCredits: z.coerce.number().int("Lượt captcha phải là số nguyên.").min(0, "Lượt captcha phải lớn hơn hoặc bằng 0."),
   isActive: z.boolean()
 });
+
+export const productSchema = z
+  .object({
+    name: trimmedString.min(2, "Tên sản phẩm tối thiểu 2 ký tự."),
+    type: z.enum(["captcha_pack", "audit_credit"]),
+    price: z.coerce.number().int("Giá VND phải là số nguyên.").min(0, "Giá phải lớn hơn hoặc bằng 0."),
+    captchaCredits: z.coerce.number().int("Lượt captcha phải là số nguyên.").min(0).optional(),
+    balanceUsd: z.coerce.number().min(0, "Số dư USD phải lớn hơn hoặc bằng 0.").optional(),
+    credits: z.coerce.number().int("Credit phải là số nguyên.").min(0).optional(),
+    isActive: z.boolean()
+  })
+  .superRefine((values, ctx) => {
+    if (values.type === "captcha_pack" && (values.captchaCredits ?? 0) < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Gói captcha phải có ít nhất 1 lượt.",
+        path: ["captchaCredits"]
+      });
+    }
+
+    if (values.type === "audit_credit" && (values.balanceUsd ?? 0) <= 0 && (values.credits ?? 0) < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Gói credit audit cần số dư USD hoặc credit.",
+        path: ["balanceUsd"]
+      });
+    }
+  });
 
 export const creditMutationSchema = z.object({
   userId: trimmedString,
@@ -183,5 +210,6 @@ export type CreateWebsiteValues = z.infer<typeof createWebsiteSchema>;
 export type AuditFormValues = z.infer<typeof auditFormSchema>;
 export type AuditRunValues = z.infer<typeof auditRunSchema>;
 export type PlanValues = z.infer<typeof planSchema>;
+export type ProductValues = z.infer<typeof productSchema>;
 export type CreditMutationValues = z.infer<typeof creditMutationSchema>;
 export type SettingsValues = z.infer<typeof settingsSchema>;

@@ -2,7 +2,7 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { IMPERSONATE_UID_COOKIE, readClientCookie, ROLE_COOKIE } from "@/lib/auth";
-import type { AppUser, CreditLog, Plan, UserRole } from "@/types";
+import type { AppUser, CreditLog, Plan, Product, ProductRequest, UserRole } from "@/types";
 
 export async function fetchMe(): Promise<AppUser> {
   const response = await laravelRequest<{ data: AppUser }>("/api/me", { method: "GET", cache: "no-store" });
@@ -82,7 +82,7 @@ export async function fetchAdminPlans() {
   return fetchPlans(false);
 }
 
-export async function createPlan(input: Pick<Plan, "name" | "price" | "credits" | "captchaCredits" | "isActive">) {
+export async function createPlan(input: Pick<Plan, "name" | "price" | "credits" | "isActive">) {
   const response = await laravelRequest<{ data: Plan }>("/api/admin/plans", {
     method: "POST",
     body: JSON.stringify(input)
@@ -90,7 +90,7 @@ export async function createPlan(input: Pick<Plan, "name" | "price" | "credits" 
   return response.data;
 }
 
-export async function updatePlan(id: string, input: Partial<Pick<Plan, "name" | "price" | "credits" | "captchaCredits" | "isActive">>) {
+export async function updatePlan(id: string, input: Partial<Pick<Plan, "name" | "price" | "credits" | "isActive">>) {
   const response = await laravelRequest<{ data: Plan }>(`/api/admin/plans/${id}`, {
     method: "PUT",
     body: JSON.stringify(input)
@@ -112,6 +112,66 @@ export async function fetchCreditTransactions(options?: { userId?: string; limit
 
 export async function fetchAdminCreditTransactions(limit = 100) {
   const response = await laravelRequest<{ data: CreditLog[] }>(`/api/admin/credit-transactions?limit=${limit}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return response.data;
+}
+
+export async function fetchProducts(activeOnly = true) {
+  const response = await laravelRequest<{ data: Product[] }>(`/api/products?activeOnly=${activeOnly ? "1" : "0"}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return response.data;
+}
+
+export async function fetchAdminProducts() {
+  return fetchProducts(false);
+}
+
+export async function fetchProduct(id: string) {
+  const response = await laravelRequest<{ data: Product }>(`/api/admin/products/${id}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  return response.data;
+}
+
+export async function createProduct(input: Pick<Product, "name" | "type" | "price" | "captchaCredits" | "balanceUsd" | "credits" | "isActive">) {
+  const response = await laravelRequest<{ data: Product }>("/api/admin/products", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
+export async function updateProduct(id: string, input: Partial<Pick<Product, "name" | "type" | "price" | "captchaCredits" | "balanceUsd" | "credits" | "isActive">>) {
+  const response = await laravelRequest<{ data: Product }>(`/api/admin/products/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
+export async function fetchProductRequests() {
+  const response = await laravelRequest<{ data: ProductRequest[] }>("/api/product-requests", {
+    method: "GET",
+    cache: "no-store"
+  });
+  return response.data;
+}
+
+export async function createProductRequest(productId: string) {
+  const response = await laravelRequest<{ data: ProductRequest; message?: string }>("/api/product-requests", {
+    method: "POST",
+    body: JSON.stringify({ productId })
+  });
+  return response;
+}
+
+export async function fetchAdminProductRequests() {
+  const response = await laravelRequest<{ data: ProductRequest[] }>("/api/admin/product-requests", {
     method: "GET",
     cache: "no-store"
   });

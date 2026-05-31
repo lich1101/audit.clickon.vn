@@ -13,11 +13,14 @@ import { RoleBadge } from "@/components/dashboard/role-badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
-import { fetchAdminUser, fetchCreditTransactions } from "@/lib/account";
+import { fetchAdminUser, fetchCreditTransactions, updateAdminUser } from "@/lib/account";
 import { startImpersonation } from "@/lib/impersonation";
-import { formatDate, formatNumber } from "@/lib/utils";
-import type { AppUser, CreditLog } from "@/types";
+import { formatDate, formatNumber, formatUsd } from "@/lib/utils";
+import type { AppUser, CreditLog, UserRole } from "@/types";
 
 export default function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -27,11 +30,16 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const [logs, setLogs] = useState<CreditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [impersonating, setImpersonating] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [role, setRole] = useState<UserRole>("user");
 
   async function loadUser() {
     const [profile, creditLogs] = await Promise.all([fetchAdminUser(id), fetchCreditTransactions({ userId: id, limit: 100 })]);
     setUser(profile);
     setLogs(creditLogs);
+    setDisplayName(profile.displayName ?? "");
+    setRole(profile.role);
   }
 
   useEffect(() => {
@@ -46,6 +54,8 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
 
       setUser(profile);
       setLogs(creditLogs);
+      setDisplayName(profile.displayName ?? "");
+      setRole(profile.role);
     }
 
     setLoading(true);
@@ -124,12 +134,54 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
             <div>
               <p className="text-sm text-muted-foreground">Credits</p>
               <div className="mt-2">
-                <CreditBadge balanceUsd={user.balanceUsd} />
+                <CreditBadge balanceUsd={user.balanceUsd} credits={user.credits} />
               </div>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Created At</p>
               <p className="mt-1 font-medium">{formatDate(user.createdAt)}</p>
+            </div>
+            <div className="space-y-3 rounded-lg border border-border bg-background/70 p-3">
+              <div className="space-y-2">
+                <Label htmlFor="admin-user-display-name">Tên hiển thị</Label>
+                <Input id="admin-user-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin-user-role">Quyền tài khoản</Label>
+                <Select value={role} onValueChange={(value) => setRole(value as UserRole)}>
+                  <SelectTrigger id="admin-user-role">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                className="w-full"
+                disabled={savingProfile}
+                onClick={async () => {
+                  try {
+                    setSavingProfile(true);
+                    const nextUser = await updateAdminUser(user.uid, {
+                      displayName: displayName.trim(),
+                      role,
+                    });
+                    setUser(nextUser);
+                    setDisplayName(nextUser.displayName ?? "");
+                    setRole(nextUser.role);
+                    toast.success("Đã cập nhật user.");
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Không thể cập nhật user.");
+                  } finally {
+                    setSavingProfile(false);
+                  }
+                }}
+              >
+                {savingProfile ? "Đang lưu..." : "Lưu hồ sơ"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -146,6 +198,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
             columns={[
               { key: "type", header: "Loại", render: (row: CreditLog) => row.type },
               { key: "amount", header: "Amount", render: (row: CreditLog) => formatNumber(row.amount) },
+              { key: "amountUsd", header: "USD", render: (row: CreditLog) => formatUsd(row.amountUsd, 6) },
               { key: "reason", header: "Reason", render: (row: CreditLog) => row.reason },
               { key: "after", header: "Balance after", render: (row: CreditLog) => formatNumber(row.balanceAfter) },
               { key: "createdAt", header: "Thời gian", render: (row: CreditLog) => formatDate(row.createdAt) }

@@ -6,6 +6,7 @@ use App\Models\AiModelPricing;
 use App\Models\AiUsageEvent;
 use App\Models\AuditRunItem;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class TokenBillingService
 {
@@ -37,51 +38,60 @@ class TokenBillingService
         array $usage,
     ): AiUsageEvent {
         $item->loadMissing('run');
-        $usdResult = $this->calculateUsdForUsage($usage);
-        $usdCharged = (float) ($usdResult['amount'] ?? 0.0);
-        $creditsCharged = $this->calculateCredits(
-            $usage['provider'],
-            $usage['model'],
-            (int) $usage['input_tokens'],
-            (int) $usage['output_tokens'],
-        );
+        $existingEvent = AiUsageEvent::query()
+            ->where('audit_run_item_id', $item->id)
+            ->where('step', $step)
+            ->where('provider', (string) ($usage['provider'] ?? ''))
+            ->where('model', (string) ($usage['model'] ?? ''))
+            ->where('input_tokens', (int) ($usage['input_tokens'] ?? 0))
+            ->where('output_tokens', (int) ($usage['output_tokens'] ?? 0))
+            ->where('total_tokens', (int) ($usage['total_tokens'] ?? 0))
+            ->first();
 
-        $event = AiUsageEvent::query()->create([
-            'audit_run_item_id' => $item->id,
-            'step' => $step,
-            'provider' => $usage['provider'],
-            'model' => $usage['model'],
-            'input_tokens' => (int) $usage['input_tokens'],
-            'output_tokens' => (int) $usage['output_tokens'],
-            'total_tokens' => (int) $usage['total_tokens'],
-            'citation_tokens' => (int) ($usage['citation_tokens'] ?? 0),
-            'reasoning_tokens' => (int) ($usage['reasoning_tokens'] ?? 0),
-            'search_queries' => (int) ($usage['search_queries'] ?? 0),
-            'provider_reported_cost_usd' => $this->normalizeUsd($usage['provider_reported_cost_usd'] ?? null),
-            'credits_charged' => $creditsCharged,
-            'usd_charged' => $usdCharged,
-        ]);
-
-        if ($usdCharged > 0 && $item->run) {
-            $this->creditService->mutateUsd(
-                firebaseUid: $item->run->user_uid,
-                type: 'subtract',
-                amountUsd: $usdCharged,
-                reason: sprintf(
-                    'Audit AI [%s] %s · %d in / %d out tokens · $%.6f',
-                    $step,
-                    $usage['model'],
-                    (int) $usage['input_tokens'],
-                    (int) $usage['output_tokens'],
-                    $usdCharged,
-                ),
-                source: 'audit',
-                referenceType: 'audit_run_item',
-                referenceId: (string) $item->public_id,
-            );
+        if ($existingEvent) {
+            return $existingEvent;
         }
 
-        return $event;
+        $usdResult = $this->calculateUsdForUsage($usage);
+        $usdCharged = (float) ($usdResult['amount'] ?? 0.0);
+        $creditsCharged = $this->creditService->creditsForUsd($usdCharged);
+
+        return DB::transaction(function () use ($item, $step, $usage, $usdCharged, $creditsCharged): AiUsageEvent {
+            if ($usdCharged > 0 && $item->run) {
+                $this->creditService->mutateUsd(
+                    firebaseUid: $item->run->user_uid,
+                    type: 'subtract',
+                    amountUsd: $usdCharged,
+                    reason: sprintf(
+                        'Audit AI [%s] %s · %d in / %d out tokens · $%.6f',
+                        $step,
+                        $usage['model'],
+                        (int) $usage['input_tokens'],
+                        (int) $usage['output_tokens'],
+                        $usdCharged,
+                    ),
+                    source: 'audit',
+                    referenceType: 'audit_run_item',
+                    referenceId: (string) $item->public_id,
+                );
+            }
+
+            return AiUsageEvent::query()->create([
+                'audit_run_item_id' => $item->id,
+                'step' => $step,
+                'provider' => $usage['provider'],
+                'model' => $usage['model'],
+                'input_tokens' => (int) $usage['input_tokens'],
+                'output_tokens' => (int) $usage['output_tokens'],
+                'total_tokens' => (int) $usage['total_tokens'],
+                'citation_tokens' => (int) ($usage['citation_tokens'] ?? 0),
+                'reasoning_tokens' => (int) ($usage['reasoning_tokens'] ?? 0),
+                'search_queries' => (int) ($usage['search_queries'] ?? 0),
+                'provider_reported_cost_usd' => $this->normalizeUsd($usage['provider_reported_cost_usd'] ?? null),
+                'credits_charged' => $creditsCharged,
+                'usd_charged' => $usdCharged,
+            ]);
+        });
     }
 
     /**
@@ -140,8 +150,7 @@ class TokenBillingService
             (int) ($usage['input_tokens'] ?? 0),
             (int) ($usage['output_tokens'] ?? 0),
         );
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-        $amount = round($credits * $legacyRate * $markup, 6);
+        $amount = round($this->creditService->usdForCredits($credits) * $markup, 6);
 
         return [
             'amount' => max($amount, $this->resolveMinUsdPerCall($provider, $model)),
@@ -158,9 +167,7 @@ class TokenBillingService
             return round((float) $pricing['min_usd_per_call'], 6);
         }
 
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-
-        return round(((int) ($pricing['min_credits_per_call'] ?? 0)) * $legacyRate, 6);
+        return $this->creditService->usdForCredits((int) ($pricing['min_credits_per_call'] ?? 0));
     }
 
     public function calculateCredits(string $provider, string $model, int $inputTokens, int $outputTokens): int

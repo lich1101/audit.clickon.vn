@@ -1261,11 +1261,7 @@ class AuditRunService
         $firstItem = $items->first();
 
         if ($firstItem) {
-            foreach ($analysis['usageEvents'] ?? [] as $usage) {
-                if (is_array($usage)) {
-                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_keyword_category_mapping'), $usage);
-                }
-            }
+            $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
         }
 
         $resultList = collect($analysis['items'] ?? [])
@@ -1403,11 +1399,7 @@ class AuditRunService
         $firstItem = $items->first();
 
         if ($firstItem) {
-            foreach ($analysis['usageEvents'] ?? [] as $usage) {
-                if (is_array($usage)) {
-                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_onpage_audit'), $usage);
-                }
-            }
+            $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
         }
 
         $this->applyStep3BatchAnalysis($run, $items, $analysis);
@@ -1574,7 +1566,7 @@ class AuditRunService
                 continue;
             }
 
-            if (($record['status'] ?? '') !== 'needs_json_formatter' && empty($record['rawTextPath'])) {
+            if (($record['status'] ?? '') !== 'needs_json_formatter' && ! $this->hasSavedRawTextPayload($record)) {
                 continue;
             }
 
@@ -1651,15 +1643,7 @@ class AuditRunService
             $firstItem = $items->first();
 
             if ($firstItem) {
-                foreach ($analysis['usageEvents'] ?? [] as $usage) {
-                    if (is_array($usage)) {
-                        $this->tokenBillingService->chargeForAiCall(
-                            $firstItem->fresh('run'),
-                            (string) ($usage['step'] ?? 'batch_onpage_audit_json_formatter'),
-                            $usage,
-                        );
-                    }
-                }
+                $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
             }
 
             $this->applyStep3BatchAnalysis($run, $items, $analysis);
@@ -1707,6 +1691,12 @@ class AuditRunService
             }
         }
 
+        $inlinePreview = trim((string) ($record['rawTextPreview'] ?? ''));
+
+        if ($inlinePreview !== '') {
+            return $inlinePreview;
+        }
+
         $interactionId = trim((string) ($record['interactionId'] ?? ''));
 
         if ($interactionId === '') {
@@ -1727,6 +1717,16 @@ class AuditRunService
         $rawText = $inspection['rawText'] ?? null;
 
         return is_string($rawText) && trim($rawText) !== '' ? $rawText : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function hasSavedRawTextPayload(array $record): bool
+    {
+        return trim((string) ($record['rawTextPath'] ?? '')) !== ''
+            || trim((string) ($record['rawTextPreview'] ?? '')) !== ''
+            || trim((string) ($record['interactionId'] ?? '')) !== '';
     }
 
     /**
@@ -2028,11 +2028,7 @@ class AuditRunService
                 $firstItem = $chunk->first();
 
                 if ($firstItem) {
-                    foreach ($analysis['usageEvents'] ?? [] as $usage) {
-                        if (is_array($usage)) {
-                            $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_onpage_audit'), $usage);
-                        }
-                    }
+                    $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
                 }
 
                 $this->applyStep3BatchAnalysis($run, $chunk, $analysis);
@@ -2110,19 +2106,7 @@ class AuditRunService
         $firstItem = $items->first();
 
         if ($firstItem) {
-            foreach ($analysis['usageEvents'] ?? [] as $usage) {
-                if (! is_array($usage)) {
-                    continue;
-                }
-
-                try {
-                    $this->tokenBillingService->chargeForAiCall($firstItem->fresh('run'), (string) ($usage['step'] ?? 'batch_ai_call'), $usage);
-                } catch (RuntimeException $exception) {
-                    $this->markRunFailed($run, $exception->getMessage());
-
-                    return;
-                }
-            }
+            $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
         }
 
         $resultList = collect($analysis['items'] ?? [])
@@ -2895,19 +2879,7 @@ class AuditRunService
             return;
         }
 
-        foreach ($analysis['usageEvents'] ?? [] as $usage) {
-            if (! is_array($usage)) {
-                continue;
-            }
-
-            try {
-                $this->tokenBillingService->chargeForAiCall($item->fresh('run'), (string) ($usage['step'] ?? 'ai_call'), $usage);
-            } catch (RuntimeException $exception) {
-                $this->markItemFailed($item, $exception->getMessage(), false);
-
-                return;
-            }
-        }
+        $this->chargeUsageEventsSafely($item, $analysis['usageEvents'] ?? []);
 
         $item->forceFill([
             'status' => 'completed',

@@ -8,6 +8,8 @@ import { toast } from "sonner";
 
 import { createPlan, updatePlan } from "@/lib/account";
 import { planSchema, type PlanValues } from "@/lib/validators";
+import { formatUsd } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import type { Plan } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,16 +18,20 @@ import { Label } from "@/components/ui/label";
 
 export function PlanForm({ plan }: { plan?: Plan | null }) {
   const router = useRouter();
+  const { profile } = useAuth();
   const [submitting, setSubmitting] = useState(false);
+  const creditsPerUsd = Math.max(1, profile?.legacyCreditsPerUsd ?? 100);
   const form = useForm<PlanValues>({
     resolver: zodResolver(planSchema),
     defaultValues: {
       name: plan?.name ?? "",
       price: plan?.price ?? 0,
-      balanceUsd: plan?.balanceUsd ?? 0,
+      credits: plan?.credits ?? 1,
       isActive: plan?.isActive ?? true
     }
   });
+  const credits = Number(form.watch("credits") || 0);
+  const estimatedUsd = credits > 0 ? credits / creditsPerUsd : 0;
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
@@ -64,9 +70,12 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
               {form.formState.errors.price ? <p className="text-sm text-destructive">{form.formState.errors.price.message}</p> : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="plan-balance-usd">Số dư USD cộng vào tài khoản ($)</Label>
-              <Input id="plan-balance-usd" type="number" min={0.01} step={0.01} {...form.register("balanceUsd")} />
-              {form.formState.errors.balanceUsd ? <p className="text-sm text-destructive">{form.formState.errors.balanceUsd.message}</p> : null}
+              <Label htmlFor="plan-credits">Credit cộng vào tài khoản</Label>
+              <Input id="plan-credits" type="number" min={1} step={1} {...form.register("credits")} />
+              {form.formState.errors.credits ? <p className="text-sm text-destructive">{form.formState.errors.credits.message}</p> : null}
+              <p className="text-xs text-muted-foreground">
+                Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1.
+              </p>
             </div>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">

@@ -87,7 +87,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>Quick actions</CardTitle>
-            <CreditBadge balanceUsd={profile?.balanceUsd ?? 0} />
+            <CreditBadge balanceUsd={profile?.balanceUsd ?? 0} credits={profile?.credits ?? 0} />
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Button asChild className="justify-start">

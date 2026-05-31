@@ -10,7 +10,7 @@ class AuditAiStepResponseStorageService
 {
     /**
      * @return array{
-     *     rawTextPath: string,
+     *     rawTextPath: ?string,
      *     rawTextBytes: int,
      *     rawTextTruncated: bool,
      *     rawTextOriginalBytes: int,
@@ -30,7 +30,7 @@ class AuditAiStepResponseStorageService
 
     /**
      * @return array{
-     *     requestPath: string,
+     *     requestPath: ?string,
      *     requestBytes: int,
      *     requestTruncated: bool,
      *     requestOriginalBytes: int,
@@ -67,6 +67,16 @@ class AuditAiStepResponseStorageService
         $relativePath = "audit-ai-responses/{$runPublicId}/{$safeStep}.{$safeSuffix}";
         $absoluteDir = storage_path('app/private/audit-ai-responses/'.$runPublicId);
 
+        if (! $this->persistToDisk()) {
+            return [
+                "{$keyPrefix}Path" => null,
+                "{$keyPrefix}Bytes" => strlen($contents),
+                "{$keyPrefix}Truncated" => $truncated,
+                "{$keyPrefix}OriginalBytes" => $originalBytes,
+                "{$keyPrefix}Preview" => mb_substr($contents, 0, 4000),
+            ];
+        }
+
         if (! File::isDirectory($absoluteDir)) {
             File::makeDirectory($absoluteDir, 0775, true, true);
         }
@@ -96,5 +106,10 @@ class AuditAiStepResponseStorageService
     public function maxBytes(): int
     {
         return (int) config('services.audit.max_ai_step_response_bytes', 0);
+    }
+
+    public function persistToDisk(): bool
+    {
+        return (bool) config('services.audit.persist_ai_artifacts_to_disk', false);
     }
 }

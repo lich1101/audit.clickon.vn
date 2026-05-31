@@ -148,9 +148,7 @@ class PlanRequestController extends Controller
             return round((float) $planRequest->balance_usd, 2);
         }
 
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-
-        return round(((int) $planRequest->credits) * $legacyRate, 2);
+        return round($this->creditService->usdForCredits((int) $planRequest->credits), 2);
     }
 
     private function resolvePlanBalanceUsd(Plan $plan): float
@@ -159,8 +157,6 @@ class PlanRequestController extends Controller
             return round((float) $plan->balance_usd, 2);
         }
 
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-
-        return round(((int) $plan->credits) * $legacyRate, 2);
+        return round($this->creditService->usdForCredits((int) $plan->credits), 2);
     }
 }

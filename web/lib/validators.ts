@@ -38,14 +38,14 @@ export const auditRunSchema = z.object({
 
 export const planSchema = z.object({
   name: trimmedString.min(2, "Tên gói cước tối thiểu 2 ký tự."),
-  price: z.coerce.number().min(0, "Giá phải lớn hơn hoặc bằng 0."),
-  balanceUsd: z.coerce.number().min(0.01, "Số dư USD phải lớn hơn 0."),
+  price: z.coerce.number().int("Giá VND phải là số nguyên.").min(0, "Giá phải lớn hơn hoặc bằng 0."),
+  credits: z.coerce.number().int("Credit phải là số nguyên.").min(1, "Số credit phải lớn hơn 0."),
   isActive: z.boolean()
 });
 
 export const creditMutationSchema = z.object({
   userId: trimmedString,
-  amountUsd: z.coerce.number().min(0.000001, "Số USD phải lớn hơn 0."),
+  credits: z.coerce.number().int("Credit phải là số nguyên.").min(1, "Số credit phải lớn hơn 0."),
   reason: trimmedString.min(4, "Lý do tối thiểu 4 ký tự.")
 });
 

@@ -22,7 +22,7 @@ class CreditController extends Controller
         $result = $this->creditService->mutateUsd(
             firebaseUid: $payload['userId'],
             type: 'add',
-            amountUsd: (float) $payload['amountUsd'],
+            amountUsd: $this->resolveAmountUsd($payload),
             reason: $payload['reason'],
             source: $source === 'admin' ? 'admin' : 'api',
         );
@@ -43,7 +43,7 @@ class CreditController extends Controller
             $result = $this->creditService->mutateUsd(
                 firebaseUid: $payload['userId'],
                 type: 'subtract',
-                amountUsd: (float) $payload['amountUsd'],
+                amountUsd: $this->resolveAmountUsd($payload),
                 reason: $payload['reason'],
                 source: $source === 'admin' ? 'admin' : 'api',
             );
@@ -80,5 +80,17 @@ class CreditController extends Controller
             'balanceUsd' => $this->creditService->getBalanceUsd($userId),
             'credits' => $this->creditService->getBalance($userId),
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function resolveAmountUsd(array $payload): float
+    {
+        if (isset($payload['credits']) && is_numeric($payload['credits'])) {
+            return $this->creditService->usdForCredits((int) $payload['credits']);
+        }
+
+        return (float) ($payload['amountUsd'] ?? 0);
     }
 }

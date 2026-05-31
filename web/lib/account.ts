@@ -82,7 +82,7 @@ export async function fetchAdminPlans() {
   return fetchPlans(false);
 }
 
-export async function createPlan(input: Pick<Plan, "name" | "price" | "balanceUsd" | "isActive">) {
+export async function createPlan(input: Pick<Plan, "name" | "price" | "credits" | "isActive">) {
   const response = await laravelRequest<{ data: Plan }>("/api/admin/plans", {
     method: "POST",
     body: JSON.stringify(input)
@@ -90,7 +90,7 @@ export async function createPlan(input: Pick<Plan, "name" | "price" | "balanceUs
   return response.data;
 }
 
-export async function updatePlan(id: string, input: Partial<Pick<Plan, "name" | "price" | "balanceUsd" | "isActive">>) {
+export async function updatePlan(id: string, input: Partial<Pick<Plan, "name" | "price" | "credits" | "isActive">>) {
   const response = await laravelRequest<{ data: Plan }>(`/api/admin/plans/${id}`, {
     method: "PUT",
     body: JSON.stringify(input)

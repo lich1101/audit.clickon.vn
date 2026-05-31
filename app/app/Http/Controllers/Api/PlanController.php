@@ -4,12 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Services\CreditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class PlanController extends Controller
 {
+    public function __construct(
+        private readonly CreditService $creditService,
+    ) {
+    }
+
     public function index(Request $request)
     {
         $activeOnly = $request->boolean('activeOnly', true);
@@ -30,18 +36,19 @@ class PlanController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'price' => ['required', 'integer', 'min:0'],
-            'balanceUsd' => ['required', 'numeric', 'min:0.01'],
+            'credits' => ['required_without:balanceUsd', 'integer', 'min:1'],
+            'balanceUsd' => ['required_without:credits', 'numeric', 'min:0.01'],
             'isActive' => ['nullable', 'boolean'],
         ]);
 
-        $balanceUsd = round((float) $validated['balanceUsd'], 2);
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+        $credits = $this->resolvePlanCredits($validated);
+        $balanceUsd = round($this->creditService->usdForCredits($credits), 2);
 
         $plan = Plan::query()->create([
             'id' => strtolower(str_replace('-', '', (string) Str::ulid())),
             'name' => $validated['name'],
             'price' => (int) $validated['price'],
-            'credits' => (int) ceil($balanceUsd / $legacyRate),
+            'credits' => $credits,
             'balance_usd' => $balanceUsd,
             'is_active' => $validated['isActive'] ?? true,
         ]);
@@ -67,20 +74,21 @@ class PlanController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'price' => ['sometimes', 'integer', 'min:0'],
+            'credits' => ['sometimes', 'integer', 'min:1'],
             'balanceUsd' => ['sometimes', 'numeric', 'min:0.01'],
             'isActive' => ['sometimes', 'boolean'],
         ]);
 
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-        $balanceUsd = array_key_exists('balanceUsd', $validated)
-            ? round((float) $validated['balanceUsd'], 2)
-            : $this->resolvePlanBalanceUsd($plan);
+        $credits = array_key_exists('credits', $validated) || array_key_exists('balanceUsd', $validated)
+            ? $this->resolvePlanCredits($validated)
+            : (int) $plan->credits;
+        $balanceUsd = round($this->creditService->usdForCredits($credits), 2);
 
         $plan->forceFill([
             'name' => $validated['name'] ?? $plan->name,
             'price' => array_key_exists('price', $validated) ? (int) $validated['price'] : $plan->price,
             'balance_usd' => $balanceUsd,
-            'credits' => (int) ceil($balanceUsd / $legacyRate),
+            'credits' => $credits,
             'is_active' => array_key_exists('isActive', $validated) ? (bool) $validated['isActive'] : $plan->is_active,
         ])->save();
 
@@ -110,8 +118,18 @@ class PlanController extends Controller
             return round((float) $plan->balance_usd, 2);
         }
 
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+        return round($this->creditService->usdForCredits((int) $plan->credits), 2);
+    }
 
-        return round(((int) $plan->credits) * $legacyRate, 2);
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function resolvePlanCredits(array $validated): int
+    {
+        if (isset($validated['credits']) && is_numeric($validated['credits'])) {
+            return max(1, (int) $validated['credits']);
+        }
+
+        return max(1, $this->creditService->creditsForUsd((float) ($validated['balanceUsd'] ?? 0)));
     }
 }

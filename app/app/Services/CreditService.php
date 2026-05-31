@@ -43,6 +43,21 @@ class CreditService
         return round((float) (AppUser::query()->where('firebase_uid', $firebaseUid)->value('balance_usd') ?? 0), 6);
     }
 
+    public function legacyCreditUsdRate(): float
+    {
+        return max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
+    }
+
+    public function usdForCredits(int $credits): float
+    {
+        return round(max(0, $credits) * $this->legacyCreditUsdRate(), 6);
+    }
+
+    public function creditsForUsd(float $amountUsd): int
+    {
+        return (int) ceil(max(0.0, $amountUsd) / $this->legacyCreditUsdRate());
+    }
+
     /**
      * @return array{credits:int,balanceUsd:float,log:array<string,mixed>}
      */
@@ -55,12 +70,10 @@ class CreditService
         ?string $referenceType = null,
         ?string $referenceId = null,
     ): array {
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
-
         return $this->mutateUsd(
             firebaseUid: $firebaseUid,
             type: $type,
-            amountUsd: round($amount * $legacyRate, 6),
+            amountUsd: $this->usdForCredits($amount),
             reason: $reason,
             source: $source,
             referenceType: $referenceType,
@@ -100,9 +113,8 @@ class CreditService
                 throw new RuntimeException('Insufficient balance.');
             }
 
-            $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
             $beforeCredits = (int) $user->credits;
-            $creditDelta = (int) ceil($amountUsd / $legacyRate);
+            $creditDelta = $this->creditsForUsd($amountUsd);
             $afterCredits = $type === 'add' ? $beforeCredits + $creditDelta : max(0, $beforeCredits - $creditDelta);
 
             $user->forceFill([
@@ -139,16 +151,15 @@ class CreditService
      */
     public function serializeTransaction(CreditTransaction $transaction): array
     {
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
         $amountUsd = is_numeric($transaction->amount_usd ?? null)
             ? round((float) $transaction->amount_usd, 6)
-            : round(((int) $transaction->amount) * $legacyRate, 6);
+            : $this->usdForCredits((int) $transaction->amount);
         $balanceBeforeUsd = is_numeric($transaction->balance_before_usd ?? null)
             ? round((float) $transaction->balance_before_usd, 6)
-            : round(((int) $transaction->balance_before) * $legacyRate, 6);
+            : $this->usdForCredits((int) $transaction->balance_before);
         $balanceAfterUsd = is_numeric($transaction->balance_after_usd ?? null)
             ? round((float) $transaction->balance_after_usd, 6)
-            : round(((int) $transaction->balance_after) * $legacyRate, 6);
+            : $this->usdForCredits((int) $transaction->balance_after);
 
         return [
             'id' => $transaction->public_id,
@@ -174,7 +185,6 @@ class CreditService
     public function serializeUser(AppUser $user): array
     {
         $balanceUsd = round((float) ($user->balance_usd ?? 0), 6);
-        $legacyRate = max(0.000001, (float) config('services.audit.legacy_credit_usd_value', 0.01));
 
         return [
             'uid' => $user->firebase_uid,
@@ -183,7 +193,7 @@ class CreditService
             'role' => $user->role === 'admin' ? 'admin' : 'user',
             'balanceUsd' => $balanceUsd,
             'credits' => (int) $user->credits,
-            'legacyCreditsPerUsd' => (int) round(1 / $legacyRate),
+            'legacyCreditsPerUsd' => (int) round(1 / $this->legacyCreditUsdRate()),
             'createdAt' => optional($user->created_at)?->toIso8601String(),
             'updatedAt' => optional($user->updated_at)?->toIso8601String(),
         ];

@@ -229,6 +229,7 @@ export type KeywordRankPreferences = {
   googleHost: string;
   hl: string;
   gl: string;
+  updatedAt?: string | null;
 };
 
 export type KeywordRankBoard = {

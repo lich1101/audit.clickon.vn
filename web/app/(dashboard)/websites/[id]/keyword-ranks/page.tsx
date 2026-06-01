@@ -27,6 +27,10 @@ import {
   saveKeywordRankKeywords,
   updateKeywordRankPreferences,
 } from "@/lib/keyword-ranks";
+import {
+  keywordRankPreferencesEqual,
+  reconcileKeywordRankPreferences,
+} from "@/lib/keyword-rank-prefs";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRankPreferences, KeywordRankRunItem } from "@/types";
 
@@ -48,7 +52,8 @@ type ExtensionMessage =
         userAgent?: string | null;
         cookies?: string | null;
       };
-    };
+    }
+  | { source: "clickon-rank-extension"; type: "CLICKON_RANK_PREFS"; payload: KeywordRankPreferences };
 
 function splitKeywords(value: string) {
   return Array.from(
@@ -97,6 +102,13 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const [gl, setGl] = useState("vn");
   const [statusText, setStatusText] = useState("Chưa chạy");
   const prefsSaveTimerRef = useRef<number | null>(null);
+  const webPrefsRef = useRef<KeywordRankPreferences | null>(null);
+  const extensionReadyRef = useRef(false);
+  const prefsSyncInFlightRef = useRef(false);
+
+  function rememberWebPreferences(preferences: KeywordRankPreferences) {
+    webPrefsRef.current = preferences;
+  }
 
   function applyPreferences(preferences: KeywordRankPreferences) {
     setDelayMin(preferences.delayMin);
@@ -105,6 +117,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     setGoogleHost(preferences.googleHost);
     setHl(preferences.hl);
     setGl(preferences.gl);
+    rememberWebPreferences(preferences);
   }
 
   function syncPrefsToExtension(preferences: KeywordRankPreferences) {
@@ -118,6 +131,64 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     );
   }
 
+  function requestExtensionPreferences() {
+    window.postMessage({ source: "clickon-web", type: "CLICKON_RANK_REQUEST_PREFS" }, window.location.origin);
+  }
+
+  async function reconcileWithExtensionPreferences(extensionPrefs: KeywordRankPreferences) {
+    if (prefsSyncInFlightRef.current) return;
+
+    const webPrefs = webPrefsRef.current;
+    if (!webPrefs) return;
+
+    const { preferences, source } = reconcileKeywordRankPreferences(webPrefs, extensionPrefs);
+
+    if (source === "equal" || keywordRankPreferencesEqual(preferences, webPrefs)) {
+      applyPreferences(preferences);
+      return;
+    }
+
+    prefsSyncInFlightRef.current = true;
+
+    try {
+      if (source === "extension") {
+        applyPreferences(preferences);
+        const saved = await updateKeywordRankPreferences({
+          delayMin: preferences.delayMin,
+          delayMax: preferences.delayMax,
+          autoCaptcha: preferences.autoCaptcha,
+          googleHost: preferences.googleHost,
+          hl: preferences.hl,
+          gl: preferences.gl,
+          updatedAt: preferences.updatedAt ?? undefined,
+        });
+        applyPreferences(saved);
+        syncPrefsToExtension(saved);
+        toast.message("Đã đồng bộ cấu hình từ extension popup.");
+        return;
+      }
+
+      applyPreferences(preferences);
+      syncPrefsToExtension(preferences);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể đồng bộ cấu hình keyword rank.");
+    } finally {
+      prefsSyncInFlightRef.current = false;
+    }
+  }
+
+  function beginPreferenceSync(preferences: KeywordRankPreferences) {
+    rememberWebPreferences(preferences);
+    applyPreferences(preferences);
+
+    if (extensionReadyRef.current) {
+      requestExtensionPreferences();
+      return;
+    }
+
+    syncPrefsToExtension(preferences);
+  }
+
   function schedulePreferenceSave(next: Partial<KeywordRankPreferences>) {
     if (prefsSaveTimerRef.current) {
       window.clearTimeout(prefsSaveTimerRef.current);
@@ -126,8 +197,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     prefsSaveTimerRef.current = window.setTimeout(() => {
       void updateKeywordRankPreferences(next)
         .then((saved) => {
-          applyPreferences(saved);
-          syncPrefsToExtension(saved);
+          beginPreferenceSync(saved);
         })
         .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể lưu cấu hình keyword rank."));
     }, 400);
@@ -139,8 +209,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     const nextBoard = await fetchKeywordRankBoard(id);
     setBoard(nextBoard);
     setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
-    applyPreferences(nextBoard.preferences);
-    syncPrefsToExtension(nextBoard.preferences);
+    beginPreferenceSync(nextBoard.preferences);
     setSelectedKeywordIds((current) => {
       const ids = new Set(nextBoard.keywords.map((item) => item.id));
       const retained = current.filter((item) => ids.has(item));
@@ -157,8 +226,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
         if (!mounted) return;
         setBoard(nextBoard);
         setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
-        applyPreferences(nextBoard.preferences);
-        syncPrefsToExtension(nextBoard.preferences);
+        beginPreferenceSync(nextBoard.preferences);
         setSelectedKeywordIds(nextBoard.keywords.map((item) => item.id));
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải keyword rank."))
@@ -178,7 +246,14 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
       }
 
       if (event.data.type === "CLICKON_RANK_EXTENSION_READY") {
+        extensionReadyRef.current = true;
         setExtensionReady(true);
+        requestExtensionPreferences();
+        return;
+      }
+
+      if (event.data.type === "CLICKON_RANK_PREFS") {
+        void reconcileWithExtensionPreferences(event.data.payload);
         return;
       }
 
@@ -328,8 +403,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     };
 
     try {
-      await updateKeywordRankPreferences(preferences);
-      syncPrefsToExtension(preferences);
+      const saved = await updateKeywordRankPreferences(preferences);
+      beginPreferenceSync(saved);
       setRunning(true);
       const response = await createKeywordRankRun(id, {
         keywordIds: runKeywords.map((item) => item.id),

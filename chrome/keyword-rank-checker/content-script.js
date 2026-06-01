@@ -34,7 +34,15 @@ window.addEventListener("message", (event) => {
   }
 
   if (event.data.type === "CLICKON_RANK_SYNC_PREFS") {
-    void saveExtensionPrefs(event.data.payload || {});
+    void saveExtensionPrefs(event.data.payload || {}, { preserveUpdatedAt: true });
+    return;
+  }
+
+  if (event.data.type === "CLICKON_RANK_REQUEST_PREFS") {
+    void loadExtensionPrefs().then((prefs) => {
+      postPrefs(normalizeExtensionPrefs(prefs));
+    });
+    return;
   }
 });
 
@@ -518,16 +526,61 @@ function stripUrlHash(url) {
   }
 }
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[PREFS_STORAGE_KEY]) {
+    return;
+  }
+
+  postPrefs(normalizeExtensionPrefs(changes[PREFS_STORAGE_KEY].newValue || {}));
+});
+
+function postPrefs(prefs) {
+  window.postMessage({ source: EXT_SOURCE, type: "CLICKON_RANK_PREFS", payload: prefs }, window.location.origin);
+}
+
+const DEFAULT_EXTENSION_PREFS = {
+  delayMin: 4,
+  delayMax: 9,
+  autoCaptcha: false,
+  googleHost: "https://www.google.com",
+  hl: "vi",
+  gl: "vn",
+  updatedAt: null,
+};
+
+function normalizeExtensionPrefs(raw) {
+  const prefs = { ...DEFAULT_EXTENSION_PREFS, ...(raw || {}) };
+  const delayMin = clampNumber(prefs.delayMin, 1, 120, DEFAULT_EXTENSION_PREFS.delayMin);
+  const delayMax = Math.max(delayMin, clampNumber(prefs.delayMax, 1, 180, DEFAULT_EXTENSION_PREFS.delayMax));
+  const googleHostRaw = String(prefs.googleHost || DEFAULT_EXTENSION_PREFS.googleHost).trim();
+
+  return {
+    delayMin,
+    delayMax,
+    autoCaptcha: prefs.autoCaptcha === true,
+    googleHost: googleHostRaw === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
+    hl: sanitizeLocalePart(prefs.hl, DEFAULT_EXTENSION_PREFS.hl),
+    gl: sanitizeLocalePart(prefs.gl, DEFAULT_EXTENSION_PREFS.gl),
+    updatedAt: typeof prefs.updatedAt === "string" && prefs.updatedAt.trim() ? prefs.updatedAt.trim() : null,
+  };
+}
+
 function loadExtensionPrefs() {
   return new Promise((resolve) => {
     chrome.storage.local.get(PREFS_STORAGE_KEY, (stored) => {
-      resolve(stored[PREFS_STORAGE_KEY] || {});
+      resolve(normalizeExtensionPrefs(stored[PREFS_STORAGE_KEY] || {}));
     });
   });
 }
 
-function saveExtensionPrefs(prefs) {
+function saveExtensionPrefs(prefs, options = {}) {
+  const preserveUpdatedAt = options.preserveUpdatedAt === true;
+  const normalized = normalizeExtensionPrefs({
+    ...prefs,
+    updatedAt: preserveUpdatedAt && prefs?.updatedAt ? prefs.updatedAt : new Date().toISOString(),
+  });
+
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [PREFS_STORAGE_KEY]: prefs }, () => resolve());
+    chrome.storage.local.set({ [PREFS_STORAGE_KEY]: normalized }, () => resolve(normalized));
   });
 }

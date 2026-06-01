@@ -82,6 +82,13 @@ class KeywordRankService
     {
         $user = AppUser::query()->where('firebase_uid', $userUid)->firstOrFail();
         $merged = $this->normalizePreferences(array_merge($this->getUserPreferences($userUid), $payload));
+
+        if (isset($payload['updatedAt']) && is_string($payload['updatedAt']) && trim($payload['updatedAt']) !== '') {
+            $merged['updatedAt'] = trim($payload['updatedAt']);
+        } else {
+            $merged['updatedAt'] = now()->toIso8601String();
+        }
+
         $user->forceFill(['keyword_rank_prefs' => $merged])->save();
 
         return $merged;
@@ -122,6 +129,9 @@ class KeywordRankService
             'googleHost' => $googleHost,
             'hl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['hl'] ?? 'vi'))) ?: 'vi',
             'gl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['gl'] ?? 'vn'))) ?: 'vn',
+            'updatedAt' => isset($prefs['updatedAt']) && is_string($prefs['updatedAt']) && trim($prefs['updatedAt']) !== ''
+                ? trim($prefs['updatedAt'])
+                : null,
         ];
     }
 

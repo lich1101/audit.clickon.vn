@@ -7,6 +7,7 @@ const defaults = {
   googleHost: "https://www.google.com",
   hl: "vi",
   gl: "vn",
+  updatedAt: null,
 };
 
 const form = document.getElementById("settings-form");
@@ -41,6 +42,7 @@ function readForm() {
     googleHost: document.getElementById("google-host").value || defaults.googleHost,
     hl: document.getElementById("hl").value.trim() || defaults.hl,
     gl: document.getElementById("gl").value.trim() || defaults.gl,
+    updatedAt: new Date().toISOString(),
   };
 }
 

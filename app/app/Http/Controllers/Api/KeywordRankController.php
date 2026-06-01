@@ -127,6 +127,7 @@ class KeywordRankController extends Controller
             'googleHost' => ['nullable', 'string', 'in:https://www.google.com,https://www.google.com.vn'],
             'hl' => ['nullable', 'string', 'max:8'],
             'gl' => ['nullable', 'string', 'max:8'],
+            'updatedAt' => ['nullable', 'string', 'max:64'],
         ]);
 
         return response()->json([

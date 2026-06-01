@@ -1,5 +1,3 @@
-import { cookies } from "next/headers";
-
 import type { SessionUser, UserRole } from "@/types";
 
 export const SESSION_COOKIE = "clickon_audit_session";
@@ -10,15 +8,6 @@ export const IMPERSONATE_NAME_COOKIE = "clickon_audit_impersonate_name";
 
 export function isAdminRole(role: string | null | undefined): role is UserRole {
   return role === "admin";
-}
-
-export async function getSessionSnapshot() {
-  const store = await cookies();
-  return {
-    token: store.get(SESSION_COOKIE)?.value ?? null,
-    role: store.get(ROLE_COOKIE)?.value ?? null,
-    impersonateUid: store.get(IMPERSONATE_UID_COOKIE)?.value ?? null,
-  };
 }
 
 export function getRoleCookieOptions() {

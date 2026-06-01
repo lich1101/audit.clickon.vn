@@ -205,7 +205,7 @@ export default function AuditRunDetailPage({
   const progressPercent = run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0;
   const completedCount = items.filter((item) => item.status === "completed").length;
   const failedCount = items.filter((item) => item.status === "failed").length;
-  const canViewAdminAuditDebug = profile?.realRole === "admin" && mode === "admin" && !profile?.isImpersonating;
+  const canViewAdminAuditDebug = profile?.realRole === "admin" && !profile?.isImpersonating;
   const usageSummary = run.usageSummary ?? null;
   const totalCreditsCharged = usageSummary?.totals?.creditsCharged ?? 0;
 

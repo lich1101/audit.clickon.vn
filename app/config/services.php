@@ -82,6 +82,8 @@ return [
         'use_jina' => (bool) env('AUDIT_USE_JINA_READER', true),
         'jina_base_url' => env('AUDIT_JINA_BASE_URL', 'https://r.jina.ai/'),
         'jina_api_key' => env('JINA_API_KEY'),
+        'step1_burst_enabled' => (bool) env('AUDIT_STEP1_BURST_ENABLED', true),
+        'step1_burst_fallback_to_queue_on_throttle' => (bool) env('AUDIT_STEP1_BURST_FALLBACK_TO_QUEUE_ON_THROTTLE', true),
         'firestore_sync' => (bool) env('AUDIT_FIRESTORE_SYNC', false),
         'firestore_fallback' => (bool) env('AUDIT_FIRESTORE_FALLBACK', false),
         'persist_ai_artifacts_to_disk' => (bool) env('AUDIT_PERSIST_AI_ARTIFACTS_TO_DISK', false),

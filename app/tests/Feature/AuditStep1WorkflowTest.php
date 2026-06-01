@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\AuditStep1BurstFallbackException;
+use App\Jobs\ProcessAuditRunStep1BatchJob;
 use App\Jobs\ProcessAuditRunStep2BatchJob;
 use App\Models\AuditRun;
 use App\Models\AuditRunItem;
 use App\Services\AuditRunService;
+use App\Services\SeoContentExtractionService;
 use App\Services\SeoAiAuditService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -85,6 +88,71 @@ class AuditStep1WorkflowTest extends TestCase
 
         $this->assertSame(3, $fetchingCount);
         $this->assertSame(1, $queuedCount);
+    }
+
+    public function test_step1_burst_processes_all_urls_without_dispatching_step1_jobs(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun([
+            'stop_after_step' => 1,
+            'target_urls' => [
+                'https://example.com/post-1',
+                'https://example.com/post-2',
+            ],
+            'total_urls' => 2,
+        ]);
+        $items = $this->makeItems($run, 2, 'queued', null);
+
+        $contentExtraction = Mockery::mock(SeoContentExtractionService::class);
+        $contentExtraction->shouldReceive('supportsBurstExtraction')->once()->andReturn(true);
+        $contentExtraction->shouldReceive('extractManyInParallel')->once()->andReturn([
+            'https://example.com/post-1' => $this->fakeStep1Page('https://example.com/post-1', 'Bài 1'),
+            'https://example.com/post-2' => $this->fakeStep1Page('https://example.com/post-2', 'Bài 2'),
+        ]);
+        $this->app->instance(SeoContentExtractionService::class, $contentExtraction);
+
+        app(AuditRunService::class)->startChunkedBatchUrlOnly($run);
+
+        $run->refresh();
+        $items->each->refresh();
+
+        $this->assertSame('completed', $run->status);
+        Queue::assertNotPushed(ProcessAuditRunStep1BatchJob::class);
+
+        foreach ($items as $item) {
+            $this->assertSame('completed', $item->status);
+            $this->assertSame('url_only_batch_step1_only_completed', $item->extraction_source);
+            $this->assertSame('jina', $item->content_source);
+        }
+    }
+
+    public function test_step1_burst_falls_back_to_queued_jobs_when_provider_throttles(): void
+    {
+        Queue::fake();
+
+        $run = $this->makeRun([
+            'target_urls' => [
+                'https://example.com/post-1',
+                'https://example.com/post-2',
+            ],
+            'total_urls' => 2,
+        ]);
+        $this->makeItems($run, 2, 'queued', null);
+
+        $contentExtraction = Mockery::mock(SeoContentExtractionService::class);
+        $contentExtraction->shouldReceive('supportsBurstExtraction')->once()->andReturn(true);
+        $contentExtraction->shouldReceive('extractManyInParallel')->once()->andThrow(
+            new AuditStep1BurstFallbackException('throttle')
+        );
+        $this->app->instance(SeoContentExtractionService::class, $contentExtraction);
+
+        app(AuditRunService::class)->startChunkedBatchUrlOnly($run);
+
+        Queue::assertPushed(ProcessAuditRunStep1BatchJob::class, 2);
+        Queue::assertPushed(ProcessAuditRunStep1BatchJob::class, function ($job): bool {
+            return count($job->itemIds) === 1;
+        });
     }
 
     public function test_process_step2_batch_passes_step1_payload_into_batch_ai_call(): void
@@ -230,5 +298,38 @@ class AuditStep1WorkflowTest extends TestCase
         }
 
         return $items;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fakeStep1Page(string $url, string $title): array
+    {
+        return [
+            'url' => $url,
+            'title' => $title,
+            'metaDescription' => 'Meta mô tả đủ dài để audit.',
+            'canonicalUrl' => $url,
+            'headings' => [
+                'h1' => [$title],
+                'h2' => ['Mục 1'],
+                'h3' => [],
+            ],
+            'metrics' => [
+                'wordCount' => 200,
+                'imageCount' => 1,
+                'missingAltCount' => 0,
+                'internalLinkCount' => 1,
+                'externalLinkCount' => 0,
+                'hasCanonical' => true,
+                'titleLength' => mb_strlen($title),
+                'metaDescriptionLength' => 30,
+                'h1Count' => 1,
+                'auditReady' => true,
+            ],
+            'content' => str_repeat('Noi dung audit hop le. ', 20),
+            'source' => 'jina',
+            'extractionError' => null,
+        ];
     }
 }

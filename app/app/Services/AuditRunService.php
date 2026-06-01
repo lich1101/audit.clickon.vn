@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\AuditStep1BurstFallbackException;
 use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditDeepResearchBatchJob;
 use App\Jobs\ProcessAuditRunItemJob;
@@ -16,6 +17,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -618,7 +620,7 @@ class AuditRunService
         }
 
         if ((int) ($run->start_from_step ?? self::START_FROM_STEP_1) === self::START_FROM_STEP_1) {
-            $this->dispatchStep1Batches($run);
+            $this->startStep1Extraction($run);
 
             return;
         }
@@ -643,7 +645,7 @@ class AuditRunService
         $this->prepareCategoryContexts($run);
 
         if ((int) ($run->start_from_step ?? self::START_FROM_STEP_1) === self::START_FROM_STEP_1) {
-            $this->dispatchStep1Batches($run);
+            $this->startStep1Extraction($run);
 
             return;
         }
@@ -733,6 +735,158 @@ class AuditRunService
 
             $this->dispatchStep2Batches($run);
         }
+    }
+
+    private function startStep1Extraction(AuditRun $run): void
+    {
+        if ($this->tryProcessStep1Burst($run)) {
+            return;
+        }
+
+        $this->dispatchStep1Batches($run);
+    }
+
+    private function tryProcessStep1Burst(AuditRun $run): bool
+    {
+        if (! $this->contentExtractionService->supportsBurstExtraction()) {
+            return false;
+        }
+
+        $itemIds = DB::transaction(function () use ($run): array {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return [];
+            }
+
+            $itemIds = $freshRun->items()
+                ->where('status', 'queued')
+                ->whereNull('extraction_source')
+                ->orderBy('position')
+                ->pluck('id')
+                ->values()
+                ->all();
+
+            if ($itemIds === []) {
+                return [];
+            }
+
+            $freshRun->items()
+                ->whereIn('id', $itemIds)
+                ->update([
+                    'status' => 'fetching',
+                    'extraction_source' => self::SOURCE_STEP1_RUNNING,
+                    'error_message' => null,
+                    'updated_at' => now(),
+                ]);
+
+            return $itemIds;
+        });
+
+        if ($itemIds === []) {
+            return false;
+        }
+
+        $this->syncRunIfEnabled($run->fresh());
+
+        try {
+            $this->processStep1Burst($run, $itemIds);
+
+            return true;
+        } catch (AuditStep1BurstFallbackException $exception) {
+            Log::warning('Step 1 burst fallback to queued mode.', [
+                'runId' => $run->id,
+                'itemCount' => count($itemIds),
+                'error' => $exception->getMessage(),
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('Step 1 burst failed unexpectedly, fallback to queued mode.', [
+                'runId' => $run->id,
+                'itemCount' => count($itemIds),
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        $this->restoreStep1BurstItemsToQueued($run, $itemIds);
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    private function processStep1Burst(AuditRun $run, array $itemIds): void
+    {
+        $run = $run->fresh();
+
+        if (! $run || $this->isRunCancelled($run)) {
+            return;
+        }
+
+        $items = $run->items()
+            ->whereIn('id', $itemIds)
+            ->orderBy('position')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $pagesByUrl = $this->contentExtractionService->extractManyInParallel(
+            $items->pluck('target_url')->values()->all(),
+        );
+
+        foreach ($items as $item) {
+            if ($this->isRunCancelled($run->fresh())) {
+                return;
+            }
+
+            $page = $pagesByUrl[$item->target_url] ?? $this->contentExtractionService->extractOrFallback($item->target_url);
+
+            $item->forceFill([
+                'status' => 'queued',
+                'extraction_source' => self::SOURCE_STEP1_DONE,
+                'content_source' => $page['source'] ?? null,
+                'content_error' => $page['extractionError'] ?? null,
+                'page_title' => $page['title'] ?? null,
+                'meta_description' => $page['metaDescription'] ?? null,
+                'canonical_url' => $page['canonicalUrl'] ?? null,
+                'extracted_headings' => $page['headings'] ?? [],
+                'extracted_metrics' => $page['metrics'] ?? [],
+                'content_excerpt' => $page['content'] ?? null,
+                'error_message' => null,
+                'completed_at' => null,
+            ])->save();
+
+            $this->syncItemIfEnabled($item->fresh('run'));
+            $this->urlResultService->upsertFromItem($item->fresh('run'));
+        }
+
+        $this->dispatchStep1Batches($run);
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    private function restoreStep1BurstItemsToQueued(AuditRun $run, array $itemIds): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        $run->items()
+            ->whereIn('id', $itemIds)
+            ->where('status', 'fetching')
+            ->where('extraction_source', self::SOURCE_STEP1_RUNNING)
+            ->update([
+                'status' => 'queued',
+                'extraction_source' => null,
+                'error_message' => null,
+                'completed_at' => null,
+                'updated_at' => now(),
+            ]);
+
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     public function retryFailedStep2Batches(AuditRun $run): int

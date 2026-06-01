@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Exceptions\AuditStep1BurstFallbackException;
 use DOMComment;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMXPath;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -39,6 +42,41 @@ class SeoContentExtractionService
         }
 
         return $this->extractFromHtml($url);
+    }
+
+    public function supportsBurstExtraction(): bool
+    {
+        if (! (bool) config('services.audit.step1_burst_enabled', true)) {
+            return false;
+        }
+
+        return in_array($this->contentProvider(), ['firecrawl', 'jina'], true);
+    }
+
+    /**
+     * @param  array<int, string>  $urls
+     * @return array<string, array<string, mixed>>
+     */
+    public function extractManyInParallel(array $urls): array
+    {
+        $urls = array_values(array_unique(array_filter(array_map(
+            static fn ($url): string => trim((string) $url),
+            $urls,
+        ))));
+
+        if ($urls === []) {
+            return [];
+        }
+
+        $provider = $this->contentProvider();
+
+        return match ($provider) {
+            'firecrawl' => $this->extractManyWithFirecrawl($urls),
+            'jina' => $this->extractManyWithJina($urls),
+            default => collect($urls)
+                ->mapWithKeys(fn (string $url): array => [$url => $this->extractOrFallback($url)])
+                ->all(),
+        };
     }
 
     private function contentProvider(): string
@@ -129,11 +167,175 @@ class SeoContentExtractionService
     }
 
     /**
-     * @return array<string, mixed>
+     * @param  array<int, string>  $urls
+     * @return array<string, array<string, mixed>>
      */
-    private function extractWithJina(string $url): array
+    private function extractManyWithJina(array $urls): array
     {
-        $readerUrl = rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$url;
+        $baseUrl = rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/');
+        $headers = $this->jinaHeaders();
+        $timeoutSeconds = 90;
+        $responses = Http::pool(function (Pool $pool) use ($urls, $baseUrl, $headers, $timeoutSeconds): array {
+            $requests = [];
+
+            foreach ($urls as $index => $url) {
+                $requests[(string) $index] = $pool
+                    ->as((string) $index)
+                    ->withHeaders($headers)
+                    ->timeout($timeoutSeconds)
+                    ->get($baseUrl.'/'.$url);
+            }
+
+            return $requests;
+        });
+
+        return $this->normalizeBurstResponses($urls, $responses, function (string $url, Response $response): array {
+            return $this->parseJinaResponse($url, $response);
+        });
+    }
+
+    /**
+     * @param  array<int, string>  $urls
+     * @return array<string, array<string, mixed>>
+     */
+    private function extractManyWithFirecrawl(array $urls): array
+    {
+        $baseUrl = rtrim((string) config('services.audit.firecrawl_base_url', ''), '/');
+
+        if ($baseUrl === '') {
+            throw new RuntimeException('Firecrawl base URL is not configured.');
+        }
+
+        $headers = $this->firecrawlHeaders();
+        $timeoutSeconds = max(30, (int) config('services.audit.firecrawl_timeout_seconds', 120));
+        $onlyMainContent = (bool) config('services.audit.firecrawl_only_main_content', true);
+
+        $responses = Http::pool(function (Pool $pool) use ($urls, $baseUrl, $headers, $timeoutSeconds, $onlyMainContent): array {
+            $requests = [];
+
+            foreach ($urls as $index => $url) {
+                $requests[(string) $index] = $pool
+                    ->as((string) $index)
+                    ->withHeaders($headers)
+                    ->timeout($timeoutSeconds)
+                    ->post("{$baseUrl}/v1/scrape", [
+                        'url' => $url,
+                        'formats' => ['markdown', 'html', 'links'],
+                        'onlyMainContent' => $onlyMainContent,
+                    ]);
+            }
+
+            return $requests;
+        });
+
+        return $this->normalizeBurstResponses($urls, $responses, function (string $url, Response $response): array {
+            return $this->parseFirecrawlResponse($url, $response);
+        });
+    }
+
+    /**
+     * @param  array<int, string>  $urls
+     * @param  array<string|int, mixed>  $responses
+     * @param  callable(string, Response): array<string, mixed>  $parser
+     * @return array<string, array<string, mixed>>
+     */
+    private function normalizeBurstResponses(array $urls, array $responses, callable $parser): array
+    {
+        $results = [];
+        $throttledUrls = [];
+
+        foreach ($urls as $index => $url) {
+            $response = $responses[(string) $index] ?? $responses[$index] ?? null;
+
+            if (! $response instanceof Response) {
+                $results[$url] = $this->extractFromHtml($url);
+
+                continue;
+            }
+
+            if ($this->shouldFallbackBurstToQueueFromResponse($response)) {
+                $throttledUrls[] = $url;
+
+                continue;
+            }
+
+            try {
+                $results[$url] = $parser($url, $response);
+            } catch (\Throwable $exception) {
+                if ($this->shouldFallbackBurstToQueueFromMessage($exception->getMessage())) {
+                    $throttledUrls[] = $url;
+
+                    continue;
+                }
+
+                Log::warning('Step 1 burst extraction failed for one URL, fallback to HTML.', [
+                    'url' => $url,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                $results[$url] = $this->extractFromHtml($url);
+            }
+        }
+
+        if ($throttledUrls !== [] && (bool) config('services.audit.step1_burst_fallback_to_queue_on_throttle', true)) {
+            throw new AuditStep1BurstFallbackException(sprintf(
+                'Bước 1 burst bị throttle/spam trên %d/%d URL. Fallback về queue mode.',
+                count($throttledUrls),
+                count($urls),
+            ));
+        }
+
+        return $results;
+    }
+
+    private function shouldFallbackBurstToQueueFromResponse(Response $response): bool
+    {
+        $status = $response->status();
+
+        if (in_array($status, [403, 408, 409, 425, 429, 500, 502, 503, 504, 529], true)) {
+            return true;
+        }
+
+        if ($response->successful()) {
+            return false;
+        }
+
+        return $this->shouldFallbackBurstToQueueFromMessage(trim((string) $response->body()));
+    }
+
+    private function shouldFallbackBurstToQueueFromMessage(string $message): bool
+    {
+        $normalized = mb_strtolower(trim((string) preg_replace('/\s+/', ' ', $message)));
+
+        foreach ([
+            'too many requests',
+            'rate limit',
+            'rate-limit',
+            'throttle',
+            'throttled',
+            'spam',
+            'captcha',
+            'forbidden',
+            'temporarily unavailable',
+            'service unavailable',
+            'resource exhausted',
+            'high demand',
+            'overloaded',
+            'timeout',
+        ] as $needle) {
+            if ($normalized !== '' && str_contains($normalized, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function jinaHeaders(): array
+    {
         $headers = [
             'User-Agent' => config('services.audit.user_agent', 'ClickonAuditBot/1.0 (+https://clickon-audit.local)'),
             'Accept' => 'text/plain',
@@ -144,10 +346,45 @@ class SeoContentExtractionService
             $headers['Authorization'] = "Bearer {$apiKey}";
         }
 
-        $response = Http::withHeaders($headers)
+        return $headers;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function firecrawlHeaders(): array
+    {
+        $headers = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+        ];
+        $apiKey = config('services.audit.firecrawl_api_key');
+
+        if ($apiKey) {
+            $headers['Authorization'] = "Bearer {$apiKey}";
+        }
+
+        return $headers;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function extractWithJina(string $url): array
+    {
+        $readerUrl = rtrim((string) config('services.audit.jina_base_url', 'https://r.jina.ai/'), '/').'/'.$url;
+        $response = Http::withHeaders($this->jinaHeaders())
             ->timeout(90)
             ->get($readerUrl);
 
+        return $this->parseJinaResponse($url, $response);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function parseJinaResponse(string $url, Response $response): array
+    {
         if (! $response->successful()) {
             throw new RuntimeException("Jina Reader failed for [{$url}] with status {$response->status()}.");
         }
@@ -216,23 +453,22 @@ class SeoContentExtractionService
             throw new RuntimeException('Firecrawl base URL is not configured.');
         }
 
-        $headers = [
-            'Accept' => 'application/json',
-            'Content-Type' => 'application/json',
-        ];
-        $apiKey = config('services.audit.firecrawl_api_key');
-
-        if ($apiKey) {
-            $headers['Authorization'] = "Bearer {$apiKey}";
-        }
-
-        $response = Http::withHeaders($headers)
+        $response = Http::withHeaders($this->firecrawlHeaders())
             ->timeout(max(30, (int) config('services.audit.firecrawl_timeout_seconds', 120)))
             ->post("{$baseUrl}/v1/scrape", [
                 'url' => $url,
                 'formats' => ['markdown', 'html', 'links'],
                 'onlyMainContent' => (bool) config('services.audit.firecrawl_only_main_content', true),
             ]);
+
+        return $this->parseFirecrawlResponse($url, $response);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function parseFirecrawlResponse(string $url, Response $response): array
+    {
 
         if (! $response->successful()) {
             throw new RuntimeException("Firecrawl scrape failed for [{$url}] with status {$response->status()}.");

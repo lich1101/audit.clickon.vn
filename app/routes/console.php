@@ -396,6 +396,59 @@ Artisan::command('audit:recover-stale-runs {--limit=} {--json}', function (Audit
     return SymfonyCommand::SUCCESS;
 })->purpose('Khôi phục run kẹt: bước 1 (fetch) và lưu DB bước 3 từ kết quả đã có — không gọi lại AI bước 2–3.5');
 
+Artisan::command('audit:stop-active-runs {--message=} {--json}', function (AuditRunService $auditRunService) {
+    $message = trim((string) ($this->option('message') ?: 'Audit run stopped by operator.'));
+
+    $runs = \App\Models\AuditRun::query()
+        ->whereIn('status', ['queued', 'processing'])
+        ->whereNull('cancelled_at')
+        ->orderBy('id')
+        ->get();
+
+    $stopped = [];
+
+    foreach ($runs as $run) {
+        $auditRunService->stopRun($run, $message);
+        $run->refresh();
+
+        $stopped[] = [
+            'publicId' => (string) $run->public_id,
+            'status' => (string) $run->status,
+            'processed' => (int) $run->processed_urls,
+            'completed' => (int) $run->completed_urls,
+            'failed' => (int) $run->failed_urls,
+        ];
+    }
+
+    $payload = [
+        'ok' => true,
+        'message' => $message,
+        'count' => count($stopped),
+        'runs' => $stopped,
+    ];
+
+    if ((bool) $this->option('json')) {
+        $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return SymfonyCommand::SUCCESS;
+    }
+
+    $this->line(sprintf('Stopped %d active audit run(s).', count($stopped)));
+
+    foreach ($stopped as $run) {
+        $this->line(sprintf(
+            '  - %s | %s %d/%d/%d',
+            (string) $run['publicId'],
+            (string) $run['status'],
+            (int) $run['processed'],
+            (int) $run['completed'],
+            (int) $run['failed'],
+        ));
+    }
+
+    return SymfonyCommand::SUCCESS;
+})->purpose('Dừng toàn bộ audit run đang queued/processing để cắt worker trước khi bước AI tiếp tục');
+
 if ((bool) config('services.audit.stale_run_recovery_enabled', true)) {
     Schedule::command('audit:recover-stale-runs --quiet')
         ->everyMinute()

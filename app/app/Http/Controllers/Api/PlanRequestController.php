@@ -9,6 +9,8 @@ use App\Models\Plan;
 use App\Models\PlanRequest;
 use App\Services\CreditService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 class PlanRequestController extends Controller
 {
@@ -74,53 +76,82 @@ class PlanRequestController extends Controller
 
     public function approve(PlanRequestDecisionRequest $request, PlanRequest $planRequest)
     {
-        if ($planRequest->status !== 'pending') {
+        try {
+            $approved = DB::transaction(function () use ($request, $planRequest): PlanRequest {
+                /** @var PlanRequest $lockedPlanRequest */
+                $lockedPlanRequest = PlanRequest::query()->lockForUpdate()->findOrFail($planRequest->id);
+
+                if ($lockedPlanRequest->status !== 'pending') {
+                    throw new RuntimeException('Only pending requests can be approved.');
+                }
+
+                $this->creditService->mutateUsd(
+                    firebaseUid: $lockedPlanRequest->firebase_uid,
+                    type: 'add',
+                    amountUsd: $this->resolvePlanRequestBalanceUsd($lockedPlanRequest),
+                    reason: "Approved plan {$lockedPlanRequest->plan_name}",
+                    source: 'plan',
+                    referenceType: 'plan_request',
+                    referenceId: (string) $lockedPlanRequest->id,
+                );
+
+                if ((int) $lockedPlanRequest->captcha_credits > 0) {
+                    $this->creditService->addCaptchaCredits(
+                        $lockedPlanRequest->firebase_uid,
+                        (int) $lockedPlanRequest->captcha_credits,
+                    );
+                }
+
+                $lockedPlanRequest->forceFill([
+                    'status' => 'approved',
+                    'note' => $request->validated('note'),
+                    'approved_by' => (string) $request->attributes->get('firebase_uid', 'system'),
+                    'approved_at' => now(),
+                ])->save();
+
+                return $lockedPlanRequest->fresh();
+            });
+        } catch (RuntimeException $exception) {
             return response()->json([
-                'message' => 'Only pending requests can be approved.',
+                'message' => $exception->getMessage(),
             ], 422);
         }
 
-        $this->creditService->mutateUsd(
-            firebaseUid: $planRequest->firebase_uid,
-            type: 'add',
-            amountUsd: $this->resolvePlanRequestBalanceUsd($planRequest),
-            reason: "Approved plan {$planRequest->plan_name}",
-            source: 'plan',
-            referenceType: 'plan_request',
-            referenceId: (string) $planRequest->id,
-        );
-
-        $planRequest->forceFill([
-            'status' => 'approved',
-            'note' => $request->validated('note'),
-            'approved_by' => (string) $request->attributes->get('firebase_uid', 'system'),
-            'approved_at' => now(),
-        ])->save();
-
         return response()->json([
             'message' => 'Plan request approved.',
-            'data' => $this->transform($planRequest->fresh()),
+            'data' => $this->transform($approved),
         ]);
     }
 
     public function reject(PlanRequestDecisionRequest $request, PlanRequest $planRequest)
     {
-        if ($planRequest->status !== 'pending') {
+        try {
+            $rejected = DB::transaction(function () use ($request, $planRequest): PlanRequest {
+                /** @var PlanRequest $lockedPlanRequest */
+                $lockedPlanRequest = PlanRequest::query()->lockForUpdate()->findOrFail($planRequest->id);
+
+                if ($lockedPlanRequest->status !== 'pending') {
+                    throw new RuntimeException('Only pending requests can be rejected.');
+                }
+
+                $lockedPlanRequest->forceFill([
+                    'status' => 'rejected',
+                    'note' => $request->validated('note'),
+                    'approved_by' => (string) $request->attributes->get('firebase_uid', 'system'),
+                    'approved_at' => now(),
+                ])->save();
+
+                return $lockedPlanRequest->fresh();
+            });
+        } catch (RuntimeException $exception) {
             return response()->json([
-                'message' => 'Only pending requests can be rejected.',
+                'message' => $exception->getMessage(),
             ], 422);
         }
 
-        $planRequest->forceFill([
-            'status' => 'rejected',
-            'note' => $request->validated('note'),
-            'approved_by' => (string) $request->attributes->get('firebase_uid', 'system'),
-            'approved_at' => now(),
-        ])->save();
-
         return response()->json([
             'message' => 'Plan request rejected.',
-            'data' => $this->transform($planRequest->fresh()),
+            'data' => $this->transform($rejected),
         ]);
     }
 

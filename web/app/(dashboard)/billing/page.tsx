@@ -13,6 +13,16 @@ import { laravelRequest } from "@/lib/laravel";
 import { formatCurrency, formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { Plan, PlanRequest } from "@/types";
 
+function requestSummary(request: PlanRequest) {
+  const segments = [`${formatNumber(request.credits)} credit`, formatUsd(request.balanceUsd, 2)];
+
+  if (request.captchaCredits > 0) {
+    segments.push(`${formatNumber(request.captchaCredits)} lượt captcha`);
+  }
+
+  return segments.join(" · ");
+}
+
 export default function BillingPage() {
   const { profile } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -61,7 +71,7 @@ export default function BillingPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Gói cước"
-        description="Chọn gói cước audit theo credit, gửi yêu cầu đăng ký và chờ admin duyệt. Lượt captcha mua riêng tại trang Sản phẩm."
+        description="Chọn gói cước audit theo credit, gửi yêu cầu đăng ký và chờ admin duyệt. Nếu admin cấu hình, gói cước có thể kèm thêm lượt captcha tự động."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Gói cước" }]}
       />
 
@@ -88,7 +98,7 @@ export default function BillingPage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
+                        {formatCurrency(request.price)} · {requestSummary(request)}
                       </p>
                     </div>
                     <div className="text-sm">

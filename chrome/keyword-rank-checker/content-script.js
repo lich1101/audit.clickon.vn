@@ -82,7 +82,10 @@ async function runRankCheck(payload) {
       const keyword = keywords[index];
       postStatus(`Đang check ${keyword.keyword}`, index, keywords.length);
       const result = await checkKeyword(keyword, settings, index + 1, keywords.length);
-      postItem(result);
+      const persisted = await postItem(result);
+      if (!persisted.ok) {
+        throw new Error(persisted.error || "Không thể lưu kết quả keyword vào hệ thống.");
+      }
       postStatus(`Đã xử lý ${keyword.keyword}`, index + 1, keywords.length);
 
       if (!stopRequested && index < keywords.length - 1) {
@@ -419,7 +422,32 @@ function postStatus(message, processed, total) {
 }
 
 function postItem(payload) {
-  window.postMessage({ source: EXT_SOURCE, type: "CLICKON_RANK_ITEM_RESULT", payload }, window.location.origin);
+  const requestId = `item-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener("message", onResponse);
+      resolve({ ok: false, error: "Hết thời gian chờ hệ thống xác nhận lưu kết quả keyword." });
+    }, 60000);
+
+    function onResponse(event) {
+      if (
+        event.source !== window ||
+        event.data?.source !== WEB_SOURCE ||
+        event.data?.type !== "CLICKON_RANK_ITEM_RESULT_ACK" ||
+        event.data?.requestId !== requestId
+      ) {
+        return;
+      }
+
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onResponse);
+      resolve(event.data.payload || { ok: false, error: "Phản hồi lưu kết quả keyword rỗng." });
+    }
+
+    window.addEventListener("message", onResponse);
+    window.postMessage({ source: EXT_SOURCE, type: "CLICKON_RANK_ITEM_RESULT", requestId, payload }, window.location.origin);
+  });
 }
 
 function postComplete(payload) {

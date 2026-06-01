@@ -27,10 +27,12 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
       name: plan?.name ?? "",
       price: plan?.price ?? 0,
       credits: plan?.credits ?? 1,
+      captchaCredits: plan?.captchaCredits ?? 0,
       isActive: plan?.isActive ?? true
     }
   });
   const credits = Number(form.watch("credits") || 0);
+  const captchaCredits = Number(form.watch("captchaCredits") || 0);
   const estimatedUsd = credits > 0 ? credits / creditsPerUsd : 0;
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -74,9 +76,21 @@ export function PlanForm({ plan }: { plan?: Plan | null }) {
               <Input id="plan-credits" type="number" min={1} step={1} {...form.register("credits")} />
               {form.formState.errors.credits ? <p className="text-sm text-destructive">{form.formState.errors.credits.message}</p> : null}
               <p className="text-xs text-muted-foreground">
-                Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1. Lượt captcha mua riêng tại trang Sản phẩm.
+                Tương ứng {formatUsd(estimatedUsd, 4)} theo tỷ lệ {creditsPerUsd.toLocaleString("vi-VN")} credit = $1.
               </p>
             </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="plan-captcha-credits">Lượt captcha tự động cộng vào tài khoản</Label>
+            <Input id="plan-captcha-credits" type="number" min={0} step={1} {...form.register("captchaCredits")} />
+            {form.formState.errors.captchaCredits ? (
+              <p className="text-sm text-destructive">{form.formState.errors.captchaCredits.message}</p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              {captchaCredits > 0
+                ? `Người dùng sẽ nhận thêm ${captchaCredits.toLocaleString("vi-VN")} lượt giải captcha khi admin duyệt gói này.`
+                : "Để 0 nếu gói chỉ cộng credit audit, không cộng lượt captcha."}
+            </p>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">
             <input className="size-4 accent-indigo-600" type="checkbox" {...form.register("isActive")} />

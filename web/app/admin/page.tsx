@@ -23,6 +23,16 @@ function productRequestSummary(request: ProductRequest) {
   return `${formatNumber(request.credits)} credit · ${formatUsd(request.balanceUsd, 2)}`;
 }
 
+function planRequestSummary(request: PlanRequest) {
+  const segments = [`${formatNumber(request.credits)} credit`, formatUsd(request.balanceUsd, 2)];
+
+  if (request.captchaCredits > 0) {
+    segments.push(`${formatNumber(request.captchaCredits)} captcha`);
+  }
+
+  return segments.join(" · ");
+}
+
 export default function AdminHomePage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -149,7 +159,7 @@ export default function AdminHomePage() {
                     <div>
                       <p className="font-semibold">{request.planName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {request.firebaseUid} · {formatCurrency(request.price)} · {formatNumber(request.credits)} credit · {formatUsd(request.balanceUsd, 2)}
+                        {request.firebaseUid} · {formatCurrency(request.price)} · {planRequestSummary(request)}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {request.status} · {formatDate(request.createdAt)}

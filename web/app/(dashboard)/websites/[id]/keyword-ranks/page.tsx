@@ -22,6 +22,7 @@ import {
   createCaptchaSolveTask,
   createKeywordRankRun,
   fetchKeywordRankBoard,
+  heartbeatKeywordRankRun,
   pollCaptchaSolveTask,
   recordKeywordRankRunItem,
   saveKeywordRankKeywords,
@@ -37,7 +38,7 @@ import type { CaptchaSolveTask, KeywordRankBoard, KeywordRankKeyword, KeywordRan
 type ExtensionMessage =
   | { source: "clickon-rank-extension"; type: "CLICKON_RANK_EXTENSION_READY"; version: number }
   | { source: "clickon-rank-extension"; type: "CLICKON_RANK_STATUS"; payload: { message: string; processed?: number; total?: number } }
-  | { source: "clickon-rank-extension"; type: "CLICKON_RANK_ITEM_RESULT"; payload: KeywordRankRunItem }
+  | { source: "clickon-rank-extension"; type: "CLICKON_RANK_ITEM_RESULT"; requestId: string; payload: KeywordRankRunItem }
   | { source: "clickon-rank-extension"; type: "CLICKON_RANK_COMPLETE"; payload: { stopped?: boolean; error?: string | null } }
   | {
       source: "clickon-rank-extension";
@@ -64,6 +65,24 @@ function splitKeywords(value: string) {
         .filter(Boolean)
     )
   );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function latestRunStatusText(board: KeywordRankBoard) {
+  const latestRun = board.latestRun;
+
+  if (!latestRun) {
+    return "Chưa chạy";
+  }
+
+  const processed = latestRun.processedKeywords ?? 0;
+  const total = latestRun.totalKeywords ?? 0;
+  const base = `${latestRun.status} (${processed}/${total})`;
+
+  return latestRun.lastError ? `${base} - ${latestRun.lastError}` : base;
 }
 
 function statusLabel(status?: string | null) {
@@ -105,6 +124,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const webPrefsRef = useRef<KeywordRankPreferences | null>(null);
   const extensionReadyRef = useRef(false);
   const prefsSyncInFlightRef = useRef(false);
+  const lastHeartbeatAtRef = useRef(0);
 
   function rememberWebPreferences(preferences: KeywordRankPreferences) {
     webPrefsRef.current = preferences;
@@ -205,11 +225,56 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const activeRunPublicIdRef = useRef<string | null>(null);
   const inputFileRef = useRef<HTMLInputElement | null>(null);
 
+  function postItemResultAck(requestId: string, payload: { ok: boolean; error?: string | null }) {
+    window.postMessage(
+      {
+        source: "clickon-web",
+        type: "CLICKON_RANK_ITEM_RESULT_ACK",
+        requestId,
+        payload,
+      },
+      window.location.origin
+    );
+  }
+
+  async function persistRunItemWithRetry(runPublicId: string, item: KeywordRankRunItem) {
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await recordKeywordRankRunItem(runPublicId, item);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await wait(1000 * (attempt + 1));
+        }
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Không thể lưu kết quả keyword rank.");
+  }
+
+  function heartbeatActiveRun(force = false) {
+    const runPublicId = activeRunPublicIdRef.current;
+    if (!runPublicId) return;
+
+    const now = Date.now();
+    if (!force && now - lastHeartbeatAtRef.current < 15000) {
+      return;
+    }
+
+    lastHeartbeatAtRef.current = now;
+    void heartbeatKeywordRankRun(runPublicId).catch(() => undefined);
+  }
+
   async function loadBoard() {
     const nextBoard = await fetchKeywordRankBoard(id);
     setBoard(nextBoard);
     setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
     beginPreferenceSync(nextBoard.preferences);
+    if (!activeRunPublicIdRef.current) {
+      setStatusText(latestRunStatusText(nextBoard));
+    }
     setSelectedKeywordIds((current) => {
       const ids = new Set(nextBoard.keywords.map((item) => item.id));
       const retained = current.filter((item) => ids.has(item));
@@ -227,6 +292,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
         setBoard(nextBoard);
         setKeywordsInput(nextBoard.keywords.map((item) => item.keyword).join("\n"));
         beginPreferenceSync(nextBoard.preferences);
+        setStatusText(latestRunStatusText(nextBoard));
         setSelectedKeywordIds(nextBoard.keywords.map((item) => item.id));
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải keyword rank."))
@@ -260,16 +326,28 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
       if (event.data.type === "CLICKON_RANK_STATUS") {
         const { message, processed, total } = event.data.payload;
         setStatusText(typeof processed === "number" && typeof total === "number" ? `${message} (${processed}/${total})` : message);
+        heartbeatActiveRun(false);
         return;
       }
 
       if (event.data.type === "CLICKON_RANK_ITEM_RESULT") {
         const runPublicId = activeRunPublicIdRef.current;
-        if (!runPublicId) return;
+        const { payload, requestId } = event.data;
+        if (!runPublicId) {
+          postItemResultAck(requestId, { ok: false, error: "Không tìm thấy run keyword rank đang hoạt động." });
+          return;
+        }
 
-        void recordKeywordRankRunItem(runPublicId, event.data.payload)
-          .then(() => loadBoard())
-          .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể lưu kết quả keyword."));
+        void persistRunItemWithRetry(runPublicId, payload)
+          .then(() => {
+            postItemResultAck(requestId, { ok: true });
+            return loadBoard();
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : "Không thể lưu kết quả keyword.";
+            postItemResultAck(requestId, { ok: false, error: message });
+            toast.error(message);
+          });
         return;
       }
 
@@ -313,11 +391,13 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     try {
       let task: CaptchaSolveTask = await createCaptchaSolveTask(payload);
       setBoard((current) => (current ? { ...current, captchaCredits: task.captchaCredits } : current));
+      heartbeatActiveRun(true);
 
       for (let attempt = 0; attempt < 40 && task.status === "processing"; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 5000));
         task = await pollCaptchaSolveTask(task.id);
         setBoard((current) => (current ? { ...current, captchaCredits: task.captchaCredits } : current));
+        heartbeatActiveRun(true);
       }
 
       window.postMessage(
@@ -411,6 +491,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
         captchaEnabled: autoCaptcha,
       });
       activeRunPublicIdRef.current = response.data.publicId;
+      lastHeartbeatAtRef.current = Date.now();
       setStatusText("Đã gửi task sang extension.");
 
       window.postMessage(

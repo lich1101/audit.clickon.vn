@@ -14,6 +14,9 @@ use RuntimeException;
 
 class KeywordRankService
 {
+    private const STALE_RUN_SECONDS = 180;
+    private const STALE_RUN_ERROR = 'Keyword rank extension đã dừng hoặc tab chạy đã bị đóng trước khi hoàn tất.';
+
     public function __construct(
         private readonly CreditService $creditService,
         private readonly TwoCaptchaService $twoCaptchaService,
@@ -26,6 +29,8 @@ class KeywordRankService
      */
     public function board(Website $website, string $userUid): array
     {
+        $this->recoverStaleRunsForWebsite($website);
+
         $keywords = KeywordRankKeyword::query()
             ->where('website_id', $website->id)
             ->orderBy('keyword')
@@ -188,6 +193,8 @@ class KeywordRankService
      */
     public function createRun(Website $website, string $userUid, array $keywordIds, bool $captchaEnabled): KeywordRankRun
     {
+        $this->recoverStaleRunsForWebsite($website);
+
         $keywords = KeywordRankKeyword::query()
             ->where('website_id', $website->id)
             ->whereIn('id', $keywordIds)
@@ -203,6 +210,21 @@ class KeywordRankService
         }
 
         return DB::transaction(function () use ($website, $userUid, $keywords, $captchaEnabled): KeywordRankRun {
+            Website::query()
+                ->where('id', $website->id)
+                ->lockForUpdate()
+                ->first();
+
+            $activeRun = KeywordRankRun::query()
+                ->where('website_id', $website->id)
+                ->whereIn('status', ['queued', 'processing'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($activeRun) {
+                throw new RuntimeException('Website này đang có một phiên check keyword rank khác đang chạy. Hãy chờ phiên hiện tại hoàn tất hoặc dừng nó trước.');
+            }
+
             $run = KeywordRankRun::query()->create([
                 'public_id' => (string) Str::ulid(),
                 'website_id' => $website->id,
@@ -302,6 +324,17 @@ class KeywordRankService
 
             return $item->fresh();
         });
+    }
+
+    public function heartbeatRun(KeywordRankRun $run): KeywordRankRun
+    {
+        if ($run->status !== 'processing') {
+            return $run->fresh('items');
+        }
+
+        $run->touch();
+
+        return $run->fresh('items');
     }
 
     public function completeRun(KeywordRankRun $run, ?string $status = null, ?string $error = null): KeywordRankRun
@@ -469,6 +502,56 @@ class KeywordRankService
             'errorMessage' => $task->error_message,
             'captchaCredits' => $this->creditService->getCaptchaCredits($task->user_uid),
         ];
+    }
+
+    public function recoverStaleRunsForWebsite(Website $website): void
+    {
+        $staleBefore = now()->subSeconds(self::STALE_RUN_SECONDS);
+
+        KeywordRankRun::query()
+            ->where('website_id', $website->id)
+            ->where('status', 'processing')
+            ->where('updated_at', '<=', $staleBefore)
+            ->orderBy('id')
+            ->get()
+            ->each(function (KeywordRankRun $run) use ($staleBefore): void {
+                DB::transaction(function () use ($run, $staleBefore): void {
+                    /** @var KeywordRankRun $lockedRun */
+                    $lockedRun = KeywordRankRun::query()->lockForUpdate()->findOrFail($run->id);
+
+                    if ($lockedRun->status !== 'processing' || $lockedRun->updated_at === null || $lockedRun->updated_at->gt($staleBefore)) {
+                        return;
+                    }
+
+                    KeywordRankRunItem::query()
+                        ->where('keyword_rank_run_id', $lockedRun->id)
+                        ->where('status', 'queued')
+                        ->update([
+                            'status' => 'stopped',
+                            'error_message' => self::STALE_RUN_ERROR,
+                            'checked_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+
+                    $completedCount = KeywordRankRunItem::query()
+                        ->where('keyword_rank_run_id', $lockedRun->id)
+                        ->whereIn('status', ['found', 'not_found'])
+                        ->count();
+                    $failedCount = KeywordRankRunItem::query()
+                        ->where('keyword_rank_run_id', $lockedRun->id)
+                        ->whereIn('status', ['blocked', 'error', 'stopped'])
+                        ->count();
+
+                    $lockedRun->forceFill([
+                        'processed_keywords' => (int) $lockedRun->total_keywords,
+                        'completed_keywords' => $completedCount,
+                        'failed_keywords' => $failedCount,
+                        'status' => $completedCount > 0 ? 'partial' : 'stopped',
+                        'last_error' => self::STALE_RUN_ERROR,
+                        'completed_at' => $lockedRun->completed_at ?: now(),
+                    ])->save();
+                });
+            });
     }
 
     private function refreshRunCompletion(KeywordRankRun $run): void

@@ -96,6 +96,16 @@ class KeywordRankController extends Controller
         ]);
     }
 
+    public function heartbeat(Request $request, string $publicId)
+    {
+        $run = $this->authorizedRun($request, $publicId);
+        $touched = $this->keywordRankService->heartbeatRun($run);
+
+        return response()->json([
+            'data' => $this->keywordRankService->serializeRun($touched),
+        ]);
+    }
+
     public function completeRun(Request $request, string $publicId)
     {
         $run = $this->authorizedRun($request, $publicId);

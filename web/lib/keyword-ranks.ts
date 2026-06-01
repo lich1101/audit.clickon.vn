@@ -39,6 +39,14 @@ export async function createKeywordRankRun(websiteId: string, input: { keywordId
   return response;
 }
 
+export async function heartbeatKeywordRankRun(runPublicId: string) {
+  const response = await laravelRequest<{ data: KeywordRankRun }>(`/api/keyword-rank-runs/${runPublicId}/heartbeat`, {
+    method: "POST",
+  });
+
+  return response.data;
+}
+
 export async function recordKeywordRankRunItem(runPublicId: string, item: KeywordRankRunItem) {
   const response = await laravelRequest<{ data: KeywordRankRunItem }>(`/api/keyword-rank-runs/${runPublicId}/items`, {
     method: "POST",

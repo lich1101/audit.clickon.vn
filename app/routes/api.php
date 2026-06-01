@@ -42,6 +42,7 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/websites/{websiteId}/keyword-ranks', [KeywordRankController::class, 'board']);
     Route::put('/websites/{websiteId}/keyword-ranks/keywords', [KeywordRankController::class, 'replaceKeywords']);
     Route::post('/websites/{websiteId}/keyword-rank-runs', [KeywordRankController::class, 'createRun']);
+    Route::post('/keyword-rank-runs/{publicId}/heartbeat', [KeywordRankController::class, 'heartbeat']);
     Route::post('/keyword-rank-runs/{publicId}/items', [KeywordRankController::class, 'recordItem']);
     Route::post('/keyword-rank-runs/{publicId}/complete', [KeywordRankController::class, 'completeRun']);
     Route::post('/keyword-rank-captcha-tasks', [KeywordRankCaptchaController::class, 'createTask']);

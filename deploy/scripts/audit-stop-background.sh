@@ -28,18 +28,18 @@ dc() {
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
-echo "==> Stop active audit runs"
-dc exec -T api php artisan audit:stop-active-runs --message="$STOP_MESSAGE" --json || true
-
 if [[ "$STOP_QUEUE" == "1" ]]; then
-  echo "==> Stop queue container"
-  dc stop -t 1 queue
+  echo "==> Kill queue container ngay lập tức"
+  dc kill queue || true
 fi
 
 if [[ "$STOP_SCHEDULER" == "1" ]]; then
-  echo "==> Stop scheduler container"
-  dc stop -t 1 scheduler
+  echo "==> Kill scheduler container ngay lập tức"
+  dc kill scheduler || true
 fi
+
+echo "==> Stop active audit runs + purge queued audit jobs"
+dc exec -T api php artisan audit:stop-active-runs --message="$STOP_MESSAGE" --purge-jobs --json || true
 
 echo "==> Background audit workers stopped"
 dc ps

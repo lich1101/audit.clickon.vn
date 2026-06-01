@@ -4,7 +4,9 @@ use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditRunService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 
@@ -396,12 +398,16 @@ Artisan::command('audit:recover-stale-runs {--limit=} {--json}', function (Audit
     return SymfonyCommand::SUCCESS;
 })->purpose('Khôi phục run kẹt: bước 1 (fetch) và lưu DB bước 3 từ kết quả đã có — không gọi lại AI bước 2–3.5');
 
-Artisan::command('audit:stop-active-runs {--message=} {--json}', function (AuditRunService $auditRunService) {
+Artisan::command('audit:stop-active-runs {--message=} {--purge-jobs} {--json}', function (AuditRunService $auditRunService) {
     $message = trim((string) ($this->option('message') ?: 'Audit run stopped by operator.'));
 
     $runs = \App\Models\AuditRun::query()
-        ->whereIn('status', ['queued', 'processing'])
         ->whereNull('cancelled_at')
+        ->where(function ($query): void {
+            $query
+                ->whereIn('status', ['queued', 'processing'])
+                ->orWhereHas('items', fn ($items) => $items->whereIn('status', ['queued', 'fetching', 'analyzing']));
+        })
         ->orderBy('id')
         ->get();
 
@@ -420,10 +426,39 @@ Artisan::command('audit:stop-active-runs {--message=} {--json}', function (Audit
         ];
     }
 
+    $purgedJobs = 0;
+
+    if ((bool) $this->option('purge-jobs') && Schema::hasTable('jobs')) {
+        $jobClasses = [
+            \App\Jobs\ProcessAuditRunJob::class,
+            \App\Jobs\ProcessAuditRunItemJob::class,
+            \App\Jobs\ProcessAuditRunStep1BatchJob::class,
+            \App\Jobs\ProcessAuditRunStep2BatchJob::class,
+            \App\Jobs\ProcessAuditRunStep3BatchJob::class,
+            \App\Jobs\ProcessAuditDeepResearchBatchJob::class,
+            \App\Jobs\ProcessAuditDeepResearchItemJob::class,
+        ];
+
+        $purgedJobs = DB::table('jobs')
+            ->where(function ($query) use ($jobClasses): void {
+                foreach ($jobClasses as $index => $jobClass) {
+                    if ($index === 0) {
+                        $query->where('payload', 'like', '%'.$jobClass.'%');
+
+                        continue;
+                    }
+
+                    $query->orWhere('payload', 'like', '%'.$jobClass.'%');
+                }
+            })
+            ->delete();
+    }
+
     $payload = [
         'ok' => true,
         'message' => $message,
         'count' => count($stopped),
+        'purgedJobs' => $purgedJobs,
         'runs' => $stopped,
     ];
 
@@ -433,7 +468,7 @@ Artisan::command('audit:stop-active-runs {--message=} {--json}', function (Audit
         return SymfonyCommand::SUCCESS;
     }
 
-    $this->line(sprintf('Stopped %d active audit run(s).', count($stopped)));
+    $this->line(sprintf('Stopped %d active audit run(s). Purged %d queued audit job(s).', count($stopped), $purgedJobs));
 
     foreach ($stopped as $run) {
         $this->line(sprintf(
@@ -447,7 +482,7 @@ Artisan::command('audit:stop-active-runs {--message=} {--json}', function (Audit
     }
 
     return SymfonyCommand::SUCCESS;
-})->purpose('Dừng toàn bộ audit run đang queued/processing để cắt worker trước khi bước AI tiếp tục');
+})->purpose('Dừng toàn bộ audit run còn item active và purge audit jobs còn nằm trong DB queue');
 
 if ((bool) config('services.audit.stale_run_recovery_enabled', true)) {
     Schedule::command('audit:recover-stale-runs --quiet')

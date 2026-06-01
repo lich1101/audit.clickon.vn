@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ExternalLink, FileUp, Play, Save, Square } from "lucide-react";
+import { Download, ExternalLink, FileUp, Play, Save, Settings, Square } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadKeywordTemplateFile, parseKeywordFile } from "@/lib/audit-files";
@@ -110,6 +111,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [extensionReady, setExtensionReady] = useState(false);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [selectedKeywordIds, setSelectedKeywordIds] = useState<string[]>([]);
@@ -592,18 +594,21 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
 
       <Card>
         <CardHeader>
-          <CardTitle>Cấu hình check rank</CardTitle>
+          <CardTitle>Bảng check rank</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-            <div className="space-y-2">
-              <Label htmlFor="keywords">Danh sách keyword</Label>
-              <Textarea id="keywords" rows={10} value={keywordsInput} onChange={(event) => setKeywordsInput(event.target.value)} placeholder="Mỗi dòng một keyword" />
-            </div>
-            <div className="grid content-start gap-3">
+          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
+                <p className="font-medium">Tổng keyword</p>
+                <p className="mt-2 text-2xl font-semibold">{formatNumber(board.keywords.length)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Đã chọn {formatNumber(selectedKeywords.length || board.keywords.length)} keyword để chạy.
+                </p>
+              </div>
               <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
                 <p className="font-medium">Extension</p>
-                <p className={extensionReady ? "mt-2 text-emerald-600" : "mt-2 text-destructive"}>
+                <p className={extensionReady ? "mt-2 font-medium text-emerald-600" : "mt-2 font-medium text-destructive"}>
                   {extensionReady ? "Đã phát hiện Clickon Rank Checker" : "Chưa phát hiện extension trong trình duyệt này"}
                 </p>
               </div>
@@ -616,6 +621,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
               </div>
               <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 p-4 text-sm">
                 <Checkbox
+                  disabled={running}
                   checked={autoCaptcha}
                   onChange={(event) => {
                     const checked = event.target.checked;
@@ -631,75 +637,159 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                 </span>
               </label>
             </div>
-          </div>
+            <div className="flex flex-col justify-between gap-4 rounded-2xl border border-border bg-background/70 p-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Trạng thái hiện tại</p>
+                <p className="text-sm text-muted-foreground">{statusText}</p>
+                <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Domain</p>
+                    <p className="text-sm font-medium break-all">{board.targetDomain}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Google crawl</p>
+                    <p className="text-sm font-medium">{board.serpPages} trang / keyword</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Delay</p>
+                    <p className="text-sm font-medium">
+                      {delayMin}s - {delayMax}s
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Captcha</p>
+                    <p className="text-sm font-medium">{autoCaptcha ? "Tự động qua 2captcha" : "Giải thủ công"}</p>
+                  </div>
+                </div>
+              </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="space-y-2">
-              <Label htmlFor="pages">Số trang Google</Label>
-              <Input id="pages" readOnly value={`${board.serpPages} trang (tối thiểu, dừng khi tìm thấy domain)`} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="delay-min">Delay min (giây)</Label>
-              <Input
-                id="delay-min"
-                min={1}
-                type="number"
-                value={delayMin}
-                onChange={(event) => {
-                  const value = Math.max(1, Number(event.target.value || 1));
-                  setDelayMin(value);
-                  schedulePreferenceSave({ delayMin: value, delayMax: Math.max(value, delayMax) });
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="delay-max">Delay max (giây)</Label>
-              <Input
-                id="delay-max"
-                min={1}
-                type="number"
-                value={delayMax}
-                onChange={(event) => {
-                  const value = Math.max(delayMin, Number(event.target.value || delayMin));
-                  setDelayMax(value);
-                  schedulePreferenceSave({ delayMax: value });
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Domain</Label>
-              <Input value={board.targetDomain} readOnly />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => setSettingsOpen(true)}>
+                  <Settings className="size-4" />
+                  Cấu hình
+                </Button>
+                <Button type="button" onClick={() => void handleRun()} disabled={running || !extensionReady || board.keywords.length === 0}>
+                  <Play className="size-4" />
+                  {running ? "Đang chạy..." : `Run (${selectedKeywords.length || board.keywords.length})`}
+                </Button>
+                {running ? (
+                  <Button type="button" variant="destructive" onClick={handleStop}>
+                    <Square className="size-4" />
+                    Stop
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void handleSaveKeywords()} disabled={saving || running}>
-              <Save className="size-4" />
-              {saving ? "Đang lưu..." : "Lưu keyword"}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => inputFileRef.current?.click()} disabled={running}>
-              <FileUp className="size-4" />
-              Import keyword
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void downloadKeywordTemplateFile()}>
-              <Download className="size-4" />
-              Tải file mẫu
-            </Button>
-            <Button type="button" onClick={() => void handleRun()} disabled={running || !extensionReady || board.keywords.length === 0}>
-              <Play className="size-4" />
-              {running ? "Đang chạy..." : `Run (${selectedKeywords.length || board.keywords.length})`}
-            </Button>
-            {running ? (
-              <Button type="button" variant="destructive" onClick={handleStop}>
-                <Square className="size-4" />
-                Stop
-              </Button>
-            ) : null}
-            <input ref={inputFileRef} className="hidden" type="file" accept=".xlsx,.xls,.csv,.txt,text/plain" onChange={(event) => void handleImport(event.target.files?.[0])} />
-          </div>
-          <p className="text-sm text-muted-foreground">{statusText}</p>
         </CardContent>
       </Card>
+
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent className="left-auto right-0 w-[min(920px,92vw)] max-w-none overflow-y-auto border-l border-r-0 bg-background text-foreground">
+          <SheetHeader className="pr-10">
+            <SheetTitle>Cấu hình check rank</SheetTitle>
+            <SheetDescription>
+              Nhập keyword, import file mẫu và chỉnh các thông số delay/captcha cho extension Chrome. Cấu hình này chỉ áp dụng cho website hiện tại.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 grid gap-6">
+            <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+              <div className="space-y-2">
+                <Label htmlFor="keywords">Danh sách keyword</Label>
+                <Textarea id="keywords" rows={12} value={keywordsInput} onChange={(event) => setKeywordsInput(event.target.value)} placeholder="Mỗi dòng một keyword" />
+              </div>
+              <div className="grid content-start gap-3">
+                <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
+                  <p className="font-medium">Extension</p>
+                  <p className={extensionReady ? "mt-2 text-emerald-600" : "mt-2 text-destructive"}>
+                    {extensionReady ? "Đã phát hiện Clickon Rank Checker" : "Chưa phát hiện extension trong trình duyệt này"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
+                  <p className="font-medium">Lượt captcha</p>
+                  <p className="mt-2 text-2xl font-semibold">{formatNumber(board.captchaCredits)}</p>
+                  <Link className="mt-2 inline-block text-xs text-primary underline-offset-4 hover:underline" href="/products">
+                    Mua thêm lượt captcha
+                  </Link>
+                </div>
+                <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 p-4 text-sm">
+                  <Checkbox
+                    disabled={running}
+                    checked={autoCaptcha}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setAutoCaptcha(checked);
+                      schedulePreferenceSave({ autoCaptcha: checked });
+                    }}
+                  />
+                  <span>
+                    <span className="block font-medium">Tự động giải captcha bằng 2captcha</span>
+                    <span className="mt-1 block text-muted-foreground">
+                      Bật: giải ngầm qua 2captcha, trừ 1 lượt khi thành công. Tắt: mở tab Google để bạn giải captcha thủ công rồi tiếp tục.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="space-y-2">
+                <Label htmlFor="pages">Số trang Google</Label>
+                <Input id="pages" readOnly value={`${board.serpPages} trang (tối thiểu, dừng khi tìm thấy domain)`} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delay-min">Delay min (giây)</Label>
+                <Input
+                  id="delay-min"
+                  min={1}
+                  type="number"
+                  value={delayMin}
+                  onChange={(event) => {
+                    const value = Math.max(1, Number(event.target.value || 1));
+                    setDelayMin(value);
+                    schedulePreferenceSave({ delayMin: value, delayMax: Math.max(value, delayMax) });
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delay-max">Delay max (giây)</Label>
+                <Input
+                  id="delay-max"
+                  min={1}
+                  type="number"
+                  value={delayMax}
+                  onChange={(event) => {
+                    const value = Math.max(delayMin, Number(event.target.value || delayMin));
+                    setDelayMax(value);
+                    schedulePreferenceSave({ delayMax: value });
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Domain</Label>
+                <Input value={board.targetDomain} readOnly />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void handleSaveKeywords()} disabled={saving || running}>
+                <Save className="size-4" />
+                {saving ? "Đang lưu..." : "Lưu keyword"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => inputFileRef.current?.click()} disabled={running}>
+                <FileUp className="size-4" />
+                Import keyword
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void downloadKeywordTemplateFile()}>
+                <Download className="size-4" />
+                Tải file mẫu
+              </Button>
+              <input ref={inputFileRef} className="hidden" type="file" accept=".xlsx,.xls,.csv,.txt,text/plain" onChange={(event) => void handleImport(event.target.files?.[0])} />
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Card>
         <CardHeader>

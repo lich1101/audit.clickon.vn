@@ -646,8 +646,6 @@ const DEFAULT_EXTENSION_PREFS = {
   googleHost: "https://www.google.com",
   hl: "vi",
   gl: "vn",
-  proxyEnabled: false,
-  proxyUrls: [],
   updatedAt: null,
 };
 
@@ -679,7 +677,6 @@ function normalizeExtensionPrefs(raw) {
   const delayMin = clampNumber(prefs.delayMin, 1, 120, DEFAULT_EXTENSION_PREFS.delayMin);
   const delayMax = Math.max(delayMin, clampNumber(prefs.delayMax, 1, 180, DEFAULT_EXTENSION_PREFS.delayMax));
   const googleHostRaw = String(prefs.googleHost || DEFAULT_EXTENSION_PREFS.googleHost).trim();
-  const proxyUrls = normalizeProxyUrlList(prefs.proxyUrls);
 
   return {
     delayMin,
@@ -688,8 +685,6 @@ function normalizeExtensionPrefs(raw) {
     googleHost: googleHostRaw === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
     hl: sanitizeLocalePart(prefs.hl, DEFAULT_EXTENSION_PREFS.hl),
     gl: sanitizeLocalePart(prefs.gl, DEFAULT_EXTENSION_PREFS.gl),
-    proxyEnabled: prefs.proxyEnabled === true && proxyUrls.length > 0,
-    proxyUrls,
     updatedAt: typeof prefs.updatedAt === "string" && prefs.updatedAt.trim() ? prefs.updatedAt.trim() : null,
   };
 }

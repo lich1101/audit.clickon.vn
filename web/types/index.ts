@@ -244,9 +244,14 @@ export type KeywordRankPreferences = {
   googleHost: string;
   hl: string;
   gl: string;
-  proxyEnabled: boolean;
-  proxyUrls: string[];
   updatedAt?: string | null;
+};
+
+export type KeywordRankProxyPolicy = {
+  enabled: boolean;
+  useGithubHttp: boolean;
+  useGithubSocks5: boolean;
+  manualCount: number;
 };
 
 export type KeywordRankBoard = {
@@ -257,6 +262,7 @@ export type KeywordRankBoard = {
   captchaCredits: number;
   serpPages: number;
   preferences: KeywordRankPreferences;
+  proxyPolicy: KeywordRankProxyPolicy;
   extension: {
     bridgeMessageVersion: number;
     required: boolean;

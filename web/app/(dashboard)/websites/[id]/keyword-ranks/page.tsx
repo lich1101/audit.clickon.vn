@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadKeywordTemplateFile, parseKeywordFile } from "@/lib/audit-files";
 import { dedupeKeywordsFromText } from "@/lib/keyword-utils";
-import { refreshKeywordRankProxiesForRun } from "@/lib/keyword-rank-proxies";
+import { resolveKeywordRankProxiesForRun } from "@/lib/keyword-rank-proxies";
 import {
   completeKeywordRankRun,
   createCaptchaSolveTask,
@@ -496,18 +496,19 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     const preferences = buildPreferencePayload() as KeywordRankPreferences;
 
     try {
-      setStatusText("Đang tải proxy từ GitHub...");
-      const proxyRefresh = await refreshKeywordRankProxiesForRun();
-      const proxyUrls = proxyRefresh.data.proxyUrls;
-      const useProxy = proxyUrls.length > 0;
+      setStatusText("Đang chuẩn bị proxy (cấu hình admin)...");
+      const proxyResolve = await resolveKeywordRankProxiesForRun();
+      const { proxyEnabled, proxyUrls } = proxyResolve.data;
 
-      if (!useProxy) {
-        toast.error("Không lấy được proxy. Không thể chạy check rank an toàn.");
-        setStatusText("Không có proxy.");
+      if (proxyEnabled && proxyUrls.length === 0) {
+        toast.error("Admin đã bật proxy nhưng chưa có proxy hợp lệ. Liên hệ admin.");
+        setStatusText("Thiếu proxy (cấu hình admin).");
         return;
       }
 
-      toast.message(proxyRefresh.message);
+      if (proxyEnabled) {
+        toast.message(proxyResolve.message);
+      }
 
       const saved = await updateKeywordRankPreferences(preferences);
       beginPreferenceSync(saved);
@@ -535,7 +536,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
             hl,
             gl,
             autoCaptcha,
-            proxyEnabled: useProxy,
+            proxyEnabled,
             proxyUrls,
             keywords: runKeywords.map((item) => ({ id: item.id, keyword: item.keyword })),
           },
@@ -695,6 +696,12 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                     <p className="text-xs text-muted-foreground">Captcha</p>
                     <p className="text-sm font-medium">{autoCaptcha ? "Tự động qua 2captcha" : "Giải thủ công"}</p>
                   </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Proxy</p>
+                    <p className="text-sm font-medium">
+                      {board.proxyPolicy?.enabled ? "Admin đã bật (xoay IP)" : "Tắt — IP trình duyệt"}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -778,7 +785,10 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                 <li>Khuyến nghị: delay <strong className="text-foreground">3–8 giây</strong> (hoặc 2–5 giây nếu ít keyword); list lớn nên 8–15 giây.</li>
                 <li>Nếu gặp 429, extension sẽ <strong className="text-foreground">cooldown ~45–90 giây</strong> rồi thử lại; sau khi bị chặn sẽ nghỉ lâu hơn trước keyword tiếp theo.</li>
                 <li>
-                  Mỗi lần bấm <strong className="text-foreground">Run</strong>, hệ thống tự tải proxy HTTP + SOCKS5 từ GitHub và extension xoay IP trước mỗi keyword (user không cần nhập proxy).
+                  <strong className="text-foreground">Proxy</strong> do admin cấu hình tại Admin → Keyword Rank Settings (bật/tắt, nguồn GitHub, danh sách thủ công). User không nhập hay chỉnh proxy.
+                  {board.proxyPolicy?.enabled
+                    ? " Hiện admin đã bật proxy — Run sẽ xoay IP qua extension."
+                    : " Hiện proxy đang tắt — Run dùng IP trình duyệt của bạn."}
                 </li>
               </ul>
             </div>

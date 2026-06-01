@@ -7,9 +7,7 @@ export const DEFAULT_KEYWORD_RANK_PREFS: KeywordRankPreferences = {
   googleHost: "https://www.google.com",
   hl: "vi",
   gl: "vn",
-  proxyEnabled: false,
-  proxyUrls: [],
-  updatedAt: null,
+  updatedAt: null
 };
 
 export function parsePreferenceTimestamp(preferences: Pick<KeywordRankPreferences, "updatedAt">) {
@@ -25,8 +23,6 @@ export function keywordRankPreferencesEqual(left: KeywordRankPreferences, right:
     left.googleHost === right.googleHost &&
     left.hl === right.hl &&
     left.gl === right.gl &&
-    left.proxyEnabled === right.proxyEnabled &&
-    left.proxyUrls.join("\n") === right.proxyUrls.join("\n") &&
     (left.updatedAt ?? null) === (right.updatedAt ?? null)
   );
 }

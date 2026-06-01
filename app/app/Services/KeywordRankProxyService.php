@@ -14,40 +14,203 @@ class KeywordRankProxyService
 
     public const SOCKS5_SOURCE_URL = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt';
 
-    private const CACHE_KEY = 'system_settings.keyword_rank_proxies';
+    private const POOL_CACHE_KEY = 'system_settings.keyword_rank_proxies';
 
-    private const SETTING_KEY = 'keyword_rank_proxies';
+    private const CONFIG_CACHE_KEY = 'system_settings.keyword_rank_proxy';
+
+    private const POOL_SETTING_KEY = 'keyword_rank_proxies';
+
+    private const CONFIG_SETTING_KEY = 'keyword_rank_proxy';
 
     private const MAX_STORED = 4000;
+
+    private const MAX_MANUAL = 500;
 
     private const DEFAULT_RUN_SAMPLE = 120;
 
     /**
      * @return array{
-     *   fetchedAt: string,
+     *   enabled: bool,
+     *   useGithubHttp: bool,
+     *   useGithubSocks5: bool,
+     *   refreshGithubOnRun: bool,
+     *   manualProxies: array<int, string>,
+     *   runSampleSize: int
+     * }
+     */
+    public function getAdminConfig(): array
+    {
+        return Cache::remember(self::CONFIG_CACHE_KEY, 30, function (): array {
+            $record = SystemSetting::query()->where('key', self::CONFIG_SETTING_KEY)->first();
+            $value = is_array($record?->value) ? $record->value : [];
+
+            return $this->normalizeAdminConfig($value);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{
+     *   enabled: bool,
+     *   useGithubHttp: bool,
+     *   useGithubSocks5: bool,
+     *   refreshGithubOnRun: bool,
+     *   manualProxies: array<int, string>,
+     *   runSampleSize: int
+     * }
+     */
+    public function updateAdminConfig(array $payload): array
+    {
+        $current = $this->getAdminConfig();
+        $manualText = array_key_exists('manualProxiesText', $payload)
+            ? (string) ($payload['manualProxiesText'] ?? '')
+            : implode("\n", $current['manualProxies']);
+
+        $next = $this->normalizeAdminConfig([
+            'enabled' => array_key_exists('enabled', $payload) ? $payload['enabled'] : $current['enabled'],
+            'useGithubHttp' => array_key_exists('useGithubHttp', $payload) ? $payload['useGithubHttp'] : $current['useGithubHttp'],
+            'useGithubSocks5' => array_key_exists('useGithubSocks5', $payload) ? $payload['useGithubSocks5'] : $current['useGithubSocks5'],
+            'refreshGithubOnRun' => array_key_exists('refreshGithubOnRun', $payload) ? $payload['refreshGithubOnRun'] : $current['refreshGithubOnRun'],
+            'runSampleSize' => array_key_exists('runSampleSize', $payload) ? $payload['runSampleSize'] : $current['runSampleSize'],
+            'manualProxies' => $this->parseManualProxyText($manualText),
+        ]);
+
+        SystemSetting::query()->updateOrCreate(
+            ['key' => self::CONFIG_SETTING_KEY],
+            ['value' => $next],
+        );
+
+        Cache::forget(self::CONFIG_CACHE_KEY);
+
+        return $next;
+    }
+
+    /**
+     * Proxy cho một lần Run — chỉ theo cấu hình admin.
+     *
+     * @return array{
+     *   proxyEnabled: bool,
+     *   proxyUrls: array<int, string>,
+     *   fetchedAt: string|null,
      *   httpCount: int,
      *   socks5Count: int,
      *   totalCount: int,
      *   runProxyCount: int,
-     *   proxyUrls: array<int, string>,
+     *   manualCount: int,
+     *   usedCache: bool,
      *   sources: array{http: string, socks5: string}
      * }
      */
-    public function refreshPool(?int $runSampleSize = null): array
+    public function resolveForRun(): array
     {
-        $runSampleSize = max(10, min(300, $runSampleSize ?? self::DEFAULT_RUN_SAMPLE));
+        $config = $this->getAdminConfig();
+        $sources = [
+            'http' => self::HTTP_SOURCE_URL,
+            'socks5' => self::SOCKS5_SOURCE_URL,
+        ];
 
-        $httpLines = $this->fetchSourceLines(self::HTTP_SOURCE_URL, 'HTTP');
-        $socks5Lines = $this->fetchSourceLines(self::SOCKS5_SOURCE_URL, 'SOCKS5');
+        if (! $config['enabled']) {
+            return [
+                'proxyEnabled' => false,
+                'proxyUrls' => [],
+                'fetchedAt' => null,
+                'httpCount' => 0,
+                'socks5Count' => 0,
+                'totalCount' => 0,
+                'runProxyCount' => 0,
+                'manualCount' => 0,
+                'usedCache' => false,
+                'sources' => $sources,
+            ];
+        }
 
-        $httpProxies = $this->linesToProxies($httpLines, 'http');
-        $socks5Proxies = $this->linesToProxies($socks5Lines, 'socks5');
-        $merged = array_values(array_unique(array_merge($httpProxies, $socks5Proxies)));
-
+        $manual = $config['manualProxies'];
+        $github = [];
         $usedCache = false;
+        $fetchedAt = null;
+        $httpCount = 0;
+        $socks5Count = 0;
+
+        if ($config['useGithubHttp'] || $config['useGithubSocks5']) {
+            if ($config['refreshGithubOnRun']) {
+                $refreshed = $this->refreshGithubPool($config['useGithubHttp'], $config['useGithubSocks5']);
+                $github = $refreshed['proxies'];
+                $fetchedAt = $refreshed['fetchedAt'];
+                $httpCount = $refreshed['httpCount'];
+                $socks5Count = $refreshed['socks5Count'];
+                $usedCache = $refreshed['usedCache'];
+            } else {
+                $pool = $this->getPool();
+                $github = $pool['proxies'];
+                $fetchedAt = $pool['fetchedAt'];
+                $httpCount = $pool['httpCount'];
+                $socks5Count = $pool['socks5Count'];
+                $usedCache = true;
+            }
+        }
+
+        $combined = array_values(array_unique(array_merge($manual, $github)));
+
+        if ($combined === []) {
+            throw new RuntimeException(
+                'Admin đã bật proxy nhưng chưa có proxy hợp lệ. Thêm proxy thủ công hoặc bật nguồn GitHub rồi cào pool.',
+            );
+        }
+
+        $runProxies = $this->sampleFromList($combined, $config['runSampleSize']);
+
+        return [
+            'proxyEnabled' => true,
+            'proxyUrls' => $runProxies,
+            'fetchedAt' => $fetchedAt,
+            'httpCount' => $httpCount,
+            'socks5Count' => $socks5Count,
+            'totalCount' => count($combined),
+            'runProxyCount' => count($runProxies),
+            'manualCount' => count($manual),
+            'usedCache' => $usedCache,
+            'sources' => $sources,
+        ];
+    }
+
+    /**
+     * Cào GitHub theo nguồn admin chọn (không phụ thuộc user Run).
+     *
+     * @return array{
+     *   fetchedAt: string,
+     *   httpCount: int,
+     *   socks5Count: int,
+     *   totalCount: int,
+     *   proxies: array<int, string>,
+     *   usedCache: bool
+     * }
+     */
+    public function refreshGithubPool(bool $useHttp = true, bool $useSocks5 = true): array
+    {
+        $config = $this->getAdminConfig();
+        $useHttp = $useHttp && $config['useGithubHttp'];
+        $useSocks5 = $useSocks5 && $config['useGithubSocks5'];
+
+        $httpProxies = [];
+        $socks5Proxies = [];
+
+        if ($useHttp) {
+            $httpProxies = $this->linesToProxies(
+                $this->fetchSourceLines(self::HTTP_SOURCE_URL, 'HTTP'),
+                'http',
+            );
+        }
+
+        if ($useSocks5) {
+            $socks5Proxies = $this->linesToProxies(
+                $this->fetchSourceLines(self::SOCKS5_SOURCE_URL, 'SOCKS5'),
+                'socks5',
+            );
+        }
+
+        $merged = array_values(array_unique(array_merge($httpProxies, $socks5Proxies)));
         $fetchedAt = now()->toIso8601String();
-        $httpCount = count($httpProxies);
-        $socks5Count = count($socks5Proxies);
+        $usedCache = false;
         $stored = [];
 
         if ($merged !== []) {
@@ -56,18 +219,18 @@ class KeywordRankProxyService
 
             try {
                 SystemSetting::query()->updateOrCreate(
-                    ['key' => self::SETTING_KEY],
+                    ['key' => self::POOL_SETTING_KEY],
                     ['value' => [
                         'fetchedAt' => $fetchedAt,
                         'httpSource' => self::HTTP_SOURCE_URL,
                         'socks5Source' => self::SOCKS5_SOURCE_URL,
-                        'httpCount' => $httpCount,
-                        'socks5Count' => $socks5Count,
+                        'httpCount' => count($httpProxies),
+                        'socks5Count' => count($socks5Proxies),
                         'totalCount' => count($stored),
                         'proxies' => $stored,
                     ]],
                 );
-                Cache::forget(self::CACHE_KEY);
+                Cache::forget(self::POOL_CACHE_KEY);
             } catch (\Throwable $exception) {
                 Log::error('Keyword rank proxy pool save failed.', [
                     'error' => $exception->getMessage(),
@@ -80,26 +243,28 @@ class KeywordRankProxyService
             $fetchedAt = $cached['fetchedAt'] ?? $fetchedAt;
             $httpCount = $cached['httpCount'];
             $socks5Count = $cached['socks5Count'];
+
+            return [
+                'fetchedAt' => $fetchedAt,
+                'httpCount' => $httpCount,
+                'socks5Count' => $socks5Count,
+                'totalCount' => count($stored),
+                'proxies' => $stored,
+                'usedCache' => $usedCache,
+            ];
         }
 
         if ($stored === []) {
-            throw new RuntimeException('Không lấy được proxy nào từ nguồn GitHub. Thử lại sau vài phút.');
+            throw new RuntimeException('Không lấy được proxy từ GitHub. Thử lại sau vài phút.');
         }
-
-        $runProxies = $this->sampleFromList($stored, $runSampleSize);
 
         return [
             'fetchedAt' => $fetchedAt,
-            'httpCount' => $httpCount,
-            'socks5Count' => $socks5Count,
+            'httpCount' => count($httpProxies),
+            'socks5Count' => count($socks5Proxies),
             'totalCount' => count($stored),
-            'runProxyCount' => count($runProxies),
-            'proxyUrls' => $runProxies,
+            'proxies' => $stored,
             'usedCache' => $usedCache,
-            'sources' => [
-                'http' => self::HTTP_SOURCE_URL,
-                'socks5' => self::SOCKS5_SOURCE_URL,
-            ],
         ];
     }
 
@@ -115,8 +280,8 @@ class KeywordRankProxyService
      */
     public function getPool(): array
     {
-        return Cache::remember(self::CACHE_KEY, 30, function (): array {
-            $record = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
+        return Cache::remember(self::POOL_CACHE_KEY, 30, function (): array {
+            $record = SystemSetting::query()->where('key', self::POOL_SETTING_KEY)->first();
             $value = is_array($record?->value) ? $record->value : [];
             $proxies = [];
 
@@ -141,6 +306,83 @@ class KeywordRankProxyService
                 ],
             ];
         });
+    }
+
+    public function parseManualProxyText(string $text): array
+    {
+        $lines = preg_split('/\R+/', $text) ?: [];
+        $proxies = [];
+        $seen = [];
+
+        foreach ($lines as $line) {
+            $line = trim((string) $line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+
+            $normalized = null;
+
+            if (preg_match('/^(https?|socks4|socks5):\/\//i', $line)) {
+                $normalized = $this->normalizeProxyUrl($line);
+            } elseif (preg_match('/^([\d.]+|[\da-f:]+):(\d{2,5})$/i', $line)) {
+                $normalized = $this->normalizeProxyUrl('http://'.$line);
+            }
+
+            if ($normalized === null) {
+                continue;
+            }
+
+            $key = strtolower($normalized);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $proxies[] = $normalized;
+
+            if (count($proxies) >= self::MAX_MANUAL) {
+                break;
+            }
+        }
+
+        return $proxies;
+    }
+
+    /**
+     * @param  array<string, mixed>  $value
+     * @return array{
+     *   enabled: bool,
+     *   useGithubHttp: bool,
+     *   useGithubSocks5: bool,
+     *   refreshGithubOnRun: bool,
+     *   manualProxies: array<int, string>,
+     *   runSampleSize: int
+     * }
+     */
+    private function normalizeAdminConfig(array $value): array
+    {
+        $manual = [];
+        if (is_array($value['manualProxies'] ?? null)) {
+            $manual = $this->parseManualProxyText(implode("\n", $value['manualProxies']));
+        }
+
+        $enabled = (bool) ($value['enabled'] ?? false);
+        $useGithubHttp = (bool) ($value['useGithubHttp'] ?? true);
+        $useSocks5 = (bool) ($value['useGithubSocks5'] ?? true);
+        $refreshOnRun = (bool) ($value['refreshGithubOnRun'] ?? true);
+
+        if ($enabled && ! $useGithubHttp && ! $useSocks5 && $manual === []) {
+            $enabled = false;
+        }
+
+        return [
+            'enabled' => $enabled,
+            'useGithubHttp' => $useGithubHttp,
+            'useGithubSocks5' => $useSocks5,
+            'refreshGithubOnRun' => $refreshOnRun,
+            'manualProxies' => $manual,
+            'runSampleSize' => max(10, min(300, (int) ($value['runSampleSize'] ?? self::DEFAULT_RUN_SAMPLE))),
+        ];
     }
 
     /**
@@ -196,7 +438,7 @@ class KeywordRankProxyService
                     continue;
                 }
 
-                $key = mb_strtolower($normalized, 'UTF-8');
+                $key = strtolower($normalized);
 
                 if (isset($seen[$key])) {
                     continue;
@@ -225,7 +467,7 @@ class KeywordRankProxyService
                 continue;
             }
 
-            $key = mb_strtolower($normalized, 'UTF-8');
+            $key = strtolower($normalized);
 
             if (isset($seen[$key])) {
                 continue;

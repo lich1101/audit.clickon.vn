@@ -21,6 +21,7 @@ class KeywordRankService
         private readonly CreditService $creditService,
         private readonly TwoCaptchaService $twoCaptchaService,
         private readonly KeywordRankSettingsService $keywordRankSettingsService,
+        private readonly KeywordRankProxyService $keywordRankProxyService,
     ) {
     }
 
@@ -45,6 +46,7 @@ class KeywordRankService
             ->first();
 
         $rankSettings = $this->keywordRankSettingsService->getSettings();
+        $proxyConfig = $this->keywordRankProxyService->getAdminConfig();
 
         return [
             'website' => [
@@ -64,6 +66,12 @@ class KeywordRankService
                 'installUrl' => $rankSettings['extensionInstallUrl'],
             ],
             'serpPages' => KeywordRankSettingsService::SERP_PAGES,
+            'proxyPolicy' => [
+                'enabled' => $proxyConfig['enabled'],
+                'useGithubHttp' => $proxyConfig['useGithubHttp'],
+                'useGithubSocks5' => $proxyConfig['useGithubSocks5'],
+                'manualCount' => count($proxyConfig['manualProxies']),
+            ],
         ];
     }
 
@@ -111,14 +119,12 @@ class KeywordRankService
             'googleHost' => 'https://www.google.com',
             'hl' => 'vi',
             'gl' => 'vn',
-            'proxyEnabled' => false,
-            'proxyUrls' => [],
         ];
     }
 
     /**
      * @param  array<string, mixed>  $prefs
-     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string,proxyEnabled:bool,proxyUrls:array<int,string>}
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string,updatedAt:?string}
      */
     private function normalizePreferences(array $prefs): array
     {
@@ -129,19 +135,6 @@ class KeywordRankService
             $googleHost = 'https://www.google.com';
         }
 
-        $proxyUrls = [];
-        if (isset($prefs['proxyUrls']) && is_array($prefs['proxyUrls'])) {
-            foreach ($prefs['proxyUrls'] as $line) {
-                $line = trim((string) $line);
-                if ($line !== '' && strlen($line) <= 512) {
-                    $proxyUrls[] = $line;
-                }
-            }
-        }
-
-        $proxyUrls = array_values(array_unique($proxyUrls));
-        $proxyUrls = array_slice($proxyUrls, 0, 50);
-
         return [
             'delayMin' => $delayMin,
             'delayMax' => $delayMax,
@@ -149,8 +142,6 @@ class KeywordRankService
             'googleHost' => $googleHost,
             'hl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['hl'] ?? 'vi'))) ?: 'vi',
             'gl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['gl'] ?? 'vn'))) ?: 'vn',
-            'proxyEnabled' => (bool) ($prefs['proxyEnabled'] ?? false) && $proxyUrls !== [],
-            'proxyUrls' => $proxyUrls,
             'updatedAt' => isset($prefs['updatedAt']) && is_string($prefs['updatedAt']) && trim($prefs['updatedAt']) !== ''
                 ? trim($prefs['updatedAt'])
                 : null,

@@ -51,7 +51,7 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/keyword-rank-captcha-tasks/{publicId}', [KeywordRankCaptchaController::class, 'poll']);
     Route::post('/website-audits', [WebsiteController::class, 'storeAudit']);
     Route::get('/keyword-rank-settings', [KeywordRankSettingsController::class, 'showPublic']);
-    Route::post('/keyword-rank-proxies/refresh', [KeywordRankProxyController::class, 'refreshForRun']);
+    Route::post('/keyword-rank-proxies/for-run', [KeywordRankProxyController::class, 'resolveForRun']);
     Route::get('/plan-requests', [PlanRequestController::class, 'index']);
     Route::post('/plan-requests', [PlanRequestController::class, 'store']);
     Route::get('/product-requests', [ProductRequestController::class, 'index']);
@@ -81,6 +81,8 @@ Route::prefix('admin')
         Route::get('/keyword-rank-settings', [KeywordRankSettingsController::class, 'showAdmin']);
         Route::put('/keyword-rank-settings', [KeywordRankSettingsController::class, 'updateAdmin']);
         Route::get('/keyword-rank-proxies', [KeywordRankProxyController::class, 'showAdmin']);
+        Route::put('/keyword-rank-proxies', [KeywordRankProxyController::class, 'updateAdmin']);
+        Route::post('/keyword-rank-proxies/refresh-github', [KeywordRankProxyController::class, 'refreshGithubAdmin']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::post('/products', [ProductController::class, 'store']);
         Route::get('/products/{productId}', [ProductController::class, 'show']);

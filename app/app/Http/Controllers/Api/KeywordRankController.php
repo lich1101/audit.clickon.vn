@@ -137,9 +137,6 @@ class KeywordRankController extends Controller
             'googleHost' => ['nullable', 'string', 'in:https://www.google.com,https://www.google.com.vn'],
             'hl' => ['nullable', 'string', 'max:8'],
             'gl' => ['nullable', 'string', 'max:8'],
-            'proxyEnabled' => ['nullable', 'boolean'],
-            'proxyUrls' => ['nullable', 'array', 'max:50'],
-            'proxyUrls.*' => ['string', 'max:512'],
             'updatedAt' => ['nullable', 'string', 'max:64'],
         ]);
 

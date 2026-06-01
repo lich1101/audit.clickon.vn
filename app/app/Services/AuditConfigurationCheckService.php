@@ -29,18 +29,27 @@ class AuditConfigurationCheckService
         $step3FlowMode = in_array(($settings['step3FlowMode'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
             ? (string) $settings['step3FlowMode']
             : AuditRun::WORKFLOW_STANDARD;
+        $auditPipelineMode = in_array(($settings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD), AuditRun::PIPELINE_MODES, true)
+            ? (string) $settings['auditPipelineMode']
+            : AuditRun::PIPELINE_STANDARD;
 
-        $groups = [
-            $this->checkStep2Group($settings),
-        ];
-
-        if ($step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
-            $groups[] = $this->checkDeepResearchStep3Group($settings);
+        if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_STANDARD) {
+            $groups = [
+                $this->checkFastPipelineGroup($settings),
+            ];
         } else {
-            $groups[] = $this->checkStandardStep3Group($settings);
+            $groups = [
+                $this->checkStep2Group($settings),
+            ];
+
+            if ($step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
+                $groups[] = $this->checkDeepResearchStep3Group($settings);
+            } else {
+                $groups[] = $this->checkStandardStep3Group($settings);
+            }
         }
 
-        $groups[] = $this->checkRuntimeGroup($settings, $step3FlowMode);
+        $groups[] = $this->checkRuntimeGroup($settings, $step3FlowMode, $auditPipelineMode);
 
         $summary = ['ok' => 0, 'warning' => 0, 'error' => 0];
 
@@ -56,6 +65,7 @@ class AuditConfigurationCheckService
             'ready' => $summary['error'] === 0,
             'checkedAt' => now()->toIso8601String(),
             'step3FlowMode' => $step3FlowMode,
+            'auditPipelineMode' => $auditPipelineMode,
             'summary' => $summary,
             'groups' => $groups,
         ];
@@ -79,6 +89,28 @@ class AuditConfigurationCheckService
             $this->okItem('Provider/model bước 2.5', sprintf('%s / %s', $formatterProvider, $formatterModel)),
             $this->providerCredentialCheck($formatterProvider, 'API key bước 2.5'),
             $this->promptCheck(AuditPromptTemplate::STEP_KEYWORD_CATEGORY_JSON_FORMATTER, 'Prompt bước 2.5'),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     * @return array{id:string,title:string,status:string,items:array<int, array{status:string,label:string,message:string}>}
+     */
+    private function checkFastPipelineGroup(array $settings): array
+    {
+        $provider = (string) ($settings['step2AiProvider'] ?? $settings['aiProvider'] ?? 'openai');
+        $model = $this->effectiveModelForProvider($provider, $settings['step2AiModel'] ?? $settings['aiModel'] ?? null);
+        $formatterProvider = (string) ($settings['step2FormatterProvider'] ?? 'gemini');
+        $formatterModel = $this->effectiveFormatterModel($formatterProvider, $settings['step2FormatterModel'] ?? null);
+
+        return $this->buildGroup('fast_pipeline', 'Fast mode: keyword + audit gộp', [
+            $this->okItem('Pipeline', 'Fast mode (gộp bước 2 + 3)'),
+            $this->okItem('Provider/model fast audit', sprintf('%s / %s', $provider, $model)),
+            $this->providerCredentialCheck($provider, 'API key fast audit'),
+            $this->promptCheck(AuditPromptTemplate::STEP_FAST_AUDIT, 'Prompt fast audit'),
+            $this->okItem('Provider/model formatter', sprintf('%s / %s', $formatterProvider, $formatterModel)),
+            $this->providerCredentialCheck($formatterProvider, 'API key formatter'),
+            $this->promptCheck(AuditPromptTemplate::STEP_FAST_AUDIT_JSON_FORMATTER, 'Prompt fast formatter'),
         ]);
     }
 
@@ -145,22 +177,33 @@ class AuditConfigurationCheckService
      * @param  array<string, mixed>  $settings
      * @return array{id:string,title:string,status:string,items:array<int, array{status:string,label:string,message:string}>}
      */
-    private function checkRuntimeGroup(array $settings, string $step3FlowMode): array
+    private function checkRuntimeGroup(array $settings, string $step3FlowMode, string $auditPipelineMode = AuditRun::PIPELINE_STANDARD): array
     {
         $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 1));
         $step2BatchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
         $step3BatchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
+        $fastBatchSize = max(1, (int) ($settings['fastBatchSize'] ?? 15));
         $deepResearchBatchSize = max(1, (int) ($settings['deepResearchBatchSize'] ?? 5));
 
         $items = [
+            $this->okItem('Pipeline audit', $auditPipelineMode === AuditRun::PIPELINE_FAST ? 'Fast mode' : 'Chuẩn (tách bước 2/3)'),
             $this->okItem('Mode bước 3', $step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH ? 'Deep Research' : 'Chuẩn'),
-            $this->batchSizeCheck('Batch bước 2', $step2BatchSize, 150),
             $this->parallelCheck($maxParallel),
         ];
 
+        if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
+            $items[] = $this->warningItem('Fast + Deep Research', 'Fast mode chỉ áp dụng workflow chuẩn. Run Deep Research vẫn dùng pipeline tách bước.');
+        }
+
+        if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_STANDARD) {
+            $items[] = $this->batchSizeCheck('Batch fast mode', $fastBatchSize, 30);
+        } else {
+            $items[] = $this->batchSizeCheck('Batch bước 2', $step2BatchSize, 150);
+        }
+
         if ($step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
             $items[] = $this->batchSizeCheck('Batch Deep Research', $deepResearchBatchSize, 60);
-        } else {
+        } elseif ($auditPipelineMode !== AuditRun::PIPELINE_FAST) {
             $items[] = $this->batchSizeCheck('Batch bước 3 chuẩn', $step3BatchSize, 100);
         }
 

@@ -179,6 +179,8 @@ class AuditRunController extends Controller
                     'step3FormatterProvider' => $systemSettings['step3FormatterProvider'],
                     'step3FormatterModel' => $systemSettings['step3FormatterModel'],
                     'step3FlowMode' => $systemSettings['step3FlowMode'],
+                    'auditPipelineMode' => $systemSettings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD,
+                    'fastBatchSize' => (int) ($systemSettings['fastBatchSize'] ?? 15),
                     'maxParallelItems' => $systemSettings['maxParallelItems'],
                     'step2BatchSize' => $systemSettings['step2BatchSize'],
                     'step3BatchSize' => $systemSettings['step3BatchSize'],

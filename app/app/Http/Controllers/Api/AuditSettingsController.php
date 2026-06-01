@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UpdateAuditSettingsRequest;
+use App\Models\AuditRun;
 use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditSettingsService;
 use App\Services\TokenBillingService;
@@ -37,6 +38,8 @@ class AuditSettingsController extends Controller
                 'step3FormatterProvider' => $settings['step3FormatterProvider'],
                 'step3FormatterModel' => $settings['step3FormatterModel'],
                 'step3FlowMode' => $settings['step3FlowMode'],
+                'auditPipelineMode' => $settings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD,
+                'fastBatchSize' => (int) ($settings['fastBatchSize'] ?? 15),
                 'maxParallelItems' => $settings['maxParallelItems'],
                 'step2BatchSize' => $settings['step2BatchSize'],
                 'step3BatchSize' => $settings['step3BatchSize'],

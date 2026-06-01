@@ -33,6 +33,13 @@ class AuditSettingsService
             $step3BatchSize = (int) ($value['step3BatchSize'] ?? 30);
             $step3BatchSize = max(1, min(300, $step3BatchSize));
 
+            $auditPipelineMode = $this->normalizeAuditPipelineMode(
+                $value['auditPipelineMode'] ?? env('AUDIT_PIPELINE_MODE', AuditRun::PIPELINE_STANDARD)
+            );
+
+            $fastBatchSize = (int) ($value['fastBatchSize'] ?? 15);
+            $fastBatchSize = max(1, min(100, $fastBatchSize));
+
             $minValidUrlsAfterStep1 = (int) ($value['minValidUrlsAfterStep1'] ?? 50);
             $minValidUrlsAfterStep1 = max(1, min(300, $minValidUrlsAfterStep1));
 
@@ -93,6 +100,8 @@ class AuditSettingsService
                 'step3FormatterProvider' => $step3FormatterProvider,
                 'step3FormatterModel' => $step3FormatterModel,
                 'step3FlowMode' => $step3FlowMode,
+                'auditPipelineMode' => $auditPipelineMode,
+                'fastBatchSize' => $fastBatchSize,
                 'maxParallelItems' => $maxParallel,
                 'step2BatchSize' => $step2BatchSize,
                 'step3BatchSize' => $step3BatchSize,
@@ -166,6 +175,9 @@ class AuditSettingsService
         $step3FlowMode = array_key_exists('step3FlowMode', $payload)
             ? $this->normalizeStep3FlowMode($payload['step3FlowMode'])
             : $current['step3FlowMode'];
+        $auditPipelineMode = array_key_exists('auditPipelineMode', $payload)
+            ? $this->normalizeAuditPipelineMode($payload['auditPipelineMode'])
+            : ($current['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD);
 
         $maxParallel = isset($payload['maxParallelItems'])
             ? max(1, min(10, (int) $payload['maxParallelItems']))
@@ -178,6 +190,9 @@ class AuditSettingsService
         $step3BatchSize = isset($payload['step3BatchSize'])
             ? max(1, min(300, (int) $payload['step3BatchSize']))
             : $current['step3BatchSize'];
+        $fastBatchSize = isset($payload['fastBatchSize'])
+            ? max(1, min(100, (int) $payload['fastBatchSize']))
+            : ($current['fastBatchSize'] ?? 15);
         $minValidUrlsAfterStep1 = isset($payload['minValidUrlsAfterStep1'])
             ? max(1, min(300, (int) $payload['minValidUrlsAfterStep1']))
             : ($current['minValidUrlsAfterStep1'] ?? 50);
@@ -247,6 +262,8 @@ class AuditSettingsService
             'step3FormatterProvider' => $step3FormatterProvider,
             'step3FormatterModel' => $step3FormatterModel,
             'step3FlowMode' => $step3FlowMode,
+            'auditPipelineMode' => $auditPipelineMode,
+            'fastBatchSize' => $fastBatchSize,
             'maxParallelItems' => $maxParallel,
             'step2BatchSize' => $step2BatchSize,
             'step3BatchSize' => $step3BatchSize,
@@ -285,6 +302,21 @@ class AuditSettingsService
     public function step3FlowMode(): string
     {
         return $this->getAuditSettings()['step3FlowMode'];
+    }
+
+    public function auditPipelineMode(): string
+    {
+        return $this->getAuditSettings()['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD;
+    }
+
+    public function usesFastAuditPipelineMode(): bool
+    {
+        return $this->auditPipelineMode() === AuditRun::PIPELINE_FAST;
+    }
+
+    public function fastBatchSize(): int
+    {
+        return (int) ($this->getAuditSettings()['fastBatchSize'] ?? 15);
     }
 
     public function deepResearchBatchSize(): int
@@ -377,6 +409,13 @@ class AuditSettingsService
         return in_array($value, AuditRun::WORKFLOWS, true)
             ? (string) $value
             : AuditRun::WORKFLOW_STANDARD;
+    }
+
+    private function normalizeAuditPipelineMode(mixed $value): string
+    {
+        return in_array($value, AuditRun::PIPELINE_MODES, true)
+            ? (string) $value
+            : AuditRun::PIPELINE_STANDARD;
     }
 
     private function normalizeModel(mixed $value, string $default): ?string

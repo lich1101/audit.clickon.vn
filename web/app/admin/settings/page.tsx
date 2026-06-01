@@ -24,6 +24,7 @@ import {
 } from "@/lib/audit-settings";
 import type {
   AiProvider,
+  AuditPipelineMode,
   AuditWorkflow,
   DeepResearchReasoningProvider,
   DeepResearchResearchProvider,
@@ -49,6 +50,8 @@ export default function AdminAuditSettingsPage() {
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
     step3FlowMode: "standard",
+    auditPipelineMode: "standard",
+    fastBatchSize: 15,
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -72,6 +75,8 @@ export default function AdminAuditSettingsPage() {
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
           step3FlowMode: data.step3FlowMode ?? "standard",
+          auditPipelineMode: data.auditPipelineMode ?? "standard",
+          fastBatchSize: data.fastBatchSize ?? 15,
           deepResearchResearchProvider: data.deepResearchResearchProvider ?? "perplexity",
           deepResearchResearchModel: data.deepResearchResearchModel ?? "sonar-deep-research",
           deepResearchReasoningProvider: data.deepResearchReasoningProvider ?? "openai",
@@ -264,6 +269,64 @@ export default function AdminAuditSettingsPage() {
           { label: "Audit Settings" }
         ]}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pipeline audit (Standard / Fast)</CardTitle>
+        </CardHeader>
+        <CardContent className="grid max-w-3xl gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="audit-pipeline-mode">Chế độ pipeline</Label>
+            <Select
+              value={settings.auditPipelineMode}
+              onValueChange={(value) =>
+                setSettings((current) => ({
+                  ...current,
+                  auditPipelineMode: value as AuditPipelineMode
+                }))
+              }
+            >
+              <SelectTrigger id="audit-pipeline-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standard">Chuẩn — tách bước 2 (keyword) và bước 3 (audit)</SelectItem>
+                <SelectItem value="fast">Fast — gộp keyword + audit trong một lần gọi model</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Cấu hình toàn hệ thống. Mọi user dùng chung pipeline này. Fast mode chỉ áp dụng workflow chuẩn; Deep Research vẫn tách bước. Không hỗ trợ dừng sau bước 2 (keyword-only) khi bật Fast.
+            </p>
+          </div>
+          {settings.auditPipelineMode === "fast" ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="fast-batch-size">Batch fast mode (URL/lần gọi)</Label>
+              <Input
+                id="fast-batch-size"
+                type="number"
+                min={1}
+                max={100}
+                value={readNumericDraft("fastBatchSize", settings.fastBatchSize)}
+                onChange={(event) =>
+                  commitIntegerDraft("fastBatchSize", event.target.value, (value) =>
+                    setSettings((current) => ({
+                      ...current,
+                      fastBatchSize: value
+                    })), 100)
+                }
+                onBlur={() =>
+                  normalizeIntegerDraft("fastBatchSize", settings.fastBatchSize, (value) =>
+                    setSettings((current) => ({
+                      ...current,
+                      fastBatchSize: value
+                    })), 1, 100)
+                }
+              />
+              <p className="text-xs text-muted-foreground">Khuyến nghị 10–20 URL/batch. Dùng model bước 2 + formatter bước 2.5.</p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

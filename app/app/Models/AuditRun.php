@@ -10,6 +10,14 @@ class AuditRun extends Model
     public const WORKFLOW_STANDARD = 'standard';
     public const WORKFLOW_AUDIT_DEEP_RESEARCH = 'audit_deep_research';
 
+    public const PIPELINE_STANDARD = 'standard';
+    public const PIPELINE_FAST = 'fast';
+
+    public const PIPELINE_MODES = [
+        self::PIPELINE_STANDARD,
+        self::PIPELINE_FAST,
+    ];
+
     public const WORKFLOWS = [
         self::WORKFLOW_STANDARD,
         self::WORKFLOW_AUDIT_DEEP_RESEARCH,
@@ -24,6 +32,7 @@ class AuditRun extends Model
         'user_email',
         'status',
         'workflow',
+        'pipeline_mode',
         'callback_url',
         'start_from_step',
         'stop_after_step',

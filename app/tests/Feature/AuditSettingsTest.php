@@ -54,6 +54,79 @@ class AuditSettingsTest extends TestCase
         $this->assertSame('gemini-2.5-flash', $settings['deepResearchFormatterModel']);
     }
 
+    public function test_fast_pipeline_settings_persist_and_normalize(): void
+    {
+        $settings = app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'gemini',
+            'step2FormatterModel' => 'gemini-2.5-flash',
+            'step3FormatterProvider' => 'gemini',
+            'step3FormatterModel' => 'gemini-2.5-flash',
+            'step3FlowMode' => 'standard',
+            'auditPipelineMode' => 'fast',
+            'fastBatchSize' => 20,
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 5,
+            'deepResearchResearchProvider' => 'perplexity',
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningProvider' => 'openai',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $this->assertSame('fast', $settings['auditPipelineMode']);
+        $this->assertSame(20, $settings['fastBatchSize']);
+        $this->assertTrue(app(AuditSettingsService::class)->usesFastAuditPipelineMode());
+        $this->assertSame(20, app(AuditSettingsService::class)->fastBatchSize());
+    }
+
+    public function test_configuration_check_includes_fast_pipeline_group_when_fast_mode(): void
+    {
+        Config::set('services.openai.api_key', 'openai-test-key');
+        Config::set('services.gemini.api_key', 'gemini-test-key');
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'aiProvider' => 'openai',
+            'aiModel' => 'gpt-5.5',
+            'step2AiProvider' => 'openai',
+            'step2AiModel' => 'gpt-5.5',
+            'step3AiProvider' => 'openai',
+            'step3AiModel' => 'gpt-5.5',
+            'step2FormatterProvider' => 'gemini',
+            'step2FormatterModel' => 'gemini-2.5-flash',
+            'step3FormatterProvider' => 'gemini',
+            'step3FormatterModel' => 'gemini-2.5-flash',
+            'step3FlowMode' => 'standard',
+            'auditPipelineMode' => 'fast',
+            'fastBatchSize' => 15,
+            'maxParallelItems' => 3,
+            'step2BatchSize' => 60,
+            'step3BatchSize' => 30,
+            'deepResearchBatchSize' => 5,
+            'deepResearchResearchProvider' => 'perplexity',
+            'deepResearchResearchModel' => 'sonar-deep-research',
+            'deepResearchReasoningProvider' => 'openai',
+            'deepResearchReasoningModel' => 'gpt-5.5',
+            'deepResearchFormatterProvider' => 'openai',
+            'deepResearchFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $report = app(AuditConfigurationCheckService::class)->check();
+
+        $this->assertSame('fast', $report['auditPipelineMode']);
+        $groupIds = collect($report['groups'])->pluck('id')->all();
+        $this->assertContains('fast_pipeline', $groupIds);
+        $this->assertNotContains('step3_standard', $groupIds);
+    }
+
     public function test_deep_research_catalog_includes_current_and_legacy_agents(): void
     {
         $catalog = app(AiModelCatalogService::class)->listForProvider('gemini_deep_research');

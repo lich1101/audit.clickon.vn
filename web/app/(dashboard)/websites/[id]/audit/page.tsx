@@ -43,6 +43,11 @@ const workflowLabels: Record<AuditWorkflow, string> = {
   audit_deep_research: "Audit Deep Research"
 };
 
+const pipelineModeLabels = {
+  standard: "Pipeline chuẩn (B2 + B3 tách)",
+  fast: "Fast mode (B2 + B3 gộp)"
+} as const;
+
 function progressFor(run?: AuditRun | null) {
   if (!run || run.totalUrls <= 0) {
     return 0;
@@ -128,6 +133,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
     step3FlowMode: "standard",
+    auditPipelineMode: "standard",
+    fastBatchSize: 15,
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -200,6 +207,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         step3FormatterProvider: "gemini",
         step3FormatterModel: "gemini-2.5-flash",
         step3FlowMode: "standard",
+        auditPipelineMode: "standard",
+        fastBatchSize: 15,
         maxParallelItems: 3,
         step2BatchSize: 60,
         step3BatchSize: 30,
@@ -396,6 +405,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   ).length;
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
   const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
+  const configuredPipelineMode = run?.pipelineMode ?? systemAi.auditPipelineMode ?? "standard";
+  const isFastStandardPipeline = configuredWorkflow === "standard" && configuredPipelineMode === "fast";
   const currentBalanceUsd = profile?.balanceUsd ?? 0;
 
   async function persistUrlList(nextUrls: string[]) {
@@ -682,6 +693,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
               {workflowLabels[configuredWorkflow]}
             </span>
+            {configuredWorkflow === "standard" ? (
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  isFastStandardPipeline
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    : "border-border/70 bg-secondary/50"
+                }`}
+                title="Cấu hình toàn hệ thống — chỉ admin đổi trong Audit Settings"
+              >
+                {pipelineModeLabels[configuredPipelineMode]}
+              </span>
+            ) : null}
             {run?.stopAfterStep === 1 ? (
               <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
                 Chỉ chạy bước 1
@@ -700,8 +723,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{audit?.categories.length ?? 0} danh mục</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{formatUsd(currentBalanceUsd, 4)}</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
-            <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2 {stepCounts.step2Ready}/{urlList.length}</span>
-            <span className="rounded-full bg-secondary/50 px-2.5 py-1">B3 {stepCounts.step3Ready}/{urlList.length}</span>
+            {isFastStandardPipeline ? (
+              <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2+3 {stepCounts.step3Ready}/{urlList.length}</span>
+            ) : (
+              <>
+                <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2 {stepCounts.step2Ready}/{urlList.length}</span>
+                <span className="rounded-full bg-secondary/50 px-2.5 py-1">B3 {stepCounts.step3Ready}/{urlList.length}</span>
+              </>
+            )}
             {typeof website?.todayRunCount === "number" ? (
               <span className="rounded-full bg-secondary/50 px-2.5 py-1">Hôm nay {website.todayRunCount}/{website.dailyLimit ?? 1}</span>
             ) : null}
@@ -712,8 +741,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span>Thiếu B1: {stepCounts.step1Missing}</span>
-            <span>Thiếu B2: {stepCounts.step2Missing}</span>
-            <span>Thiếu B3: {stepCounts.step3Missing}</span>
+            {isFastStandardPipeline ? (
+              <span>Thiếu B2+3: {stepCounts.step3Missing}</span>
+            ) : (
+              <>
+                <span>Thiếu B2: {stepCounts.step2Missing}</span>
+                <span>Thiếu B3: {stepCounts.step3Missing}</span>
+              </>
+            )}
           </div>
           {!canOperateAsOwner && canUseAdminDebugActions ? (
             <p className="text-xs text-muted-foreground">
@@ -760,7 +795,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
                 type="button"
                 variant="secondary"
                 onClick={() => void handleRun(2, 2)}
-                disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0 || !canStartRun}
+                disabled={
+                  running ||
+                  isRunActive ||
+                  step2FromStep1ReadySelectedUrls.length === 0 ||
+                  !canStartRun ||
+                  isFastStandardPipeline
+                }
+                title={
+                  isFastStandardPipeline
+                    ? "Fast mode không hỗ trợ dừng sau bước 2. Chuyển pipeline về Chuẩn trong Audit Settings."
+                    : undefined
+                }
               >
                 <Play className="size-4" />
                 {running ? "Đang khởi chạy..." : `Run bước 2 only (${step2FromStep1ReadySelectedUrls.length})`}

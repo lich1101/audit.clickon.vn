@@ -95,6 +95,18 @@ class AuditRunService
         $requestedTargetUrls = array_values(array_unique($payload['targetUrls']));
         $startFromStep = $this->normalizeStartFromStep($payload['startFromStep'] ?? null);
         $stopAfterStep = $this->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
+
+        if (
+            $this->auditSettingsService->usesFastAuditPipelineMode()
+            && $workflow === AuditRun::WORKFLOW_STANDARD
+            && $stopAfterStep === self::STOP_AFTER_STEP_2
+        ) {
+            throw new RuntimeException('Fast mode không hỗ trợ dừng sau bước 2 (chỉ keyword/danh mục). Hãy chuyển pipeline về Chuẩn trong Audit Settings hoặc chọn dừng sau bước 1.');
+        }
+
+        $pipelineMode = $workflow === AuditRun::WORKFLOW_STANDARD && $this->auditSettingsService->usesFastAuditPipelineMode()
+            ? AuditRun::PIPELINE_FAST
+            : AuditRun::PIPELINE_STANDARD;
         $queuedTargetUrls = $requestedTargetUrls;
         $step3SeedResults = collect();
         $step1SeedResults = collect();
@@ -133,7 +145,7 @@ class AuditRunService
         }
 
         /** @var AuditRun $run */
-        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $settings, $queuedTargetUrls, $step1SeedResults, $step3SeedResults, $startFromStep, $stopAfterStep): AuditRun {
+        $run = DB::transaction(function () use ($userUid, $userEmail, $payload, $website, $workflow, $pipelineMode, $settings, $queuedTargetUrls, $step1SeedResults, $step3SeedResults, $startFromStep, $stopAfterStep): AuditRun {
             $targetUrls = $queuedTargetUrls;
             $categories = $payload['categories'] ?? [];
 
@@ -146,6 +158,7 @@ class AuditRunService
                 'user_email' => $userEmail,
                 'status' => 'queued',
                 'workflow' => $workflow,
+                'pipeline_mode' => $pipelineMode,
                 'callback_url' => isset($payload['callbackUrl']) ? trim((string) $payload['callbackUrl']) ?: null : null,
                 'start_from_step' => $startFromStep,
                 'stop_after_step' => $stopAfterStep,
@@ -758,7 +771,9 @@ class AuditRunService
             }
 
             $settings = $this->auditSettingsService->getAuditSettings();
-            $batchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
+            $batchSize = $this->usesFastAuditPipeline($freshRun)
+                ? max(1, (int) ($settings['fastBatchSize'] ?? 15))
+                : max(1, (int) ($settings['step2BatchSize'] ?? 60));
             $maxParallel = max(1, (int) ($settings['maxParallelItems'] ?? 3));
             $activeItems = $freshRun->items()
                 ->where('status', 'fetching')
@@ -815,8 +830,14 @@ class AuditRunService
             ProcessAuditRunStep2BatchJob::dispatch($run->id, $chunk);
         }
 
-        if ($state['step2Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_2)) {
+        if ($state['step2Complete'] && $this->shouldStopAfterStep($run, self::STOP_AFTER_STEP_2) && ! $this->usesFastAuditPipeline($run)) {
             $this->finalizeStep2OnlyRun($run);
+
+            return;
+        }
+
+        if ($state['step2Complete'] && $this->usesFastAuditPipeline($run)) {
+            $this->refreshRunProgress($run->fresh());
 
             return;
         }
@@ -975,8 +996,31 @@ class AuditRunService
         $this->syncRunIfEnabled($run->fresh());
     }
 
+    public function usesFastAuditPipeline(?AuditRun $run = null): bool
+    {
+        if ($run !== null) {
+            if (($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) !== AuditRun::PIPELINE_FAST) {
+                return false;
+            }
+
+            if (($run->workflow ?? AuditRun::WORKFLOW_STANDARD) !== AuditRun::WORKFLOW_STANDARD) {
+                return false;
+            }
+        } else {
+            if (! $this->auditSettingsService->usesFastAuditPipelineMode()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function usesStep2Step3BatchPipeline(?AuditRun $run = null): bool
     {
+        if ($run !== null && $this->usesFastAuditPipeline($run)) {
+            return false;
+        }
+
         $settings = $this->auditSettingsService->getAuditSettings();
         $step2BatchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
         $step3BatchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
@@ -1237,6 +1281,12 @@ class AuditRunService
             return;
         }
 
+        if ($this->usesFastAuditPipeline($run)) {
+            $this->processFastAuditBatch($run, $items);
+
+            return;
+        }
+
         $batchPages = $items
             ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
             ->values()
@@ -1329,6 +1379,56 @@ class AuditRunService
         if ($pipeline && $successfulItemIds !== []) {
             $this->dispatchStep3ForItemIds($run->fresh(), $successfulItemIds);
         }
+
+        $this->dispatchStep2Batches($run->fresh());
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
+     */
+    private function processFastAuditBatch(AuditRun $run, \Illuminate\Support\Collection $items): void
+    {
+        $batchPages = $items
+            ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+            ->values()
+            ->all();
+
+        $analysis = $this->seoAiAuditService->analyzeBatchFastAudit(
+            targetUrls: $items->pluck('target_url')->values()->all(),
+            categories: $run->categories ?? [],
+            checklistText: $run->checklist_text,
+            provider: $this->stepAiProvider($run, 2),
+            model: $this->stepAiModel($run, 2),
+            formatterProvider: $run->step2_formatter_provider,
+            formatterModel: $run->step2_formatter_model,
+            auditRunId: $run->id,
+            persistStep: $this->chunkStepKey('batch_fast_audit', $items),
+            batchPages: $batchPages,
+        );
+
+        if ($this->isRunCancelled($run->fresh())) {
+            return;
+        }
+
+        $firstItem = $items->first();
+
+        if ($firstItem) {
+            $this->chargeUsageEventsSafely($firstItem, $analysis['usageEvents'] ?? []);
+        }
+
+        $analysis['promptSnapshot'] = $analysis['promptSnapshot'] ?? null;
+        $analysis['formatterPromptSnapshot'] = $analysis['formatterPromptSnapshot'] ?? null;
+
+        $this->applyStep3BatchAnalysis(
+            $run,
+            $items,
+            [
+                'items' => $analysis['items'] ?? [],
+                'promptSnapshot' => array_merge($analysis['promptSnapshot'] ?? [], ['mode' => 'fast_audit_combined']),
+                'formatterPromptSnapshot' => $analysis['formatterPromptSnapshot'] ?? null,
+            ],
+            continuePipeline: false,
+        );
 
         $this->dispatchStep2Batches($run->fresh());
     }
@@ -1899,7 +1999,12 @@ class AuditRunService
                 ($analysis['promptSnapshot'] ?? null) !== null
                 || ($analysis['formatterPromptSnapshot'] ?? null) !== null
             )) {
-                $updates['prompt_snapshots'] = array_merge($item->prompt_snapshots ?? [], [
+                $isFast = is_array($analysis['promptSnapshot'] ?? null)
+                    && (($analysis['promptSnapshot']['mode'] ?? null) === 'fast_audit_combined');
+                $updates['prompt_snapshots'] = array_merge($item->prompt_snapshots ?? [], $isFast ? [
+                    'fastAudit' => $analysis['promptSnapshot'] ?? null,
+                    'fastAuditFormatter' => $analysis['formatterPromptSnapshot'] ?? null,
+                ] : [
                     'onpageAudit' => $analysis['promptSnapshot'] ?? null,
                     'onpageAuditFormatter' => $analysis['formatterPromptSnapshot'] ?? null,
                 ]);
@@ -3562,6 +3667,7 @@ class AuditRunService
             'websiteName' => $run->website_name,
             'websiteUrl' => $run->website_url,
             'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
+            'pipelineMode' => $run->pipeline_mode ?: AuditRun::PIPELINE_STANDARD,
             'targetUrls' => [],
             'categories' => [],
             'categoryContexts' => [],
@@ -3687,7 +3793,7 @@ class AuditRunService
      */
     private function isAiStepErrorRecord(string $stepKey, array $record): bool
     {
-        if (! preg_match('/^(batch_keyword_category_mapping|keyword_category_json_formatter|batch_onpage_audit|onpage_audit_json_formatter|deep_research_)/', $stepKey)) {
+        if (! preg_match('/^(batch_keyword_category_mapping|keyword_category_json_formatter|batch_onpage_audit|onpage_audit_json_formatter|batch_fast_audit|fast_audit_json_formatter|deep_research_)/', $stepKey)) {
             return false;
         }
 
@@ -3938,6 +4044,7 @@ class AuditRunService
             'websiteName' => $run->website_name,
             'websiteUrl' => $run->website_url,
             'workflow' => $run->workflow ?: AuditRun::WORKFLOW_STANDARD,
+            'pipelineMode' => $run->pipeline_mode ?: AuditRun::PIPELINE_STANDARD,
             'callbackUrl' => $run->callback_url,
             'startFromStep' => $run->start_from_step,
             'stopAfterStep' => $run->stop_after_step,
@@ -4182,6 +4289,8 @@ class AuditRunService
     private function usageStepMeta(string $step): array
     {
         return match (true) {
+            str_starts_with($step, 'fast_audit_json_formatter') => ['key' => 'fast_formatter', 'label' => 'Fast mode: formatter JSON', 'order' => 25],
+            str_starts_with($step, 'batch_fast_audit') => ['key' => 'fast_audit', 'label' => 'Fast mode: keyword + audit', 'order' => 20],
             str_starts_with($step, 'keyword_category_json_formatter') => ['key' => 'step2_formatter', 'label' => 'Bước 2.5: formatter JSON', 'order' => 25],
             str_starts_with($step, 'batch_keyword_category_mapping') => ['key' => 'step2', 'label' => 'Bước 2: keyword + danh mục', 'order' => 20],
             str_starts_with($step, 'onpage_audit_json_formatter') => ['key' => 'step3_formatter', 'label' => 'Bước 3.5: formatter JSON', 'order' => 35],

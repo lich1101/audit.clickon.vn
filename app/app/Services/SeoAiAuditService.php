@@ -211,6 +211,48 @@ TEXT;
     }
 
     /**
+     * Fast mode: gộp keyword/category + onpage audit trong một lần gọi model.
+     *
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, formatterPromptSnapshot: array<string, mixed>|null, usageEvents: array<int, array<string, mixed>>}
+     */
+    public function analyzeBatchFastAudit(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        string $provider = 'openai',
+        ?string $model = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        array $batchPages = [],
+    ): array {
+        $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
+        $result = $this->analyzeBatchFastAuditInternal(
+            $provider,
+            $resolvedModel,
+            $targetUrls,
+            $categories,
+            $checklistText,
+            $auditRunId,
+            $persistStep,
+            $formatterProvider,
+            $formatterModel,
+            $batchPages,
+        );
+
+        return [
+            'items' => $result['items'],
+            'promptSnapshot' => $result['promptSnapshot'],
+            'formatterPromptSnapshot' => $result['formatterPromptSnapshot'] ?? null,
+            'usageEvents' => $result['usageEvents'] ?? [$result['usage']],
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $page
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
@@ -559,6 +601,238 @@ TEXT;
             ...$normalized,
             'promptSnapshot' => $this->promptSnapshot('onpage_audit', $provider, $model, $prompts),
         ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @return array{items: array<int, array<string, mixed>>, promptSnapshot: array<string, mixed>, formatterPromptSnapshot: array<string, mixed>|null, usage: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    private function analyzeBatchFastAuditInternal(
+        string $provider,
+        string $model,
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
+        array $batchPages = [],
+    ): array {
+        $categoryPayload = array_map(
+            fn (array $category): array => [
+                'name' => $category['name'] ?? null,
+                'url' => $category['url'] ?? null,
+            ],
+            $categories
+        );
+        $usesStep1Content = $this->batchPagesIncludeStep1Content($batchPages);
+        $checklist = trim($checklistText ?: self::defaultChecklist());
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_FAST_AUDIT, [
+            'url' => '',
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'batch_pages_json' => $batchPages,
+            'categories_json' => $categoryPayload,
+            'category_contexts_json' => $categoryPayload,
+            'keyword_category_results_json' => [],
+            'page_json' => [
+                'mode' => $usesStep1Content ? 'fast_mode_step1_content_batch' : 'fast_mode_url_only_batch',
+                'targetUrls' => $targetUrls,
+            ],
+            'article_content' => '',
+            'checklist' => $checklist,
+        ]);
+
+        $batchContract = $this->fastAuditBatchContract($usesStep1Content);
+        $prompts['system'] .= "\n\n".$batchContract;
+        $prompts['developer'] = $prompts['system'];
+
+        $userAppendix = [
+            $batchContract,
+            'Target URLs JSON:',
+            json_encode($targetUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Allowed categories JSON:',
+            json_encode($categoryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'Checklist audit:',
+            $checklist,
+        ];
+
+        $encodedBatchPages = json_encode($batchPages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+
+        if ($usesStep1Content && $encodedBatchPages !== false && ! str_contains($prompts['user'], (string) $encodedBatchPages)) {
+            $userAppendix[] = 'Step 1 page data JSON (per URL):';
+            $userAppendix[] = $encodedBatchPages;
+        }
+
+        $prompts['user'] .= "\n\n".implode("\n", $userAppendix);
+
+        $rawResponse = $this->requestAiRaw(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $this->batchOnpageSchema(),
+            auditRunId: $auditRunId,
+            persistStep: $persistStep ?? 'batch_fast_audit',
+        );
+
+        $normalized = $this->normalizeBatchFastAuditRawResponse(
+            provider: $provider,
+            model: $model,
+            targetUrls: $targetUrls,
+            categoryPayload: $categoryPayload,
+            checklistText: $checklist,
+            batchPages: $batchPages,
+            rawResponse: $rawResponse,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+            formatterProvider: $formatterProvider,
+            formatterModel: $formatterModel,
+        );
+
+        return [
+            ...$normalized,
+            'promptSnapshot' => $this->promptSnapshot('fast_audit_combined', $provider, $model, $prompts),
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categoryPayload
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @param  array{rawText: string, usage: array<string, mixed>, interactionId?: string|null}  $rawResponse
+     * @return array{items: array<int, array<string, mixed>>, formatterPromptSnapshot: array<string, mixed>|null, usage: array<string, mixed>, usageEvents: array<int, array<string, mixed>>}
+     */
+    private function normalizeBatchFastAuditRawResponse(
+        string $provider,
+        string $model,
+        array $targetUrls,
+        array $categoryPayload,
+        string $checklistText,
+        array $batchPages,
+        array $rawResponse,
+        ?int $auditRunId = null,
+        ?string $persistStep = null,
+        ?string $formatterProvider = null,
+        ?string $formatterModel = null,
+    ): array {
+        $formatterResult = null;
+        $usageEvents = [
+            array_merge($rawResponse['usage'], ['step' => 'batch_fast_audit']),
+        ];
+
+        try {
+            $data = $this->decodeJsonText($rawResponse['rawText'], $this->providerLabel($provider));
+            $this->assertBatchItemsData($data, $targetUrls, 'Fast audit');
+            $this->persistParsedAiStepResponse($auditRunId, $persistStep, $provider, $model, $rawResponse, $data);
+        } catch (RuntimeException $exception) {
+            $this->persistAiParseError($auditRunId, $persistStep, $provider, $model, $rawResponse, $exception);
+            $formatterResult = $this->formatBatchFastAuditJson(
+                rawOutput: $rawResponse['rawText'],
+                targetUrls: $targetUrls,
+                categories: $categoryPayload,
+                checklistText: $checklistText,
+                batchPages: $batchPages,
+                formatterProvider: $formatterProvider,
+                formatterModel: $formatterModel,
+                auditRunId: $auditRunId,
+                persistStep: $this->formatterStepKey($persistStep ?? 'batch_fast_audit', 'fast_audit_json_formatter'),
+            );
+            $data = $formatterResult['data'];
+            $this->assertBatchItemsData($data, $targetUrls, 'Fast audit formatter');
+            $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_fast_audit_json_formatter']);
+        }
+
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+
+        return [
+            'items' => array_values(array_filter(array_map(
+                fn (mixed $item): ?array => is_array($item) ? [
+                    'targetUrl' => $this->stringOrNull($item['targetUrl'] ?? null),
+                    'primaryKeyword' => $this->stringOrNull($item['primaryKeyword'] ?? null),
+                    'categoryName' => $this->stringOrNull($item['categoryName'] ?? null),
+                    'categoryUrl' => $this->stringOrNull($item['categoryUrl'] ?? null),
+                    'categoryMatchReason' => $this->stringOrNull($item['categoryMatchReason'] ?? null),
+                    'auditScore' => max(0, min(100, (int) ($item['auditScore'] ?? 0))),
+                    'auditFindings' => $this->normalizeStringList($item['auditFindings'] ?? []),
+                    'auditRecommendations' => $this->normalizeStringList($item['auditRecommendations'] ?? []),
+                    'contentRevisionDirection' => $this->stringOrNull($item['contentRevisionDirection'] ?? null),
+                ] : null,
+                $items
+            ))),
+            'formatterPromptSnapshot' => $formatterResult['promptSnapshot'] ?? null,
+            'usage' => $usageEvents[0],
+            'usageEvents' => $usageEvents,
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @return array{data: array<string, mixed>, promptSnapshot: array<string, mixed>, usage: array<string, mixed>}
+     */
+    private function formatBatchFastAuditJson(
+        string $rawOutput,
+        array $targetUrls,
+        array $categories,
+        string $checklistText,
+        array $batchPages,
+        ?string $formatterProvider,
+        ?string $formatterModel,
+        ?int $auditRunId,
+        string $persistStep,
+    ): array {
+        $provider = $this->jsonFormatterProvider($formatterProvider);
+        $model = $formatterModel ?: $this->defaultJsonFormatterModel($provider);
+        $schema = $this->batchOnpageSchema();
+
+        $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_FAST_AUDIT_JSON_FORMATTER, [
+            'raw_ai_output' => $rawOutput,
+            'target_urls_json' => $targetUrls,
+            'target_urls_text' => implode("\n", $targetUrls),
+            'batch_pages_json' => $batchPages,
+            'categories_json' => $categories,
+            'checklist' => $checklistText,
+            'expected_schema_json' => $schema,
+        ]);
+
+        $response = $this->requestJson(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $schema,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+        );
+
+        return [
+            'data' => $response['data'],
+            'promptSnapshot' => $this->promptSnapshot('fast_audit_json_formatter', $provider, $model, $prompts),
+            'usage' => $response['usage'],
+        ];
+    }
+
+    private function fastAuditBatchContract(bool $usesStep1Content): string
+    {
+        $mode = $usesStep1Content
+            ? 'fast mode batch with step-1 page data'
+            : 'fast mode URL-only batch';
+
+        return implode("\n", [
+            '=== RUNTIME FAST AUDIT CONTRACT — AUTHORITATIVE ===',
+            "Mode: {$mode}. Process all URLs in this chunk in one response.",
+            'Phase A: infer primaryKeyword + category for each URL from allowed categories.',
+            'Phase B: audit each URL with Clickon checklist using Phase A results.',
+            'Return exactly this JSON shape and include every target URL once:',
+            '{"items":[{"targetUrl":"string","primaryKeyword":"string","categoryName":"string","categoryUrl":"string","categoryMatchReason":"string","auditScore":number,"auditFindings":["string"],"auditRecommendations":["string"],"contentRevisionDirection":"string"}]}',
+            'OUTPUT: single JSON object only. First char {, last char }. No markdown/report prose.',
+        ]);
     }
 
     /**
@@ -1079,7 +1353,7 @@ TEXT;
     private function formatterStepKey(string $sourceStep, string $formatterStep): string
     {
         return preg_replace(
-            '/^(batch_keyword_category_mapping|batch_onpage_audit)/',
+            '/^(batch_keyword_category_mapping|batch_onpage_audit|batch_fast_audit)/',
             $formatterStep,
             $sourceStep,
         ) ?: $formatterStep;

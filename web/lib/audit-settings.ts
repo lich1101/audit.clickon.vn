@@ -3,6 +3,7 @@
 import { laravelRequest } from "@/lib/laravel";
 import type {
   AiProvider,
+  AuditPipelineMode,
   AuditWorkflow,
   DeepResearchReasoningProvider,
   DeepResearchResearchProvider,
@@ -45,6 +46,8 @@ export type AuditSystemSettings = {
   step3FormatterProvider: JsonFormatterProvider;
   step3FormatterModel: string | null;
   step3FlowMode: AuditWorkflow;
+  auditPipelineMode: AuditPipelineMode;
+  fastBatchSize: number;
   maxParallelItems: number;
   step2BatchSize: number;
   step3BatchSize: number;
@@ -72,6 +75,8 @@ export type PublicAuditSettings = {
   step3FormatterProvider?: JsonFormatterProvider;
   step3FormatterModel?: string | null;
   step3FlowMode?: AuditWorkflow;
+  auditPipelineMode?: AuditPipelineMode;
+  fastBatchSize?: number;
   maxParallelItems?: number;
   step2BatchSize?: number;
   step3BatchSize?: number;
@@ -104,6 +109,7 @@ export type AuditConfigurationCheckReport = {
   ready: boolean;
   checkedAt: string;
   step3FlowMode: AuditWorkflow;
+  auditPipelineMode?: AuditPipelineMode;
   summary: {
     ok: number;
     warning: number;

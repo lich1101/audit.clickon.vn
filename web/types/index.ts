@@ -76,6 +76,7 @@ export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" |
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
 export type AiProvider = "openai" | "gemini" | "gemini_deep_research" | "perplexity";
 export type AuditWorkflow = "standard" | "audit_deep_research";
+export type AuditPipelineMode = "standard" | "fast";
 export type AuditRunStartStep = 1 | 2 | 3;
 export type AuditRunStopAfterStep = 1 | 2 | 3 | null;
 export type DeepResearchResearchProvider = "perplexity" | "gemini_deep_research";
@@ -445,6 +446,7 @@ export type AuditRun = {
   websiteName?: string | null;
   websiteUrl?: string | null;
   workflow?: AuditWorkflow;
+  pipelineMode?: AuditPipelineMode;
   callbackUrl?: string | null;
   startFromStep?: AuditRunStartStep | null;
   stopAfterStep?: AuditRunStopAfterStep;

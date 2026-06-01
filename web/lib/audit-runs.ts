@@ -99,6 +99,8 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
     step3FlowMode: "standard",
+    auditPipelineMode: "standard",
+    fastBatchSize: 15,
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
@@ -205,6 +207,7 @@ export function normalizeAuditRun(run: AuditRun): AuditRun {
   return {
     ...run,
     workflow: run.workflow ?? "standard",
+    pipelineMode: run.pipelineMode ?? "standard",
     callbackUrl: run.callbackUrl ?? null,
     startFromStep: run.startFromStep ?? 1,
     stopAfterStep: run.stopAfterStep ?? null,

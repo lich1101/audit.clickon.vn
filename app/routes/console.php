@@ -4,9 +4,7 @@ use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditRunService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 
@@ -412,9 +410,15 @@ Artisan::command('audit:stop-active-runs {--message=} {--purge-jobs} {--json}', 
         ->get();
 
     $stopped = [];
+    $purgedJobs = 0;
 
     foreach ($runs as $run) {
-        $auditRunService->stopRun($run, $message);
+        if ((bool) $this->option('purge-jobs')) {
+            $purgedJobs += $auditRunService->stopRunAndPurgeQueuedJobs($run, $message);
+        } else {
+            $auditRunService->stopRun($run, $message);
+        }
+
         $run->refresh();
 
         $stopped[] = [
@@ -424,34 +428,6 @@ Artisan::command('audit:stop-active-runs {--message=} {--purge-jobs} {--json}', 
             'completed' => (int) $run->completed_urls,
             'failed' => (int) $run->failed_urls,
         ];
-    }
-
-    $purgedJobs = 0;
-
-    if ((bool) $this->option('purge-jobs') && Schema::hasTable('jobs')) {
-        $jobClasses = [
-            \App\Jobs\ProcessAuditRunJob::class,
-            \App\Jobs\ProcessAuditRunItemJob::class,
-            \App\Jobs\ProcessAuditRunStep1BatchJob::class,
-            \App\Jobs\ProcessAuditRunStep2BatchJob::class,
-            \App\Jobs\ProcessAuditRunStep3BatchJob::class,
-            \App\Jobs\ProcessAuditDeepResearchBatchJob::class,
-            \App\Jobs\ProcessAuditDeepResearchItemJob::class,
-        ];
-
-        $purgedJobs = DB::table('jobs')
-            ->where(function ($query) use ($jobClasses): void {
-                foreach ($jobClasses as $index => $jobClass) {
-                    if ($index === 0) {
-                        $query->where('payload', 'like', '%'.$jobClass.'%');
-
-                        continue;
-                    }
-
-                    $query->orWhere('payload', 'like', '%'.$jobClass.'%');
-                }
-            })
-            ->delete();
     }
 
     $payload = [

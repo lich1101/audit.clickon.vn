@@ -589,9 +589,14 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     try {
       setStopping(true);
-      await stopAuditRun(run.publicId);
+      const response = await stopAuditRun(run.publicId);
       await loadBoard({ silent: true });
-      toast.success("Đã dừng audit run.");
+      const purgedJobs = response.data.purgedJobs ?? 0;
+      toast.success(
+        purgedJobs > 0
+          ? `Đã dừng audit run và xóa ${formatNumber(purgedJobs)} job chờ của run này.`
+          : "Đã dừng audit run."
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể dừng audit run.");
     } finally {

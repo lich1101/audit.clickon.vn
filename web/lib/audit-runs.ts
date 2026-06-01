@@ -36,7 +36,7 @@ type CreateAuditRunResponse = {
 };
 
 export async function stopAuditRun(publicId: string) {
-  return laravelRequest<{ data: { publicId: string; status: AuditRun["status"] } }>(`/api/audit-runs/${publicId}/stop`, {
+  return laravelRequest<{ data: { publicId: string; status: AuditRun["status"]; purgedJobs?: number } }>(`/api/audit-runs/${publicId}/stop`, {
     method: "POST"
   });
 }

@@ -344,13 +344,14 @@ class AuditRunController extends Controller
             ]);
         }
 
-        $this->auditRunService->stopRun($run, 'Audit run stopped by user.');
+        $purgedJobs = $this->auditRunService->stopRunAndPurgeQueuedJobs($run, 'Audit run stopped by user.');
 
         return response()->json([
             'message' => 'Audit run stopped.',
             'data' => [
                 'publicId' => $run->public_id,
                 'status' => 'failed',
+                'purgedJobs' => $purgedJobs,
             ],
         ]);
     }

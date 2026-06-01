@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\AuditStep1BurstFallbackException;
+use App\Jobs\ProcessAuditDeepResearchItemJob;
 use App\Jobs\ProcessAuditRunJob;
 use App\Jobs\ProcessAuditDeepResearchBatchJob;
 use App\Jobs\ProcessAuditRunItemJob;
@@ -18,6 +19,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -3090,6 +3092,79 @@ class AuditRunService
 
         $run = $run->fresh('items');
         $this->syncRunIfEnabled($run);
+    }
+
+    public function stopRunAndPurgeQueuedJobs(AuditRun $run, string $message = 'Audit run stopped by user.'): int
+    {
+        $this->stopRun($run, $message);
+
+        return $this->purgeQueuedJobsForRun($run);
+    }
+
+    public function purgeQueuedJobsForRun(AuditRun $run): int
+    {
+        if (! Schema::hasTable('jobs')) {
+            return 0;
+        }
+
+        $freshRun = $run->fresh('items');
+
+        if (! $freshRun) {
+            return 0;
+        }
+
+        $itemIds = $freshRun->items->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $jobIdsToDelete = [];
+
+        $rows = DB::table('jobs')->select(['id', 'payload'])->orderBy('id')->get();
+
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row->payload ?? ''), true);
+
+            if (! is_array($payload)) {
+                continue;
+            }
+
+            $commandName = data_get($payload, 'data.commandName');
+            $command = data_get($payload, 'data.command');
+
+            if (! is_string($commandName) || ! is_string($command) || $command === '') {
+                continue;
+            }
+
+            $unserialized = @unserialize($command, ['allowed_classes' => true]);
+
+            if (! is_object($unserialized)) {
+                continue;
+            }
+
+            if (
+                $unserialized instanceof ProcessAuditRunJob
+                || $unserialized instanceof ProcessAuditRunStep1BatchJob
+                || $unserialized instanceof ProcessAuditRunStep2BatchJob
+                || $unserialized instanceof ProcessAuditRunStep3BatchJob
+                || $unserialized instanceof ProcessAuditDeepResearchBatchJob
+            ) {
+                if ((int) ($unserialized->runId ?? 0) === (int) $freshRun->id) {
+                    $jobIdsToDelete[] = (int) $row->id;
+                }
+
+                continue;
+            }
+
+            if (
+                ($unserialized instanceof ProcessAuditRunItemJob || $unserialized instanceof ProcessAuditDeepResearchItemJob)
+                && in_array((int) ($unserialized->itemId ?? 0), $itemIds, true)
+            ) {
+                $jobIdsToDelete[] = (int) $row->id;
+            }
+        }
+
+        if ($jobIdsToDelete === []) {
+            return 0;
+        }
+
+        return DB::table('jobs')->whereIn('id', array_values(array_unique($jobIdsToDelete)))->delete();
     }
 
     public function processItem(AuditRunItem $item): void

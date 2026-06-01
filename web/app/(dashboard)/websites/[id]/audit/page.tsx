@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 import { grantWebsiteSameDayReaudit, revokeWebsiteSameDayReaudit } from "@/lib/account";
 import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-step-errors";
 import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
@@ -109,6 +110,7 @@ function hasStep3SeedData(row?: {
 export default function WebsiteAuditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile, refreshProfile } = useAuth();
+  const { mode } = useDashboardMode();
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
@@ -241,7 +243,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   }, [id, profileUid]);
 
   const isRunActive = isActiveAuditRun(run?.status);
-  const canUseAdminDebugActions = profile?.realRole === "admin" && !profile?.isImpersonating;
+  const canUseAdminDebugActions = profile?.realRole === "admin" && mode === "admin" && !profile?.isImpersonating;
   const canOperateAsOwner = website?.userId === profile?.uid;
   const otherWebsiteActiveRun = userActiveRun && isActiveAuditRun(userActiveRun.status) && userActiveRun.websiteId !== website?.id ? userActiveRun : null;
   const canRunAuditToday = website?.canRunAuditToday !== false;
@@ -812,7 +814,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               </Button>
             </>
           ) : null}
-          {isRunActive ? (
+          {isRunActive && canUseAdminDebugActions ? (
             <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>
               <Square className="size-4" />
               {stopping ? "Đang dừng..." : "Stop"}

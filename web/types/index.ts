@@ -11,8 +11,22 @@ export type AppUser = {
   credits: number;
   captchaCredits: number;
   legacyCreditsPerUsd?: number;
+  ownedDataSummary?: OwnedDataSummary;
   createdAt: string;
   updatedAt: string;
+};
+
+export type OwnedDataSummary = {
+  websiteCount: number;
+  auditRunCount: number;
+  keywordCount: number;
+  keywordRunCount: number;
+  captchaTaskCount: number;
+  creditTransactionCount: number;
+  planRequestCount: number;
+  productRequestCount: number;
+  activeAuditRunCount: number;
+  activeKeywordRankRunCount: number;
 };
 
 export type Product = {

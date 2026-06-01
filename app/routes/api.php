@@ -69,8 +69,10 @@ Route::prefix('admin')
         Route::delete('/audit-settings/gemini-pdf/{slot}', [AuditGeminiPdfController::class, 'destroy']);
         Route::get('/ai-models/{provider}', [AiModelController::class, 'index']);
         Route::get('/users', [AdminUserController::class, 'index']);
+        Route::post('/users', [AdminUserController::class, 'store']);
         Route::get('/users/{firebaseUid}', [AdminUserController::class, 'show']);
         Route::put('/users/{firebaseUid}', [AdminUserController::class, 'update']);
+        Route::delete('/users/{firebaseUid}', [AdminUserController::class, 'destroy']);
         Route::post('/websites/{websiteId}/same-day-reaudit', [WebsiteController::class, 'grantSameDayReaudit']);
         Route::delete('/websites/{websiteId}/same-day-reaudit', [WebsiteController::class, 'revokeSameDayReaudit']);
         Route::get('/keyword-rank-settings', [KeywordRankSettingsController::class, 'showAdmin']);

@@ -13,6 +13,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
 import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
@@ -48,6 +49,7 @@ export default function AuditRunDetailPage({
 }) {
   const { id, runId } = use(params);
   const { profile, refreshProfile } = useAuth();
+  const { mode } = useDashboardMode();
   const [website, setWebsite] = useState<Website | null>(null);
   const [run, setRun] = useState<AuditRun | null>(null);
   const [items, setItems] = useState<AuditRunItem[]>([]);
@@ -67,7 +69,7 @@ export default function AuditRunDetailPage({
 
       const [nextWebsite, nextRun] = await Promise.all([getWebsiteById(id), getAuditRun(runId)]);
 
-      const canAccessAsAdmin = profile?.realRole === "admin" && !profile?.isImpersonating;
+      const canAccessAsAdmin = profile?.realRole === "admin" && mode === "admin" && !profile?.isImpersonating;
 
       if (!nextWebsite || (nextWebsite.userId !== profile?.uid && !canAccessAsAdmin) || nextRun.websiteId !== id) {
         setWebsite(null);
@@ -101,7 +103,7 @@ export default function AuditRunDetailPage({
 
     void loadRun({ silent: runLoadedRef.current });
     runLoadedRef.current = true;
-  }, [id, profileUid, runId]);
+  }, [id, mode, profileUid, runId]);
 
   useEffect(() => {
     if (!run || !isActiveAuditRun(run.status)) {

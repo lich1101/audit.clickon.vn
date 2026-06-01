@@ -42,8 +42,9 @@ export default function AdminUsersPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Users"
-        description="Xem danh sách user, tìm theo email hoặc UID, vào chi tiết hoặc đăng nhập nhanh để kiểm tra luồng như chính user đó."
+        description="Xem danh sách user, tạo tài khoản thủ công, tìm theo email hoặc UID, vào chi tiết hoặc đăng nhập nhanh để kiểm tra luồng như chính user đó."
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Users" }]}
+        action={{ label: "Tạo tài khoản", href: "/admin/users/new" }}
       />
 
       <DataTable

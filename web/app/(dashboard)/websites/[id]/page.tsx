@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 import { getAuditByWebsiteId, getWebsiteById } from "@/lib/firestore";
 import { formatDate } from "@/lib/utils";
 import type { Website, WebsiteAudit } from "@/types";
@@ -18,6 +19,7 @@ import type { Website, WebsiteAudit } from "@/types";
 export default function WebsiteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
+  const { mode } = useDashboardMode();
   const [website, setWebsite] = useState<Website | null>(null);
   const [audit, setAudit] = useState<WebsiteAudit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +30,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
         setLoading(true);
         const [nextWebsite, nextAudit] = await Promise.all([getWebsiteById(id), getAuditByWebsiteId(id)]);
 
-        const canAccessAsAdmin = profile?.realRole === "admin" && !profile?.isImpersonating;
+        const canAccessAsAdmin = profile?.realRole === "admin" && mode === "admin" && !profile?.isImpersonating;
 
         if (!nextWebsite || (nextWebsite.userId !== profile?.uid && !canAccessAsAdmin)) {
           setWebsite(null);
@@ -48,7 +50,7 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
     if (profile) {
       void load();
     }
-  }, [id, profile]);
+  }, [id, mode, profile]);
 
   if (loading) {
     return <LoadingState title="Đang tải website..." description="Đang lấy thông tin website và audit tương ứng." />;

@@ -35,12 +35,35 @@ export async function fetchAdminUser(uid: string) {
   return response.data;
 }
 
-export async function updateAdminUser(uid: string, input: { displayName?: string; role?: "user" | "admin"; captchaCredits?: number }) {
+export async function createAdminUser(input: {
+  email: string;
+  password: string;
+  displayName?: string;
+  role?: "user" | "admin";
+  captchaCredits?: number;
+  balanceUsd?: number;
+}) {
+  const response = await laravelRequest<{ data: AppUser }>(`/api/admin/users`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
+export async function updateAdminUser(uid: string, input: { email?: string; password?: string; displayName?: string; role?: "user" | "admin"; captchaCredits?: number }) {
   const response = await laravelRequest<{ data: AppUser }>(`/api/admin/users/${uid}`, {
     method: "PUT",
     body: JSON.stringify(input)
   });
   return response.data;
+}
+
+export async function deleteAdminUser(uid: string, input: { mode: "purge" | "transfer"; transferToUid?: string }) {
+  const response = await laravelRequest<{ ok: boolean; message?: string }>(`/api/admin/users/${uid}`, {
+    method: "DELETE",
+    body: JSON.stringify(input)
+  });
+  return response;
 }
 
 export async function grantWebsiteSameDayReaudit(websiteId: string) {

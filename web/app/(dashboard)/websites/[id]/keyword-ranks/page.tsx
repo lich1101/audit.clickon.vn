@@ -18,6 +18,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadKeywordTemplateFile, parseKeywordFile } from "@/lib/audit-files";
+import { parseProxyUrlsInput } from "@/lib/keyword-proxy";
+import { dedupeKeywordsFromText } from "@/lib/keyword-utils";
 import {
   completeKeywordRankRun,
   createCaptchaSolveTask,
@@ -58,14 +60,7 @@ type ExtensionMessage =
   | { source: "clickon-rank-extension"; type: "CLICKON_RANK_PREFS"; payload: KeywordRankPreferences };
 
 function splitKeywords(value: string) {
-  return Array.from(
-    new Set(
-      value
-        .split(/\r?\n/g)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
-  );
+  return dedupeKeywordsFromText(value);
 }
 
 function wait(ms: number) {
@@ -115,12 +110,14 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const [extensionReady, setExtensionReady] = useState(false);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [selectedKeywordIds, setSelectedKeywordIds] = useState<string[]>([]);
-  const [delayMin, setDelayMin] = useState(4);
-  const [delayMax, setDelayMax] = useState(9);
+  const [delayMin, setDelayMin] = useState(3);
+  const [delayMax, setDelayMax] = useState(6);
   const [autoCaptcha, setAutoCaptcha] = useState(false);
   const [googleHost, setGoogleHost] = useState("https://www.google.com");
   const [hl, setHl] = useState("vi");
   const [gl, setGl] = useState("vn");
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyUrlsInput, setProxyUrlsInput] = useState("");
   const [statusText, setStatusText] = useState("Chưa chạy");
   const prefsSaveTimerRef = useRef<number | null>(null);
   const webPrefsRef = useRef<KeywordRankPreferences | null>(null);
@@ -139,7 +136,25 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     setGoogleHost(preferences.googleHost);
     setHl(preferences.hl);
     setGl(preferences.gl);
+    setProxyEnabled(preferences.proxyEnabled);
+    setProxyUrlsInput(preferences.proxyUrls.join("\n"));
     rememberWebPreferences(preferences);
+  }
+
+  function buildPreferencePayload(overrides: Partial<KeywordRankPreferences> = {}): Partial<KeywordRankPreferences> {
+    const proxyUrls = parseProxyUrlsInput(proxyUrlsInput);
+
+    return {
+      delayMin,
+      delayMax,
+      autoCaptcha,
+      googleHost,
+      hl,
+      gl,
+      proxyEnabled: proxyEnabled && proxyUrls.length > 0,
+      proxyUrls,
+      ...overrides,
+    };
   }
 
   function syncPrefsToExtension(preferences: KeywordRankPreferences) {
@@ -182,6 +197,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
           googleHost: preferences.googleHost,
           hl: preferences.hl,
           gl: preferences.gl,
+          proxyEnabled: preferences.proxyEnabled,
+          proxyUrls: preferences.proxyUrls,
           updatedAt: preferences.updatedAt ?? undefined,
         });
         applyPreferences(saved);
@@ -217,7 +234,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     }
 
     prefsSaveTimerRef.current = window.setTimeout(() => {
-      void updateKeywordRankPreferences(next)
+      void updateKeywordRankPreferences(buildPreferencePayload(next))
         .then((saved) => {
           beginPreferenceSync(saved);
         })
@@ -432,17 +449,28 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   }, [board?.keywords, selectedKeywordIds]);
 
   async function handleSaveKeywords() {
+    const rawLines = keywordsInput.split(/\r?\n/g).map((line) => line.trim()).filter(Boolean);
     const keywords = splitKeywords(keywordsInput);
+    const removedDuplicates = Math.max(0, rawLines.length - keywords.length);
+
     if (!keywords.length) {
       toast.error("Nhập ít nhất một keyword.");
       return [] as KeywordRankKeyword[];
+    }
+
+    if (removedDuplicates > 0) {
+      setKeywordsInput(keywords.join("\n"));
     }
 
     try {
       setSaving(true);
       const saved = await saveKeywordRankKeywords(id, keywords);
       await loadBoard();
-      toast.success(`Đã lưu ${saved.length} keyword.`);
+      toast.success(
+        removedDuplicates > 0
+          ? `Đã lưu ${saved.length} keyword (đã bỏ ${removedDuplicates} từ khóa trùng).`
+          : `Đã lưu ${saved.length} keyword.`
+      );
       return saved;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể lưu keyword.");
@@ -475,14 +503,12 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
       return;
     }
 
-    const preferences: KeywordRankPreferences = {
-      delayMin,
-      delayMax,
-      autoCaptcha,
-      googleHost,
-      hl,
-      gl,
-    };
+    const preferences = buildPreferencePayload() as KeywordRankPreferences;
+
+    if (proxyEnabled && preferences.proxyUrls.length === 0) {
+      toast.error("Đã bật proxy xoay nhưng chưa nhập danh sách proxy hợp lệ.");
+      return;
+    }
 
     try {
       const saved = await updateKeywordRankPreferences(preferences);
@@ -511,6 +537,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
             hl,
             gl,
             autoCaptcha,
+            proxyEnabled: preferences.proxyEnabled,
+            proxyUrls: preferences.proxyUrls,
             keywords: runKeywords.map((item) => ({ id: item.id, keyword: item.keyword })),
           },
         },
@@ -534,9 +562,18 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     if (!file) return;
 
     try {
-      const keywords = await parseKeywordFile(file);
-      setKeywordsInput((current) => splitKeywords(`${current}\n${keywords.join("\n")}`).join("\n"));
-      toast.success(`Đã import ${keywords.length} keyword.`);
+      const imported = await parseKeywordFile(file);
+      const mergedRaw = `${keywordsInput}\n${imported.join("\n")}`;
+      const beforeCount = mergedRaw.split(/\r?\n/g).map((line) => line.trim()).filter(Boolean).length;
+      const merged = splitKeywords(mergedRaw);
+      const removedDuplicates = Math.max(0, beforeCount - merged.length);
+
+      setKeywordsInput(merged.join("\n"));
+      toast.success(
+        removedDuplicates > 0
+          ? `Đã import ${merged.length} keyword (đã bỏ ${removedDuplicates} từ khóa trùng).`
+          : `Đã import ${merged.length} keyword.`
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể import keyword.");
     } finally {
@@ -733,6 +770,62 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
               </div>
             </div>
 
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+              <p className="font-medium text-amber-800 dark:text-amber-200">Tránh bị Google chặn (429 / CAPTCHA)</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                <li>
+                  Check rank chạy trên <strong className="text-foreground">trình duyệt của bạn</strong> (extension), không qua PHP. Hệ thống tự nghỉ ngẫu nhiên{" "}
+                  <strong className="text-foreground">{delayMin}–{delayMax} giây</strong> giữa mỗi keyword và giữa các trang SERP.
+                </li>
+                <li>Khuyến nghị: delay <strong className="text-foreground">3–8 giây</strong> (hoặc 2–5 giây nếu ít keyword); list lớn nên 8–15 giây.</li>
+                <li>Nếu gặp 429, extension sẽ <strong className="text-foreground">cooldown ~45–90 giây</strong> rồi thử lại; sau khi bị chặn sẽ nghỉ lâu hơn trước keyword tiếp theo.</li>
+                <li>
+                  <strong className="text-foreground">Proxy xoay:</strong> bật bên dưới — extension đổi IP qua <code className="text-xs">chrome.proxy</code> trước mỗi keyword (API Clickon vẫn đi thẳng, không qua proxy).
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border bg-background/70 p-4">
+              <label className="flex items-start gap-3 text-sm">
+                <Checkbox
+                  disabled={running}
+                  checked={proxyEnabled}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setProxyEnabled(checked);
+                    schedulePreferenceSave({ proxyEnabled: checked });
+                  }}
+                />
+                <span>
+                  <span className="block font-medium">Proxy xoay vòng (extension)</span>
+                  <span className="mt-1 block text-muted-foreground">
+                    Mỗi keyword dùng một proxy kế tiếp trong danh sách. Hỗ trợ{" "}
+                    <code className="text-xs">http://host:port</code>,{" "}
+                    <code className="text-xs">http://user:pass@host:port</code>,{" "}
+                    <code className="text-xs">socks5://host:port</code>.
+                  </span>
+                </span>
+              </label>
+              <div className="space-y-2">
+                <Label htmlFor="proxy-urls">Danh sách proxy (mỗi dòng một proxy, tối đa 50)</Label>
+                <Textarea
+                  id="proxy-urls"
+                  rows={5}
+                  disabled={running}
+                  value={proxyUrlsInput}
+                  placeholder={"http://user:pass@1.2.3.4:8080\nsocks5://5.6.7.8:1080\n9.10.11.12:3128"}
+                  onChange={(event) => {
+                    setProxyUrlsInput(event.target.value);
+                    const proxyUrls = parseProxyUrlsInput(event.target.value);
+                    schedulePreferenceSave({
+                      proxyUrls,
+                      proxyEnabled: proxyEnabled && proxyUrls.length > 0,
+                    });
+                  }}
+                />
+              </div>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-4">
               <div className="space-y-2">
                 <Label htmlFor="pages">Số trang Google</Label>
@@ -742,11 +835,11 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                 <Label htmlFor="delay-min">Delay min (giây)</Label>
                 <Input
                   id="delay-min"
-                  min={1}
+                  min={2}
                   type="number"
                   value={delayMin}
                   onChange={(event) => {
-                    const value = Math.max(1, Number(event.target.value || 1));
+                    const value = Math.max(2, Number(event.target.value || 2));
                     setDelayMin(value);
                     schedulePreferenceSave({ delayMin: value, delayMax: Math.max(value, delayMax) });
                   }}
@@ -754,9 +847,10 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
               </div>
               <div className="space-y-2">
                 <Label htmlFor="delay-max">Delay max (giây)</Label>
+                <p className="text-xs text-muted-foreground">Nghỉ ngẫu nhiên giữa mỗi keyword / mỗi trang Google.</p>
                 <Input
                   id="delay-max"
-                  min={1}
+                  min={2}
                   type="number"
                   value={delayMax}
                   onChange={(event) => {

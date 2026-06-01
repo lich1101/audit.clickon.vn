@@ -60,18 +60,24 @@ async function runRankCheck(payload) {
     runPublicId: payload.runPublicId,
     targetDomain: normalizeDomain(payload.targetDomain),
     pages: clampNumber(payload.pages, 10, 10, 10),
-    delayMin: clampNumber(payload.delayMin ?? storedPrefs.delayMin, 1, 120, 4),
+    delayMin: clampNumber(payload.delayMin ?? storedPrefs.delayMin, 2, 120, 3),
     delayMax: Math.max(
-      clampNumber(payload.delayMin ?? storedPrefs.delayMin, 1, 120, 4),
-      clampNumber(payload.delayMax ?? storedPrefs.delayMax, 1, 180, 9),
+      clampNumber(payload.delayMin ?? storedPrefs.delayMin, 2, 120, 3),
+      clampNumber(payload.delayMax ?? storedPrefs.delayMax, 2, 180, 6),
     ),
     googleHost: googleHostRaw === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
     hl: sanitizeLocalePart(payload.hl ?? storedPrefs.hl, "vi"),
     gl: sanitizeLocalePart(payload.gl ?? storedPrefs.gl, "vn"),
     autoCaptcha: payload.autoCaptcha === true,
+    proxyEnabled: payload.proxyEnabled === true || storedPrefs.proxyEnabled === true,
+    proxyUrls: normalizeProxyUrlList(payload.proxyUrls ?? storedPrefs.proxyUrls ?? []),
   };
 
   try {
+    if (settings.proxyEnabled && settings.proxyUrls.length > 0) {
+      postStatus(`Proxy xoay: ${settings.proxyUrls.length} endpoint — đổi IP mỗi keyword.`, 0, keywords.length);
+    }
+
     postStatus(`Bắt đầu check ${keywords.length} keyword.`, 0, keywords.length);
 
     for (let index = 0; index < keywords.length; index += 1) {
@@ -80,6 +86,17 @@ async function runRankCheck(payload) {
       }
 
       const keyword = keywords[index];
+      if (settings.proxyEnabled && settings.proxyUrls.length > 0) {
+        const rotated = await sendRuntimeMessage({
+          type: "CLICKON_RANK_ROTATE_PROXY",
+          proxyUrls: settings.proxyUrls,
+        });
+        if (!rotated?.ok) {
+          throw new Error(rotated?.error || "Không thể áp dụng proxy xoay.");
+        }
+        postStatus(`Proxy: ${rotated.proxy} (${rotated.rotation}/${rotated.total}) — ${keyword.keyword}`, index, keywords.length);
+      }
+
       postStatus(`Đang check ${keyword.keyword}`, index, keywords.length);
       const result = await checkKeyword(keyword, settings, index + 1, keywords.length);
       const persisted = await postItem(result);
@@ -89,7 +106,7 @@ async function runRankCheck(payload) {
       postStatus(`Đã xử lý ${keyword.keyword}`, index + 1, keywords.length);
 
       if (!stopRequested && index < keywords.length - 1) {
-        await wait(randomBetween(settings.delayMin, settings.delayMax) * 1000);
+        await wait(keywordPauseMs(settings, result.status));
       }
     }
 
@@ -97,6 +114,7 @@ async function runRankCheck(payload) {
   } catch (error) {
     postComplete({ stopped: stopRequested, error: error.message || "Extension run failed." });
   } finally {
+    await sendRuntimeMessage({ type: "CLICKON_RANK_CLEAR_PROXY" }).catch(() => undefined);
     running = false;
     stopRequested = false;
   }
@@ -115,9 +133,13 @@ async function checkKeyword(keyword, settings, keywordIndex, totalKeywords) {
     const url = buildGoogleSearchUrl(settings, keyword.keyword, start);
     postStatus(`[${keywordIndex}/${totalKeywords}] Google trang ${page}/${settings.pages}: ${keyword.keyword}`, keywordIndex - 1, totalKeywords);
 
-    const response = await fetchSerp(url);
+    const response = await fetchSerpWithRateLimitRetry(url, settings, keyword, keywordIndex, totalKeywords);
     if (!response.ok) {
-      return buildResult(keyword, checkedAt, { status: "error", page, error: response.error || `Google HTTP ${response.status}` });
+      return buildResult(keyword, checkedAt, {
+        status: response.rateLimited ? "blocked" : "error",
+        page,
+        error: response.error || `Google HTTP ${response.status}`,
+      });
     }
 
     let html = response.text;
@@ -167,7 +189,7 @@ async function checkKeyword(keyword, settings, keywordIndex, totalKeywords) {
     }
 
     if (page < settings.pages) {
-      await wait(randomBetween(settings.delayMin, settings.delayMax) * 1000);
+      await wait(serpPagePauseMs(settings));
     }
   }
 
@@ -290,6 +312,57 @@ function requestCaptchaSolve(payload) {
 
 function fetchSerp(url) {
   return sendRuntimeMessage({ type: "CLICKON_RANK_FETCH_SERP", url });
+}
+
+function isRateLimitedResponse(response) {
+  return response?.status === 429 || response?.status === 403 || response?.status === 503;
+}
+
+async function fetchSerpWithRateLimitRetry(url, settings, keyword, keywordIndex, totalKeywords) {
+  let response = await fetchSerp(url);
+
+  if (!isRateLimitedResponse(response) && response.ok) {
+    return response;
+  }
+
+  if (isRateLimitedResponse(response)) {
+    const cooldownSec = randomBetween(45, 90);
+    postStatus(
+      `[${keywordIndex}/${totalKeywords}] Google ${response.status} — nghỉ ${cooldownSec}s trước khi thử lại: ${keyword.keyword}`,
+      keywordIndex - 1,
+      totalKeywords,
+    );
+    await wait(cooldownSec * 1000);
+    response = await fetchSerp(url);
+  }
+
+  if (!response.ok) {
+    return {
+      ...response,
+      rateLimited: isRateLimitedResponse(response),
+      error:
+        response.error ||
+        (isRateLimitedResponse(response)
+          ? `Google rate limit HTTP ${response.status}. Hãy tăng delay (3–8s+) hoặc dùng proxy xoay IP.`
+          : `Google HTTP ${response.status}`),
+    };
+  }
+
+  return response;
+}
+
+/** Nghỉ giữa các trang SERP của cùng một keyword. */
+function serpPagePauseMs(settings) {
+  return randomBetween(settings.delayMin, settings.delayMax) * 1000;
+}
+
+/** Nghỉ giữa hai keyword; nghỉ lâu hơn nếu keyword trước bị chặn/lỗi. */
+function keywordPauseMs(settings, previousStatus) {
+  const multiplier = previousStatus === "blocked" ? 2.5 : previousStatus === "error" ? 1.75 : 1;
+  const minSec = Math.round(settings.delayMin * multiplier);
+  const maxSec = Math.round(settings.delayMax * multiplier);
+
+  return randomBetween(minSec, Math.max(minSec, maxSec)) * 1000;
 }
 
 function sendRuntimeMessage(message) {
@@ -567,20 +640,46 @@ function postPrefs(prefs) {
 }
 
 const DEFAULT_EXTENSION_PREFS = {
-  delayMin: 4,
-  delayMax: 9,
+  delayMin: 3,
+  delayMax: 6,
   autoCaptcha: false,
   googleHost: "https://www.google.com",
   hl: "vi",
   gl: "vn",
+  proxyEnabled: false,
+  proxyUrls: [],
   updatedAt: null,
 };
+
+function normalizeProxyUrlList(raw) {
+  const lines = Array.isArray(raw) ? raw : String(raw || "").split(/\r?\n/g);
+  const seen = new Set();
+  const result = [];
+
+  for (const line of lines) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed || trimmed.length > 512) {
+      continue;
+    }
+
+    const key = trimmed.toLocaleLowerCase("vi-VN");
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(trimmed);
+  }
+
+  return result.slice(0, 50);
+}
 
 function normalizeExtensionPrefs(raw) {
   const prefs = { ...DEFAULT_EXTENSION_PREFS, ...(raw || {}) };
   const delayMin = clampNumber(prefs.delayMin, 1, 120, DEFAULT_EXTENSION_PREFS.delayMin);
   const delayMax = Math.max(delayMin, clampNumber(prefs.delayMax, 1, 180, DEFAULT_EXTENSION_PREFS.delayMax));
   const googleHostRaw = String(prefs.googleHost || DEFAULT_EXTENSION_PREFS.googleHost).trim();
+  const proxyUrls = normalizeProxyUrlList(prefs.proxyUrls);
 
   return {
     delayMin,
@@ -589,6 +688,8 @@ function normalizeExtensionPrefs(raw) {
     googleHost: googleHostRaw === "https://www.google.com.vn" ? "https://www.google.com.vn" : "https://www.google.com",
     hl: sanitizeLocalePart(prefs.hl, DEFAULT_EXTENSION_PREFS.hl),
     gl: sanitizeLocalePart(prefs.gl, DEFAULT_EXTENSION_PREFS.gl),
+    proxyEnabled: prefs.proxyEnabled === true && proxyUrls.length > 0,
+    proxyUrls,
     updatedAt: typeof prefs.updatedAt === "string" && prefs.updatedAt.trim() ? prefs.updatedAt.trim() : null,
   };
 }

@@ -1,9 +1,50 @@
+import {
+  clearProxy,
+  getActiveProxyAuth,
+  resetProxyRotation,
+  rotateProxy,
+} from "./proxy-rotator.js";
+
 const MANUAL_CAPTCHA_TIMEOUT_MS = 600000;
 const manualCaptchaTabs = new Map();
+
+chrome.webRequest.onAuthRequired.addListener(
+  (details, callback) => {
+    const auth = getActiveProxyAuth();
+
+    if (auth) {
+      callback({ authCredentials: auth });
+      return;
+    }
+
+    callback();
+  },
+  { urls: ["<all_urls>"] },
+  ["asyncBlocking"],
+);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === "CLICKON_RANK_ROTATE_PROXY") {
+    void rotateProxy(Array.isArray(message.proxyUrls) ? message.proxyUrls : [])
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
+  if (message.type === "CLICKON_RANK_CLEAR_PROXY") {
+    void clearProxy()
+      .then(() => {
+        resetProxyRotation();
+        sendResponse({ ok: true });
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
   }
 
   if (message.type === "CLICKON_RANK_FETCH_SERP") {

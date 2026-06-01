@@ -19,7 +19,8 @@
     "default_popup": "popup.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -32,7 +33,7 @@
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "proxy", "webRequest", "webRequestAuthProvider"],
   "host_permissions": [
     "https://www.google.com/*",
     "https://www.google.com.vn/*",

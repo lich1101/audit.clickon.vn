@@ -131,12 +131,15 @@ class KeywordRankController extends Controller
         $uid = (string) $request->attributes->get('firebase_uid');
 
         $validated = $request->validate([
-            'delayMin' => ['nullable', 'integer', 'min:1', 'max:120'],
-            'delayMax' => ['nullable', 'integer', 'min:1', 'max:180'],
+            'delayMin' => ['nullable', 'integer', 'min:2', 'max:120'],
+            'delayMax' => ['nullable', 'integer', 'min:2', 'max:180'],
             'autoCaptcha' => ['nullable', 'boolean'],
             'googleHost' => ['nullable', 'string', 'in:https://www.google.com,https://www.google.com.vn'],
             'hl' => ['nullable', 'string', 'max:8'],
             'gl' => ['nullable', 'string', 'max:8'],
+            'proxyEnabled' => ['nullable', 'boolean'],
+            'proxyUrls' => ['nullable', 'array', 'max:50'],
+            'proxyUrls.*' => ['string', 'max:512'],
             'updatedAt' => ['nullable', 'string', 'max:64'],
         ]);
 

@@ -105,27 +105,42 @@ class KeywordRankService
     private function defaultPreferences(): array
     {
         return [
-            'delayMin' => 4,
-            'delayMax' => 9,
+            'delayMin' => 3,
+            'delayMax' => 6,
             'autoCaptcha' => false,
             'googleHost' => 'https://www.google.com',
             'hl' => 'vi',
             'gl' => 'vn',
+            'proxyEnabled' => false,
+            'proxyUrls' => [],
         ];
     }
 
     /**
      * @param  array<string, mixed>  $prefs
-     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string}
+     * @return array{delayMin:int,delayMax:int,autoCaptcha:bool,googleHost:string,hl:string,gl:string,proxyEnabled:bool,proxyUrls:array<int,string>}
      */
     private function normalizePreferences(array $prefs): array
     {
-        $delayMin = max(1, min(120, (int) ($prefs['delayMin'] ?? 4)));
-        $delayMax = max($delayMin, min(180, (int) ($prefs['delayMax'] ?? 9)));
+        $delayMin = max(2, min(120, (int) ($prefs['delayMin'] ?? 3)));
+        $delayMax = max($delayMin, min(180, (int) ($prefs['delayMax'] ?? 6)));
         $googleHost = trim((string) ($prefs['googleHost'] ?? 'https://www.google.com'));
         if (! in_array($googleHost, ['https://www.google.com', 'https://www.google.com.vn'], true)) {
             $googleHost = 'https://www.google.com';
         }
+
+        $proxyUrls = [];
+        if (isset($prefs['proxyUrls']) && is_array($prefs['proxyUrls'])) {
+            foreach ($prefs['proxyUrls'] as $line) {
+                $line = trim((string) $line);
+                if ($line !== '' && strlen($line) <= 512) {
+                    $proxyUrls[] = $line;
+                }
+            }
+        }
+
+        $proxyUrls = array_values(array_unique($proxyUrls));
+        $proxyUrls = array_slice($proxyUrls, 0, 50);
 
         return [
             'delayMin' => $delayMin,
@@ -134,6 +149,8 @@ class KeywordRankService
             'googleHost' => $googleHost,
             'hl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['hl'] ?? 'vi'))) ?: 'vi',
             'gl' => preg_replace('/[^a-z-]/', '', strtolower((string) ($prefs['gl'] ?? 'vn'))) ?: 'vn',
+            'proxyEnabled' => (bool) ($prefs['proxyEnabled'] ?? false) && $proxyUrls !== [],
+            'proxyUrls' => $proxyUrls,
             'updatedAt' => isset($prefs['updatedAt']) && is_string($prefs['updatedAt']) && trim($prefs['updatedAt']) !== ''
                 ? trim($prefs['updatedAt'])
                 : null,
@@ -147,9 +164,9 @@ class KeywordRankService
     public function replaceKeywords(Website $website, string $userUid, array $keywords): array
     {
         $normalized = collect($keywords)
-            ->map(fn ($keyword): string => trim((string) $keyword))
+            ->map(fn ($keyword): string => $this->normalizeKeyword((string) $keyword))
             ->filter(fn (string $keyword): bool => $keyword !== '')
-            ->unique(fn (string $keyword): string => mb_strtolower($keyword))
+            ->unique(fn (string $keyword): string => mb_strtolower($keyword, 'UTF-8'))
             ->take(5000)
             ->values();
 
@@ -564,6 +581,17 @@ class KeywordRankService
             'status' => (int) $run->failed_keywords > 0 ? 'partial' : 'completed',
             'completed_at' => $run->completed_at ?: now(),
         ])->save();
+    }
+
+    private function normalizeKeyword(string $keyword): string
+    {
+        $keyword = trim($keyword);
+
+        if ($keyword === '') {
+            return '';
+        }
+
+        return (string) preg_replace('/\s+/u', ' ', $keyword);
     }
 
     private function normalizeStatus(string $status): string

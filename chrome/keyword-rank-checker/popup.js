@@ -1,8 +1,8 @@
 const STORAGE_KEY = "clickon_rank_checker_user_prefs";
 
 const defaults = {
-  delayMin: 4,
-  delayMax: 9,
+  delayMin: 3,
+  delayMax: 6,
   autoCaptcha: false,
   googleHost: "https://www.google.com",
   hl: "vi",

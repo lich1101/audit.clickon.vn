@@ -68,7 +68,11 @@ Payload:
 ## Ghi chú kỹ thuật
 
 - Extension không hardcode cookie Google.
-- Extension không tự vượt captcha.
-- Nếu Google trả captcha/consent/unusual traffic, kết quả keyword sẽ có trạng thái `blocked`.
-- Nên giữ delay vài giây giữa các request để giảm rủi ro bị chặn.
+- Check rank chạy trên **IP trình duyệt của bạn**, không qua PHP/Laravel trên server.
+- Mặc định nghỉ **3–6 giây** (ngẫu nhiên) giữa mỗi keyword và giữa mỗi trang SERP; chỉnh trong tab Clickon Audit hoặc popup extension.
+- Nếu Google trả **HTTP 429/403/503**, extension **cooldown ~45–90 giây** rồi thử lại một lần; sau keyword bị `blocked` sẽ nghỉ lâu hơn (~2.5× delay) trước keyword tiếp theo.
+- Nếu Google trả captcha/consent/unusual traffic, kết quả keyword sẽ có trạng thái `blocked` (có thể bật 2captcha hoặc giải thủ công).
+- **Proxy xoay vòng (trong extension):** bật tại tab Thứ hạng keyword → nhập danh sách proxy (mỗi dòng một endpoint). Extension đổi IP qua `chrome.proxy` **trước mỗi keyword**; `audit.clickon.vn` và localhost được bypass (API vẫn gọi thẳng).
+- Định dạng: `http://host:port`, `http://user:pass@host:port`, `socks5://host:port`.
+- Sau khi cập nhật extension: **Reload** tại `chrome://extensions`.
 - Logic match domain là exact host hoặc subdomain, ví dụ `www.example.com` và `blog.example.com` khớp với `example.com`.

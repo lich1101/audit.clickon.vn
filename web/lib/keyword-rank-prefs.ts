@@ -1,12 +1,14 @@
 import type { KeywordRankPreferences } from "@/types";
 
 export const DEFAULT_KEYWORD_RANK_PREFS: KeywordRankPreferences = {
-  delayMin: 4,
-  delayMax: 9,
+  delayMin: 3,
+  delayMax: 6,
   autoCaptcha: false,
   googleHost: "https://www.google.com",
   hl: "vi",
   gl: "vn",
+  proxyEnabled: false,
+  proxyUrls: [],
   updatedAt: null,
 };
 
@@ -23,6 +25,8 @@ export function keywordRankPreferencesEqual(left: KeywordRankPreferences, right:
     left.googleHost === right.googleHost &&
     left.hl === right.hl &&
     left.gl === right.gl &&
+    left.proxyEnabled === right.proxyEnabled &&
+    left.proxyUrls.join("\n") === right.proxyUrls.join("\n") &&
     (left.updatedAt ?? null) === (right.updatedAt ?? null)
   );
 }

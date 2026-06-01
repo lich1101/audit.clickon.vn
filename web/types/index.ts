@@ -244,6 +244,8 @@ export type KeywordRankPreferences = {
   googleHost: string;
   hl: string;
   gl: string;
+  proxyEnabled: boolean;
+  proxyUrls: string[];
   updatedAt?: string | null;
 };
 

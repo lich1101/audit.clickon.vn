@@ -64,8 +64,8 @@ async function loadState() {
   els.googleHost.value = settings.googleHost || "https://www.google.com";
   els.gl.value = settings.gl || "vn";
   els.hl.value = settings.hl || "vi";
-  els.delayMin.value = String(settings.delayMin || 4);
-  els.delayMax.value = String(settings.delayMax || 9);
+  els.delayMin.value = String(settings.delayMin || 3);
+  els.delayMax.value = String(settings.delayMax || 6);
   els.callbackUrl.value = settings.callbackUrl || "";
   els.keywords.value = settings.keywords || "";
   state.results = Array.isArray(stored[RESULTS_KEY]) ? stored[RESULTS_KEY] : [];

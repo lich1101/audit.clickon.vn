@@ -1,3 +1,4 @@
+import { dedupeKeywords } from "@/lib/keyword-utils";
 import { parseArticleUrls, parseCategories, formatCategoryLine } from "@/lib/validators";
 import type { AuditCategory } from "@/types";
 
@@ -178,7 +179,7 @@ export async function parseKeywordFile(file: File) {
       })
     : splitLines(await file.text());
 
-  return uniqueStrings(lines);
+  return dedupeKeywords(lines);
 }
 
 async function writeTemplateFile(filename: string, rows: string[][]) {

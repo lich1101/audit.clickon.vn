@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AuditSettingsController;
 use App\Http\Controllers\Api\AiModelController;
 use App\Http\Controllers\Api\AuditPromptTemplateController;
 use App\Http\Controllers\Api\KeywordRankCaptchaController;
+use App\Http\Controllers\Api\KeywordRankProxyController;
 use App\Http\Controllers\Api\KeywordRankSettingsController;
 use App\Http\Controllers\Api\KeywordRankController;
 use App\Http\Controllers\Api\MeController;
@@ -50,6 +51,7 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/keyword-rank-captcha-tasks/{publicId}', [KeywordRankCaptchaController::class, 'poll']);
     Route::post('/website-audits', [WebsiteController::class, 'storeAudit']);
     Route::get('/keyword-rank-settings', [KeywordRankSettingsController::class, 'showPublic']);
+    Route::post('/keyword-rank-proxies/refresh', [KeywordRankProxyController::class, 'refreshForRun']);
     Route::get('/plan-requests', [PlanRequestController::class, 'index']);
     Route::post('/plan-requests', [PlanRequestController::class, 'store']);
     Route::get('/product-requests', [ProductRequestController::class, 'index']);
@@ -78,6 +80,7 @@ Route::prefix('admin')
         Route::delete('/websites/{websiteId}/same-day-reaudit', [WebsiteController::class, 'revokeSameDayReaudit']);
         Route::get('/keyword-rank-settings', [KeywordRankSettingsController::class, 'showAdmin']);
         Route::put('/keyword-rank-settings', [KeywordRankSettingsController::class, 'updateAdmin']);
+        Route::get('/keyword-rank-proxies', [KeywordRankProxyController::class, 'showAdmin']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::post('/products', [ProductController::class, 'store']);
         Route::get('/products/{productId}', [ProductController::class, 'show']);

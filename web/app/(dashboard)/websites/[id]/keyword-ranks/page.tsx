@@ -18,8 +18,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadKeywordTemplateFile, parseKeywordFile } from "@/lib/audit-files";
-import { parseProxyUrlsInput } from "@/lib/keyword-proxy";
 import { dedupeKeywordsFromText } from "@/lib/keyword-utils";
+import { refreshKeywordRankProxiesForRun } from "@/lib/keyword-rank-proxies";
 import {
   completeKeywordRankRun,
   createCaptchaSolveTask,
@@ -116,8 +116,6 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
   const [googleHost, setGoogleHost] = useState("https://www.google.com");
   const [hl, setHl] = useState("vi");
   const [gl, setGl] = useState("vn");
-  const [proxyEnabled, setProxyEnabled] = useState(false);
-  const [proxyUrlsInput, setProxyUrlsInput] = useState("");
   const [statusText, setStatusText] = useState("Chưa chạy");
   const prefsSaveTimerRef = useRef<number | null>(null);
   const webPrefsRef = useRef<KeywordRankPreferences | null>(null);
@@ -136,14 +134,10 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
     setGoogleHost(preferences.googleHost);
     setHl(preferences.hl);
     setGl(preferences.gl);
-    setProxyEnabled(preferences.proxyEnabled);
-    setProxyUrlsInput(preferences.proxyUrls.join("\n"));
     rememberWebPreferences(preferences);
   }
 
   function buildPreferencePayload(overrides: Partial<KeywordRankPreferences> = {}): Partial<KeywordRankPreferences> {
-    const proxyUrls = parseProxyUrlsInput(proxyUrlsInput);
-
     return {
       delayMin,
       delayMax,
@@ -151,8 +145,6 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
       googleHost,
       hl,
       gl,
-      proxyEnabled: proxyEnabled && proxyUrls.length > 0,
-      proxyUrls,
       ...overrides,
     };
   }
@@ -197,8 +189,6 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
           googleHost: preferences.googleHost,
           hl: preferences.hl,
           gl: preferences.gl,
-          proxyEnabled: preferences.proxyEnabled,
-          proxyUrls: preferences.proxyUrls,
           updatedAt: preferences.updatedAt ?? undefined,
         });
         applyPreferences(saved);
@@ -505,12 +495,20 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
 
     const preferences = buildPreferencePayload() as KeywordRankPreferences;
 
-    if (proxyEnabled && preferences.proxyUrls.length === 0) {
-      toast.error("Đã bật proxy xoay nhưng chưa nhập danh sách proxy hợp lệ.");
-      return;
-    }
-
     try {
+      setStatusText("Đang tải proxy từ GitHub...");
+      const proxyRefresh = await refreshKeywordRankProxiesForRun();
+      const proxyUrls = proxyRefresh.data.proxyUrls;
+      const useProxy = proxyUrls.length > 0;
+
+      if (!useProxy) {
+        toast.error("Không lấy được proxy. Không thể chạy check rank an toàn.");
+        setStatusText("Không có proxy.");
+        return;
+      }
+
+      toast.message(proxyRefresh.message);
+
       const saved = await updateKeywordRankPreferences(preferences);
       beginPreferenceSync(saved);
       setRunning(true);
@@ -537,8 +535,8 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
             hl,
             gl,
             autoCaptcha,
-            proxyEnabled: preferences.proxyEnabled,
-            proxyUrls: preferences.proxyUrls,
+            proxyEnabled: useProxy,
+            proxyUrls,
             keywords: runKeywords.map((item) => ({ id: item.id, keyword: item.keyword })),
           },
         },
@@ -780,50 +778,9 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                 <li>Khuyến nghị: delay <strong className="text-foreground">3–8 giây</strong> (hoặc 2–5 giây nếu ít keyword); list lớn nên 8–15 giây.</li>
                 <li>Nếu gặp 429, extension sẽ <strong className="text-foreground">cooldown ~45–90 giây</strong> rồi thử lại; sau khi bị chặn sẽ nghỉ lâu hơn trước keyword tiếp theo.</li>
                 <li>
-                  <strong className="text-foreground">Proxy xoay:</strong> bật bên dưới — extension đổi IP qua <code className="text-xs">chrome.proxy</code> trước mỗi keyword (API Clickon vẫn đi thẳng, không qua proxy).
+                  Mỗi lần bấm <strong className="text-foreground">Run</strong>, hệ thống tự tải proxy HTTP + SOCKS5 từ GitHub và extension xoay IP trước mỗi keyword (user không cần nhập proxy).
                 </li>
               </ul>
-            </div>
-
-            <div className="space-y-3 rounded-2xl border border-border bg-background/70 p-4">
-              <label className="flex items-start gap-3 text-sm">
-                <Checkbox
-                  disabled={running}
-                  checked={proxyEnabled}
-                  onChange={(event) => {
-                    const checked = event.target.checked;
-                    setProxyEnabled(checked);
-                    schedulePreferenceSave({ proxyEnabled: checked });
-                  }}
-                />
-                <span>
-                  <span className="block font-medium">Proxy xoay vòng (extension)</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    Mỗi keyword dùng một proxy kế tiếp trong danh sách. Hỗ trợ{" "}
-                    <code className="text-xs">http://host:port</code>,{" "}
-                    <code className="text-xs">http://user:pass@host:port</code>,{" "}
-                    <code className="text-xs">socks5://host:port</code>.
-                  </span>
-                </span>
-              </label>
-              <div className="space-y-2">
-                <Label htmlFor="proxy-urls">Danh sách proxy (mỗi dòng một proxy, tối đa 50)</Label>
-                <Textarea
-                  id="proxy-urls"
-                  rows={5}
-                  disabled={running}
-                  value={proxyUrlsInput}
-                  placeholder={"http://user:pass@1.2.3.4:8080\nsocks5://5.6.7.8:1080\n9.10.11.12:3128"}
-                  onChange={(event) => {
-                    setProxyUrlsInput(event.target.value);
-                    const proxyUrls = parseProxyUrlsInput(event.target.value);
-                    schedulePreferenceSave({
-                      proxyUrls,
-                      proxyEnabled: proxyEnabled && proxyUrls.length > 0,
-                    });
-                  }}
-                />
-              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-4">

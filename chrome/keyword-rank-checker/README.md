@@ -72,7 +72,6 @@ Payload:
 - Mặc định nghỉ **3–6 giây** (ngẫu nhiên) giữa mỗi keyword và giữa mỗi trang SERP; chỉnh trong tab Clickon Audit hoặc popup extension.
 - Nếu Google trả **HTTP 429/403/503**, extension **cooldown ~45–90 giây** rồi thử lại một lần; sau keyword bị `blocked` sẽ nghỉ lâu hơn (~2.5× delay) trước keyword tiếp theo.
 - Nếu Google trả captcha/consent/unusual traffic, kết quả keyword sẽ có trạng thái `blocked` (có thể bật 2captcha hoặc giải thủ công).
-- **Proxy xoay vòng (trong extension):** bật tại tab Thứ hạng keyword → nhập danh sách proxy (mỗi dòng một endpoint). Extension đổi IP qua `chrome.proxy` **trước mỗi keyword**; `audit.clickon.vn` và localhost được bypass (API vẫn gọi thẳng).
-- Định dạng: `http://host:port`, `http://user:pass@host:port`, `socks5://host:port`.
+- **Proxy xoay tự động:** mỗi lần user bấm Run trên web, server tải proxy HTTP + SOCKS5 từ GitHub (TheSpeedX/PROXY-List), gửi ~120 proxy cho extension; extension đổi IP qua `chrome.proxy` **trước mỗi keyword**. User không nhập proxy. Admin xem full pool tại **Admin → Keyword Rank Settings**.
 - Sau khi cập nhật extension: **Reload** tại `chrome://extensions`.
 - Logic match domain là exact host hoặc subdomain, ví dụ `www.example.com` và `blog.example.com` khớp với `example.com`.

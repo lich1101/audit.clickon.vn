@@ -69,8 +69,8 @@ async function runRankCheck(payload) {
     hl: sanitizeLocalePart(payload.hl ?? storedPrefs.hl, "vi"),
     gl: sanitizeLocalePart(payload.gl ?? storedPrefs.gl, "vn"),
     autoCaptcha: payload.autoCaptcha === true,
-    proxyEnabled: payload.proxyEnabled === true || storedPrefs.proxyEnabled === true,
-    proxyUrls: normalizeProxyUrlList(payload.proxyUrls ?? storedPrefs.proxyUrls ?? []),
+    proxyUrls: normalizeProxyUrlList(payload.proxyUrls ?? []),
+    proxyEnabled: payload.proxyEnabled === true && normalizeProxyUrlList(payload.proxyUrls ?? []).length > 0,
   };
 
   try {

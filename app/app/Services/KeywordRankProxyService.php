@@ -44,40 +44,58 @@ class KeywordRankProxyService
         $socks5Proxies = $this->linesToProxies($socks5Lines, 'socks5');
         $merged = array_values(array_unique(array_merge($httpProxies, $socks5Proxies)));
 
-        if ($merged === []) {
-            throw new RuntimeException('Không lấy được proxy nào từ nguồn GitHub. Thử lại sau vài phút.');
+        $usedCache = false;
+        $fetchedAt = now()->toIso8601String();
+        $httpCount = count($httpProxies);
+        $socks5Count = count($socks5Proxies);
+        $stored = [];
+
+        if ($merged !== []) {
+            shuffle($merged);
+            $stored = array_slice($merged, 0, self::MAX_STORED);
+
+            try {
+                SystemSetting::query()->updateOrCreate(
+                    ['key' => self::SETTING_KEY],
+                    ['value' => [
+                        'fetchedAt' => $fetchedAt,
+                        'httpSource' => self::HTTP_SOURCE_URL,
+                        'socks5Source' => self::SOCKS5_SOURCE_URL,
+                        'httpCount' => $httpCount,
+                        'socks5Count' => $socks5Count,
+                        'totalCount' => count($stored),
+                        'proxies' => $stored,
+                    ]],
+                );
+                Cache::forget(self::CACHE_KEY);
+            } catch (\Throwable $exception) {
+                Log::error('Keyword rank proxy pool save failed.', [
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        } else {
+            $cached = $this->getPool();
+            $stored = $cached['proxies'];
+            $usedCache = $stored !== [];
+            $fetchedAt = $cached['fetchedAt'] ?? $fetchedAt;
+            $httpCount = $cached['httpCount'];
+            $socks5Count = $cached['socks5Count'];
         }
 
-        shuffle($merged);
-        $stored = array_slice($merged, 0, self::MAX_STORED);
-        $fetchedAt = now()->toIso8601String();
-
-        $payload = [
-            'fetchedAt' => $fetchedAt,
-            'httpSource' => self::HTTP_SOURCE_URL,
-            'socks5Source' => self::SOCKS5_SOURCE_URL,
-            'httpCount' => count($httpProxies),
-            'socks5Count' => count($socks5Proxies),
-            'totalCount' => count($stored),
-            'proxies' => $stored,
-        ];
-
-        SystemSetting::query()->updateOrCreate(
-            ['key' => self::SETTING_KEY],
-            ['value' => $payload],
-        );
-
-        Cache::forget(self::CACHE_KEY);
+        if ($stored === []) {
+            throw new RuntimeException('Không lấy được proxy nào từ nguồn GitHub. Thử lại sau vài phút.');
+        }
 
         $runProxies = $this->sampleFromList($stored, $runSampleSize);
 
         return [
             'fetchedAt' => $fetchedAt,
-            'httpCount' => count($httpProxies),
-            'socks5Count' => count($socks5Proxies),
+            'httpCount' => $httpCount,
+            'socks5Count' => $socks5Count,
             'totalCount' => count($stored),
             'runProxyCount' => count($runProxies),
             'proxyUrls' => $runProxies,
+            'usedCache' => $usedCache,
             'sources' => [
                 'http' => self::HTTP_SOURCE_URL,
                 'socks5' => self::SOCKS5_SOURCE_URL,
@@ -244,7 +262,11 @@ class KeywordRankProxyService
             return null;
         }
 
-        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : $scheme === 'socks5' || $scheme === 'socks4' ? 1080 : 80));
+        $port = (int) ($parts['port'] ?? match ($scheme) {
+            'https' => 443,
+            'socks4', 'socks5' => 1080,
+            default => 80,
+        });
 
         if ($port < 1 || $port > 65535) {
             return null;

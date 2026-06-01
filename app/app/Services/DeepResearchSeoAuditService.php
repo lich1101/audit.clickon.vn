@@ -658,14 +658,6 @@ class DeepResearchSeoAuditService
             throw new RuntimeException('Deep research JSON không có trường items hợp lệ.');
         }
 
-        if (count($rawItems) !== count($batchPages)) {
-            throw new RuntimeException(sprintf(
-                'Deep research JSON thiếu dòng kết quả: cần %d, nhận %d.',
-                count($batchPages),
-                count($rawItems),
-            ));
-        }
-
         $itemsByUrl = collect($rawItems)
             ->filter(fn (mixed $item): bool => is_array($item) && trim((string) ($item['targetUrl'] ?? '')) !== '')
             ->keyBy(fn (array $item): string => trim((string) $item['targetUrl']));
@@ -677,17 +669,23 @@ class DeepResearchSeoAuditService
 
         foreach ($batchPages as $index => $entry) {
             $targetUrl = trim((string) ($entry['targetUrl'] ?? ''));
-            $rawItem = $itemsByUrl->get($targetUrl) ?? $rawItems[$index] ?? null;
+            $rawItem = $itemsByUrl->get($targetUrl);
+
+            if (! is_array($rawItem) && $itemsByUrl->isEmpty()) {
+                $rawItem = $rawItems[$index] ?? null;
+            }
+
             $researchItem = $researchByUrl->get($targetUrl);
 
             if (! is_array($rawItem)) {
-                throw new RuntimeException(sprintf(
-                    'Deep research JSON thiếu dòng kết quả cho URL %s.',
-                    $targetUrl,
-                ));
+                continue;
             }
 
-            $audit = $this->normalizeFinalAudit($rawItem);
+            try {
+                $audit = $this->normalizeFinalAudit($rawItem);
+            } catch (RuntimeException) {
+                continue;
+            }
 
             $normalized[] = array_merge($audit, [
                 'targetUrl' => $targetUrl,
@@ -696,6 +694,10 @@ class DeepResearchSeoAuditService
                 'categoryUrl' => $this->stringOrNull($rawItem['categoryUrl'] ?? $researchItem['categoryUrl'] ?? $entry['categoryUrlSeed'] ?? null),
                 'categoryMatchReason' => $this->stringOrNull($rawItem['categoryMatchReason'] ?? $researchItem['categoryMatchReason'] ?? null),
             ]);
+        }
+
+        if ($normalized === []) {
+            throw new RuntimeException('Deep research JSON không có item hợp lệ nào sau chuẩn hóa.');
         }
 
         return $normalized;

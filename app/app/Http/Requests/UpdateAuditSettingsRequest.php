@@ -54,6 +54,7 @@ class UpdateAuditSettingsRequest extends FormRequest
             'modelPricing.*.usdPer1MCitation' => ['nullable', 'numeric', 'min:0'],
             'modelPricing.*.usdPer1kSearchQueries' => ['nullable', 'numeric', 'min:0'],
             'modelPricing.*.minCreditsPerCall' => ['required_with:modelPricing', 'integer', 'min:0'],
+            'modelPricing.*.minUsdPerCall' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }

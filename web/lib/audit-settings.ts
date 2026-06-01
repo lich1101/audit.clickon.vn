@@ -22,6 +22,7 @@ export type ModelPricingRow = {
   usdPer1MCitation?: number | null;
   usdPer1kSearchQueries?: number | null;
   minCreditsPerCall: number;
+  minUsdPerCall?: number | null;
 };
 
 export type GeminiPdfAttachment = {

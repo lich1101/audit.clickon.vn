@@ -62,14 +62,7 @@ class TokenBillingService
                     firebaseUid: $item->run->user_uid,
                     type: 'subtract',
                     amountUsd: $usdCharged,
-                    reason: sprintf(
-                        'Audit AI [%s] %s · %d in / %d out tokens · $%.6f',
-                        $step,
-                        $usage['model'],
-                        (int) $usage['input_tokens'],
-                        (int) $usage['output_tokens'],
-                        $usdCharged,
-                    ),
+                    reason: $this->buildChargeReason($step, $usage, $usdCharged),
                     source: 'audit',
                     referenceType: 'audit_run_item',
                     referenceId: (string) $item->public_id,
@@ -211,6 +204,7 @@ class TokenBillingService
         $citationTokens = max(0, (int) ($usage['citation_tokens'] ?? 0));
         $reasoningTokens = max(0, (int) ($usage['reasoning_tokens'] ?? 0));
         $searchQueries = max(0, (int) ($usage['search_queries'] ?? 0));
+        $pricing = $this->applyUsagePricingAdjustments($pricing, $provider, $model, $inputTokens);
 
         $missingComponents = [];
         $amount = 0.0;
@@ -302,14 +296,16 @@ class TokenBillingService
         $cacheKey = sprintf('ai_model_pricing.%s.%s.%s', $allowFallback ? 'fallback' : 'exact', $provider, $model);
 
         return Cache::remember($cacheKey, 300, function () use ($provider, $model, $allowFallback): array {
-            $record = AiModelPricing::query()
-                ->where('provider', $provider)
-                ->where('model', $model)
-                ->where('is_active', true)
-                ->first();
+            foreach ($this->pricingLookupCandidates($provider, $model) as $candidate) {
+                $record = AiModelPricing::query()
+                    ->where('provider', $provider)
+                    ->where('model', $candidate)
+                    ->where('is_active', true)
+                    ->first();
 
-            if ($record) {
-                return $this->serializePricingRecord($record, true);
+                if ($record) {
+                    return $this->serializePricingRecord($record, $candidate === $model);
+                }
             }
 
             if ($allowFallback) {
@@ -458,6 +454,148 @@ class TokenBillingService
             'min_usd_per_call' => $this->normalizeNullableFloat($record->min_usd_per_call),
             'is_exact_match' => $isExactMatch,
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function pricingLookupCandidates(string $provider, string $model): array
+    {
+        $canonical = $this->canonicalizeModelForPricing($provider, $model);
+        $candidates = [$model];
+
+        if ($canonical !== $model) {
+            $candidates[] = $canonical;
+        }
+
+        return array_values(array_unique(array_filter($candidates, fn (string $value): bool => trim($value) !== '')));
+    }
+
+    private function canonicalizeModelForPricing(string $provider, string $model): string
+    {
+        $normalized = trim(strtolower($model));
+
+        return match ($provider) {
+            'openai' => match (true) {
+                str_starts_with($normalized, 'gpt-5.2-pro') => 'gpt-5.2-pro',
+                str_starts_with($normalized, 'gpt-5.5-pro') => 'gpt-5.5-pro',
+                str_starts_with($normalized, 'gpt-5-pro') => 'gpt-5-pro',
+                str_starts_with($normalized, 'gpt-4.1-mini') => 'gpt-4.1-mini',
+                str_starts_with($normalized, 'gpt-4.1-nano') => 'gpt-4.1-nano',
+                str_starts_with($normalized, 'gpt-4.1') => 'gpt-4.1',
+                str_starts_with($normalized, 'gpt-4o-mini') => 'gpt-4o-mini',
+                str_starts_with($normalized, 'gpt-4o') => 'gpt-4o',
+                str_starts_with($normalized, 'gpt-5.4-pro') => 'gpt-5.4-pro',
+                str_starts_with($normalized, 'gpt-5.4-mini') => 'gpt-5.4-mini',
+                str_starts_with($normalized, 'gpt-5.4-nano') => 'gpt-5.4-nano',
+                str_starts_with($normalized, 'gpt-5.4') => 'gpt-5.4',
+                str_starts_with($normalized, 'gpt-5.2') => 'gpt-5.2',
+                str_starts_with($normalized, 'gpt-5.1') => 'gpt-5.1',
+                str_starts_with($normalized, 'gpt-5.5-mini') => 'gpt-5-mini',
+                str_starts_with($normalized, 'gpt-5-mini') => 'gpt-5-mini',
+                str_starts_with($normalized, 'gpt-5-nano') => 'gpt-5-nano',
+                str_starts_with($normalized, 'gpt-5.5') => 'gpt-5.5',
+                str_starts_with($normalized, 'gpt-5') => 'gpt-5',
+                str_starts_with($normalized, 'o4-mini') => 'o4-mini',
+                str_starts_with($normalized, 'o3-mini') => 'o3-mini',
+                str_starts_with($normalized, 'o3-pro') => 'o3-pro',
+                str_starts_with($normalized, 'o3') => 'o3',
+                default => $model,
+            },
+            'gemini' => match (true) {
+                str_starts_with($normalized, 'gemini-3.1-pro-preview-customtools') => 'gemini-3.1-pro-preview',
+                str_starts_with($normalized, 'gemini-2.5-pro') => 'gemini-2.5-pro',
+                str_starts_with($normalized, 'gemini-2.5-flash') => 'gemini-2.5-flash',
+                str_starts_with($normalized, 'gemini-3.1-pro-preview') => 'gemini-3.1-pro-preview',
+                str_starts_with($normalized, 'gemini-3-pro-preview') => 'gemini-3-pro-preview',
+                default => $model,
+            },
+            'gemini_deep_research' => match (true) {
+                str_starts_with($normalized, 'deep-research-preview-04-2026') => 'deep-research-preview-04-2026',
+                str_starts_with($normalized, 'deep-research-pro-preview-12-2025') => 'deep-research-pro-preview-12-2025',
+                default => $model,
+            },
+            'perplexity' => match (true) {
+                str_starts_with($normalized, 'sonar-deep-research') => 'sonar-deep-research',
+                str_starts_with($normalized, 'sonar-reasoning-pro') => 'sonar-reasoning-pro',
+                str_starts_with($normalized, 'sonar-pro') => 'sonar-pro',
+                str_starts_with($normalized, 'sonar') => 'sonar',
+                default => $model,
+            },
+            default => $model,
+        };
+    }
+
+    /**
+     * Apply documented long-context pricing tiers for models that charge more above a token threshold.
+     *
+     * @param  array<string, mixed>  $pricing
+     * @return array<string, mixed>
+     */
+    private function applyUsagePricingAdjustments(array $pricing, string $provider, string $model, int $inputTokens): array
+    {
+        $canonical = $this->canonicalizeModelForPricing($provider, $model);
+
+        if ($provider === 'gemini' && $canonical === 'gemini-2.5-pro' && $inputTokens > 200_000) {
+            $pricing['usd_per_1m_input'] = 2.50;
+            $pricing['usd_per_1m_output'] = 15.00;
+            $pricing['usd_per_1m_reasoning'] = 15.00;
+        }
+
+        if ($provider === 'gemini' && in_array($canonical, ['gemini-3.1-pro-preview', 'gemini-3-pro-preview'], true) && $inputTokens > 200_000) {
+            $pricing['usd_per_1m_input'] = 4.00;
+            $pricing['usd_per_1m_output'] = 18.00;
+            $pricing['usd_per_1m_reasoning'] = 18.00;
+        }
+
+        if ($provider === 'gemini_deep_research' && $inputTokens > 200_000) {
+            $pricing['usd_per_1m_input'] = 4.00;
+            $pricing['usd_per_1m_output'] = 18.00;
+            $pricing['usd_per_1m_reasoning'] = 18.00;
+        }
+
+        if ($provider === 'openai' && in_array($canonical, ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.5', 'gpt-5.5-pro'], true) && $inputTokens > 272_000) {
+            $pricing['usd_per_1m_input'] = (float) ($pricing['usd_per_1m_input'] ?? 0) * 2;
+            $pricing['usd_per_1m_output'] = (float) ($pricing['usd_per_1m_output'] ?? 0) * 1.5;
+        }
+
+        return $pricing;
+    }
+
+    /**
+     * @param  array<string, mixed>  $usage
+     */
+    private function buildChargeReason(string $step, array $usage, float $usdCharged): string
+    {
+        $parts = [
+            sprintf(
+                'Audit AI [%s] %s · %d in / %d out tokens',
+                $step,
+                (string) ($usage['model'] ?? 'unknown-model'),
+                (int) ($usage['input_tokens'] ?? 0),
+                (int) ($usage['output_tokens'] ?? 0),
+            ),
+        ];
+
+        $reasoningTokens = (int) ($usage['reasoning_tokens'] ?? 0);
+        $citationTokens = (int) ($usage['citation_tokens'] ?? 0);
+        $searchQueries = (int) ($usage['search_queries'] ?? 0);
+
+        if ($reasoningTokens > 0) {
+            $parts[] = sprintf('%d reasoning', $reasoningTokens);
+        }
+
+        if ($citationTokens > 0) {
+            $parts[] = sprintf('%d citation', $citationTokens);
+        }
+
+        if ($searchQueries > 0) {
+            $parts[] = sprintf('%d search', $searchQueries);
+        }
+
+        $parts[] = sprintf('$%.6f', $usdCharged);
+
+        return implode(' · ', $parts);
     }
 
     private function estimateScaledUsd(int $quantity, mixed $rate, int $scale): ?float

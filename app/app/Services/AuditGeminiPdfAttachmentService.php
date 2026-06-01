@@ -18,6 +18,10 @@ class AuditGeminiPdfAttachmentService
 
     public const SLOT_STEP3_FORMATTER = 'step3_formatter';
 
+    public const SLOT_FAST_AUDIT = 'fast_audit';
+
+    public const SLOT_FAST_FORMATTER = 'fast_formatter';
+
     public function __construct(
         private readonly AuditSettingsService $auditSettingsService,
     ) {
@@ -33,6 +37,8 @@ class AuditGeminiPdfAttachmentService
             self::SLOT_STEP3_AI,
             self::SLOT_STEP2_FORMATTER,
             self::SLOT_STEP3_FORMATTER,
+            self::SLOT_FAST_AUDIT,
+            self::SLOT_FAST_FORMATTER,
         ];
     }
 
@@ -62,6 +68,14 @@ class AuditGeminiPdfAttachmentService
     {
         if (! is_string($persistStep) || $persistStep === '') {
             return null;
+        }
+
+        if (str_contains($persistStep, 'fast_audit') && str_contains($persistStep, 'formatter')) {
+            return self::SLOT_FAST_FORMATTER;
+        }
+
+        if (str_contains($persistStep, 'batch_fast_audit') || str_contains($persistStep, 'fast_audit_combined')) {
+            return self::SLOT_FAST_AUDIT;
         }
 
         if (str_contains($persistStep, 'keyword_category') && str_contains($persistStep, 'formatter')) {
@@ -172,7 +186,7 @@ class AuditGeminiPdfAttachmentService
         $lines = [
             '=== ADMIN ATTACHED REFERENCE PDF ===',
             'Original filename: '.((string) ($attachment['originalName'] ?? 'reference.pdf')),
-            'Use this PDF as supplemental checklist/reference material when scoring.',
+            'Use this PDF as the official scoring/checklist criteria when evaluating if its contents are relevant to this step.',
         ];
 
         if (is_string($attachment['geminiFileUri'] ?? null) && $attachment['geminiFileUri'] !== '') {

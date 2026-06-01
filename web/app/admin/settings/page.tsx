@@ -381,6 +381,13 @@ export default function AdminAuditSettingsPage() {
                   allowCustomInput
                   description="Bước này gộp luôn keyword chính + danh mục + audit onpage trong một batch."
                 />
+                <GeminiPdfUpload
+                  slot="fast_audit"
+                  label="PDF tiêu chí chấm điểm"
+                  provider={settings.fastAiProvider}
+                  attachment={settings.geminiPdfAttachments?.fast_audit ?? null}
+                  onChange={(attachment) => updateGeminiPdfAttachment("fast_audit", attachment)}
+                />
               </div>
 
               <div className="grid gap-4">
@@ -415,6 +422,13 @@ export default function AdminAuditSettingsPage() {
                   onChange={(model) => setSettings((current) => ({ ...current, fastFormatterModel: model || null }))}
                   allowCustomInput
                   description="Chỉ dùng để ép output fast mode về JSON hợp lệ nếu model chính trả prose/Markdown."
+                />
+                <GeminiPdfUpload
+                  slot="fast_formatter"
+                  label="PDF tiêu chí khi formatter"
+                  provider={settings.fastFormatterProvider}
+                  attachment={settings.geminiPdfAttachments?.fast_formatter ?? null}
+                  onChange={(attachment) => updateGeminiPdfAttachment("fast_formatter", attachment)}
                 />
               </div>
             </CardContent>
@@ -971,6 +985,11 @@ export default function AdminAuditSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Giá credit</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Hệ thống ưu tiên giá USD/token chính xác theo model. Nếu provider trả sẵn chi phí thực tế thì sẽ ưu tiên số đó; nếu không sẽ dùng bảng dưới đây.
+            Với Gemini 2.5 Pro, Gemini 3.1 Pro Preview và Gemini Deep Research, input &gt; 200K token sẽ tự chuyển sang tier giá cao hơn.
+            Với GPT-5.4 / GPT-5.5 và bản Pro tương ứng, input &gt; 272K token cũng sẽ tự áp giá long-context.
+          </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full min-w-[1200px] text-sm">
@@ -984,7 +1003,8 @@ export default function AdminAuditSettingsPage() {
                 <th className="py-2 pr-4">USD / 1M reasoning</th>
                 <th className="py-2 pr-4">USD / 1M citation</th>
                 <th className="py-2 pr-4">USD / 1K search</th>
-                <th className="py-2 pr-4">Min / call</th>
+                <th className="py-2 pr-4">Min credit / call</th>
+                <th className="py-2 pr-4">Min USD / call</th>
               </tr>
             </thead>
             <tbody>
@@ -1148,6 +1168,26 @@ export default function AdminAuditSettingsPage() {
                           updateModelPricingRow(index, {
                             minCreditsPerCall: value
                           }), 0, 999999)
+                      }
+                    />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.000001"
+                      value={readNumericDraft(`modelPricing.${index}.minUsdPerCall`, row.minUsdPerCall ?? null)}
+                      onChange={(event) =>
+                        commitNullableDecimalDraft(`modelPricing.${index}.minUsdPerCall`, event.target.value, (value) =>
+                          updateModelPricingRow(index, {
+                            minUsdPerCall: value
+                          }))
+                      }
+                      onBlur={() =>
+                        normalizeNullableDecimalDraft(`modelPricing.${index}.minUsdPerCall`, row.minUsdPerCall ?? null, (value) =>
+                          updateModelPricingRow(index, {
+                            minUsdPerCall: value
+                          }))
                       }
                     />
                   </td>

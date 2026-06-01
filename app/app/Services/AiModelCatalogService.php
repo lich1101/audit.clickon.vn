@@ -185,6 +185,11 @@ class AiModelCatalogService
             && ! str_contains($id, 'transcribe')
             && ! str_contains($id, 'tts')
             && ! str_contains($id, 'search')
+            && ! str_contains($id, 'image')
+            && ! str_contains($id, 'video')
+            && ! str_contains($id, 'computer-use')
+            && ! str_contains($id, 'codex')
+            && ! str_contains($id, 'chat-latest')
             && ! str_contains($id, 'instruct');
     }
 

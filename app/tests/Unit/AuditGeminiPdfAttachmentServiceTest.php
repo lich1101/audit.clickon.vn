@@ -32,6 +32,14 @@ class AuditGeminiPdfAttachmentServiceTest extends TestCase
             AuditGeminiPdfAttachmentService::SLOT_STEP2_AI,
             $service->resolveSlotForPersistStep('batch_keyword_category_mapping_0_59')
         );
+        $this->assertSame(
+            AuditGeminiPdfAttachmentService::SLOT_FAST_AUDIT,
+            $service->resolveSlotForPersistStep('batch_fast_audit_000_014')
+        );
+        $this->assertSame(
+            AuditGeminiPdfAttachmentService::SLOT_FAST_FORMATTER,
+            $service->resolveSlotForPersistStep('fast_audit_json_formatter_000_014')
+        );
     }
 
     public function test_build_gemini_user_parts_includes_inline_pdf_when_available(): void

@@ -1488,7 +1488,7 @@ class AuditRunService
             ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
 
         foreach ($items->values() as $index => $item) {
-            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+            $result = $this->resolveBatchResultForItem($resultList, $resultsByUrl, $item->target_url, $index);
 
             if (! is_array($result)) {
                 $item->forceFill([
@@ -2120,7 +2120,7 @@ class AuditRunService
             ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
 
         foreach ($items->values() as $index => $item) {
-            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+            $result = $this->resolveBatchResultForItem($resultList, $resultsByUrl, $item->target_url, $index);
 
             if (! is_array($result)) {
                 $item->forceFill([
@@ -2388,7 +2388,7 @@ class AuditRunService
             ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
 
         foreach ($items->values() as $index => $item) {
-            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+            $result = $this->resolveBatchResultForItem($resultList, $resultsByUrl, $item->target_url, $index);
 
             if (! is_array($result)) {
                 $item->forceFill([
@@ -2618,6 +2618,34 @@ class AuditRunService
     private function smallerRetryChunkSize(int $itemCount): int
     {
         return max(1, min(20, (int) ceil($itemCount / 2)));
+    }
+
+    /**
+     * Nếu batch có targetUrl rõ ràng thì chỉ match theo targetUrl để tránh gán nhầm kết quả khi batch trả thiếu item.
+     *
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $resultList
+     * @param  \Illuminate\Support\Collection<string, array<string, mixed>>  $resultsByUrl
+     * @return array<string, mixed>|null
+     */
+    private function resolveBatchResultForItem(
+        \Illuminate\Support\Collection $resultList,
+        \Illuminate\Support\Collection $resultsByUrl,
+        string $targetUrl,
+        int $index,
+    ): ?array {
+        $matchedByUrl = $resultsByUrl->get($targetUrl);
+
+        if (is_array($matchedByUrl)) {
+            return $matchedByUrl;
+        }
+
+        if ($resultsByUrl->isNotEmpty()) {
+            return null;
+        }
+
+        $matchedByIndex = $resultList->get($index);
+
+        return is_array($matchedByIndex) ? $matchedByIndex : null;
     }
 
     /**
@@ -3339,7 +3367,7 @@ class AuditRunService
             ->keyBy(fn (array $item): string => (string) $item['targetUrl']);
 
         foreach ($items->values() as $index => $item) {
-            $result = $resultsByUrl->get($item->target_url) ?? $resultList->get($index);
+            $result = $this->resolveBatchResultForItem($resultList, $resultsByUrl, $item->target_url, $index);
 
             if (! is_array($result)) {
                 $item->forceFill([

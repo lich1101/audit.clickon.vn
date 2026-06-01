@@ -403,7 +403,7 @@ TEXT;
                 batchPages: $batchPages,
             );
             $data = $formatterResult['data'];
-            $this->assertBatchItemsData($data, $targetUrls, 'Bước 2.5');
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 2.5', requireComplete: false);
             $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_keyword_category_json_formatter']);
         }
 
@@ -743,7 +743,7 @@ TEXT;
                 persistStep: $this->formatterStepKey($persistStep ?? 'batch_fast_audit', 'fast_audit_json_formatter'),
             );
             $data = $formatterResult['data'];
-            $this->assertBatchItemsData($data, $targetUrls, 'Fast audit formatter');
+            $this->assertBatchItemsData($data, $targetUrls, 'Fast audit formatter', requireComplete: false);
             $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_fast_audit_json_formatter']);
         }
 
@@ -878,7 +878,7 @@ TEXT;
                 persistStep: $this->formatterStepKey($persistStep ?? 'batch_onpage_audit', 'onpage_audit_json_formatter'),
             );
             $data = $formatterResult['data'];
-            $this->assertBatchItemsData($data, $targetUrls, 'Bước 3.5');
+            $this->assertBatchItemsData($data, $targetUrls, 'Bước 3.5', requireComplete: false);
             $usageEvents[] = array_merge($formatterResult['usage'], ['step' => 'batch_onpage_audit_json_formatter']);
         }
 
@@ -1363,7 +1363,7 @@ TEXT;
      * @param  array<string, mixed>  $data
      * @param  array<int, string>  $targetUrls
      */
-    private function assertBatchItemsData(array $data, array $targetUrls, string $stepLabel): void
+    private function assertBatchItemsData(array $data, array $targetUrls, string $stepLabel, bool $requireComplete = true): void
     {
         $items = $data['items'] ?? null;
 
@@ -1371,7 +1371,7 @@ TEXT;
             throw new RuntimeException("{$stepLabel} JSON không có trường items hợp lệ.");
         }
 
-        if (count($items) < count($targetUrls)) {
+        if ($requireComplete && count($items) < count($targetUrls)) {
             throw new RuntimeException("{$stepLabel} JSON thiếu dòng kết quả: cần ".count($targetUrls).', nhận '.count($items).'.');
         }
     }

@@ -281,8 +281,8 @@ export default function AdminAuditPromptsPage() {
         ["keyword_category_json_formatter", "Bước 2.5 chạy khi output bước 2 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
         ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."],
         ["onpage_audit_json_formatter", "Bước 3.5 chạy khi output bước 3 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
-        ["fast_audit_combined", "Fast mode chạy theo chunk: một model duy nhất gộp luôn keyword chính + chọn danh mục + audit onpage cho toàn bộ URL trong batch."],
-        ["fast_audit_json_formatter", "Fast mode formatter chạy khi output bước gộp chưa ra JSON hợp lệ: ép raw output của fast mode về schema cuối cho đủ toàn bộ URL trong batch."],
+        ["fast_audit_combined", "Fast mode chạy theo chunk: một model duy nhất gộp luôn keyword chính + chọn danh mục + audit onpage cho toàn bộ URL trong batch. Nếu admin đính kèm PDF tiêu chí, prompt này phải dùng chính file đó để chấm điểm."],
+        ["fast_audit_json_formatter", "Fast mode formatter chạy khi output bước gộp chưa ra JSON hợp lệ: ép raw output của fast mode về schema cuối cho đủ toàn bộ URL trong batch, đồng thời giữ logic chấm điểm theo PDF tiêu chí nếu có đính kèm."],
         ["deep_research_research", "Flow audit_deep_research bước 3A chạy theo chunk: sau khi bước 2 cũ đã trả keyword/danh mục, provider research do admin cấu hình sẽ nghiên cứu thêm SERP, đối thủ, intent, freshness cho từng URL trong batch."],
         ["deep_research_audit", "Flow audit_deep_research bước 3B chạy theo chunk: provider reasoning do admin cấu hình sẽ audit đúng checklist Clickon cho toàn bộ batch, dùng dữ liệu bước 2 + research từng URL."],
         ["deep_research_json_formatter", "Flow audit_deep_research bước 3C chạy theo chunk: ép raw output reasoning về JSON cuối hợp lệ cho đủ toàn bộ items trong batch."]

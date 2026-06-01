@@ -20,6 +20,7 @@ class AiModelPricing extends Model
         'usd_per_1m_citation',
         'usd_per_1k_search_queries',
         'min_credits_per_call',
+        'min_usd_per_call',
         'is_active',
     ];
 
@@ -34,6 +35,7 @@ class AiModelPricing extends Model
             'usd_per_1m_citation' => 'float',
             'usd_per_1k_search_queries' => 'float',
             'min_credits_per_call' => 'integer',
+            'min_usd_per_call' => 'float',
             'is_active' => 'boolean',
         ];
     }

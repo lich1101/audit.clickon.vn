@@ -3,9 +3,14 @@
 namespace App\Services;
 
 use App\Models\AuditRun;
+use App\Models\CaptchaSolveTask;
+use App\Models\KeywordRankRun;
 use App\Models\Website;
 use App\Models\WebsiteAudit;
+use App\Models\WebsiteAuditUrlResult;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -105,6 +110,51 @@ class WebsiteDataService
         return $this->serializeWebsite($website->fresh());
     }
 
+    public function deleteWebsite(string $websiteId): void
+    {
+        $website = $this->findWebsiteModel($websiteId);
+
+        if (! $website) {
+            throw new RuntimeException('Website not found.');
+        }
+
+        $hasActiveAuditRun = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('status', ['queued', 'processing'])
+            ->exists();
+
+        if ($hasActiveAuditRun) {
+            throw new RuntimeException('Không thể xóa website khi đang có audit run đang chạy. Hãy dừng run hoặc chờ hoàn tất.');
+        }
+
+        $hasActiveKeywordRankRun = KeywordRankRun::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('status', ['queued', 'processing'])
+            ->exists();
+
+        if ($hasActiveKeywordRankRun) {
+            throw new RuntimeException('Không thể xóa website khi đang có kiểm tra thứ hạng keyword đang chạy. Hãy chờ hoàn tất.');
+        }
+
+        DB::transaction(function () use ($website, $websiteId): void {
+            $keywordRankRunIds = KeywordRankRun::query()
+                ->where('website_id', $websiteId)
+                ->pluck('id');
+
+            if ($keywordRankRunIds->isNotEmpty()) {
+                CaptchaSolveTask::query()
+                    ->whereIn('keyword_rank_run_id', $keywordRankRunIds)
+                    ->delete();
+            }
+
+            WebsiteAuditUrlResult::query()->where('website_id', $websiteId)->delete();
+            AuditRun::query()->where('website_id', $websiteId)->delete();
+            $website->delete();
+        });
+
+        $this->purgeLegacyFirestoreWebsite($websiteId);
+    }
+
     /**
      * @param  array<int, string>  $articleUrls
      * @param  array<int, array{name:string,url:string}>  $categories
@@ -193,6 +243,25 @@ class WebsiteDataService
         }
 
         return $this->serializeWebsite($website->fresh('audit'));
+    }
+
+    private function purgeLegacyFirestoreWebsite(string $websiteId): void
+    {
+        try {
+            $firestore = app(FirestoreService::class);
+            $legacyAudit = $firestore->getWebsiteAuditByWebsiteId($websiteId);
+
+            if (is_array($legacyAudit) && isset($legacyAudit['id'])) {
+                $firestore->deleteDocument('websiteAudits/'.(string) $legacyAudit['id']);
+            }
+
+            $firestore->deleteDocument("websites/{$websiteId}");
+        } catch (\Throwable $exception) {
+            Log::warning('Legacy Firestore website purge failed.', [
+                'websiteId' => $websiteId,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     /**

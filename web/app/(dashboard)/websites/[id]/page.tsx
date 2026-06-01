@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { DeleteWebsiteDialog } from "@/components/dashboard/delete-website-dialog";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { LoadingState } from "@/components/dashboard/loading-state";
 import { WebsiteSectionTabs } from "@/components/dashboard/website-section-tabs";
@@ -18,6 +20,7 @@ import type { Website, WebsiteAudit } from "@/types";
 
 export default function WebsiteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { profile } = useAuth();
   const { mode } = useDashboardMode();
   const [website, setWebsite] = useState<Website | null>(null);
@@ -130,6 +133,25 @@ export default function WebsiteDetailPage({ params }: { params: Promise<{ id: st
           </CardContent>
         </Card>
       </div>
+
+      {website.userId === profile?.uid ? (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle className="text-destructive">Vùng nguy hiểm</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Xóa website sẽ xóa vĩnh viễn audit, lịch sử run, kết quả URL và dữ liệu keyword rank liên quan.
+            </p>
+            <DeleteWebsiteDialog
+              website={website}
+              triggerVariant="destructive"
+              triggerLabel="Xóa website"
+              onDeleted={() => router.push("/websites")}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

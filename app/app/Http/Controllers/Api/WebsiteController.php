@@ -10,6 +10,7 @@ use App\Support\CategoryInputParser;
 use Illuminate\Http\Request;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class WebsiteController extends Controller
@@ -130,6 +131,36 @@ class WebsiteController extends Controller
         return response()->json([
             'message' => 'Đã thu hồi quyền audit lại trong ngày cho website này.',
             'data' => $website,
+        ]);
+    }
+
+    public function destroy(Request $request, string $websiteId)
+    {
+        $website = $this->websiteDataService->getWebsite($websiteId);
+
+        if (! $website) {
+            throw new NotFoundHttpException('Website not found.');
+        }
+
+        $uid = (string) $request->attributes->get('firebase_uid');
+
+        if ((string) ($website['userId'] ?? '') !== $uid) {
+            throw new AccessDeniedHttpException('Chỉ chủ website mới có thể xóa.');
+        }
+
+        try {
+            $this->websiteDataService->deleteWebsite($websiteId);
+        } catch (RuntimeException $exception) {
+            if ($exception->getMessage() === 'Website not found.') {
+                throw new NotFoundHttpException($exception->getMessage());
+            }
+
+            throw new ConflictHttpException($exception->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Đã xóa website và toàn bộ dữ liệu liên quan.',
+            'data' => ['id' => $websiteId],
         ]);
     }
 

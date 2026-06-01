@@ -107,6 +107,19 @@ class FirestoreService
         return $response->json();
     }
 
+    public function deleteDocument(string $documentPath): void
+    {
+        $response = Http::withHeaders($this->authHeaders())
+            ->acceptJson()
+            ->delete("{$this->baseUrl()}/{$documentPath}");
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        $response->throw();
+    }
+
     /**
      * @param  array<string, mixed>  $fields
      * @return array<string, mixed>

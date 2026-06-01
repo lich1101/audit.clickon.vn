@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { DeleteWebsiteDialog } from "@/components/dashboard/delete-website-dialog";
 import { DataTable } from "@/components/dashboard/data-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { WebsiteCard } from "@/components/dashboard/website-card";
@@ -105,13 +106,16 @@ export default function WebsitesPage() {
             key: "actions",
             header: "Actions",
             render: (row: Website) => (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button asChild size="sm" variant="secondary">
                   <Link href={`/websites/${row.id}`}>Chi tiết</Link>
                 </Button>
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/websites/${row.id}/audit`}>Audit</Link>
                 </Button>
+                {row.userId === profile?.uid ? (
+                  <DeleteWebsiteDialog website={row} onDeleted={() => void loadWebsites()} />
+                ) : null}
               </div>
             )
           }

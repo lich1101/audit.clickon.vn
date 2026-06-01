@@ -75,7 +75,7 @@ async function runRankCheck(payload) {
 
   try {
     if (settings.proxyEnabled && settings.proxyUrls.length > 0) {
-      postStatus(`Proxy xoay: ${settings.proxyUrls.length} endpoint — đổi IP mỗi keyword.`, 0, keywords.length);
+      postStatus(`Proxy xoay Google-only: ${settings.proxyUrls.length} endpoint — đổi IP mỗi keyword.`, 0, keywords.length);
     }
 
     postStatus(`Bắt đầu check ${keywords.length} keyword.`, 0, keywords.length);

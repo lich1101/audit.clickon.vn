@@ -12,6 +12,30 @@ import {
 } from "@/lib/auth";
 import { sessionSchema } from "@/lib/validators";
 
+async function fetchLaravelProfile(baseUrl: string, idToken: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort("timeout"), 15_000);
+
+  try {
+    return await fetch(`${baseUrl}/api/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Laravel API đồng bộ hồ sơ quá lâu. Kiểm tra API/queue rồi tải lại trang.");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const adminAuth = getAdminAuth();
@@ -41,16 +65,10 @@ export async function POST(request: Request) {
       throw new Error("LARAVEL_API_URL chưa được cấu hình.");
     }
 
-    const meResponse = await fetch(`${baseUrl}/api/me`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${idToken}`
-      },
-      cache: "no-store"
-    });
+    const meResponse = await fetchLaravelProfile(baseUrl, idToken);
 
     if (!meResponse.ok) {
-      throw new Error("Không thể đồng bộ hồ sơ từ Laravel API.");
+      throw new Error(`Không thể đồng bộ hồ sơ từ Laravel API (${meResponse.status}).`);
     }
 
     const mePayload = (await meResponse.json()) as {

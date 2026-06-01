@@ -177,16 +177,18 @@ export default function AdminKeywordRankSettingsPage() {
         <CardHeader>
           <CardTitle>Cấu hình proxy (chỉ admin)</CardTitle>
           <p className="text-sm text-muted-foreground">
-            User không thấy và không sửa được proxy. Khi bật, mỗi lần Run extension nhận danh sách do server cấp theo cấu hình dưới đây.
+            User không thấy và không sửa được proxy. Khi bật, mỗi lần Run extension nhận danh sách do server cấp theo cấu hình dưới đây và chỉ
+            xoay proxy cho traffic Google SERP/captcha, không áp vào toàn bộ web app Clickon.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
           <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/70 p-4 text-sm">
             <Checkbox checked={proxyEnabled} onChange={(event) => setProxyEnabled(event.target.checked)} />
-            <span>
-              <span className="block font-medium">Bật proxy khi user chạy check rank</span>
-              <span className="mt-1 block text-muted-foreground">
-                Tắt: Run dùng IP trình duyệt của user (dễ bị Google 429 nếu list lớn). Bật: extension xoay proxy trước mỗi keyword.
+              <span>
+                <span className="block font-medium">Bật proxy khi user chạy check rank</span>
+                <span className="mt-1 block text-muted-foreground">
+                Tắt: Run dùng IP trình duyệt của user (dễ bị Google 429 nếu list lớn). Bật: extension xoay proxy trước mỗi keyword nhưng chỉ cho
+                request Google/captcha.
               </span>
             </span>
           </label>

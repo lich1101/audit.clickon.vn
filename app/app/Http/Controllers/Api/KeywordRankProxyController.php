@@ -46,7 +46,7 @@ class KeywordRankProxyController extends Controller
 
         return response()->json([
             'message' => sprintf(
-                'Admin đã bật proxy: %d endpoint cho lần Run (thủ công %d · pool %d).%s',
+                'Admin đã bật proxy Google-only: %d endpoint cho lần Run (thủ công %d · pool %d).%s',
                 $data['runProxyCount'],
                 $data['manualCount'],
                 $data['totalCount'] - $data['manualCount'],

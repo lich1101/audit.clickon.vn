@@ -699,7 +699,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">Proxy</p>
                     <p className="text-sm font-medium">
-                      {board.proxyPolicy?.enabled ? "Admin đã bật (xoay IP)" : "Tắt — IP trình duyệt"}
+                      {board.proxyPolicy?.enabled ? "Admin đã bật (chỉ traffic Google)" : "Tắt — IP trình duyệt"}
                     </p>
                   </div>
                 </div>
@@ -787,7 +787,7 @@ export default function WebsiteKeywordRanksPage({ params }: { params: Promise<{ 
                 <li>
                   <strong className="text-foreground">Proxy</strong> do admin cấu hình tại Admin → Keyword Rank Settings (bật/tắt, nguồn GitHub, danh sách thủ công). User không nhập hay chỉnh proxy.
                   {board.proxyPolicy?.enabled
-                    ? " Hiện admin đã bật proxy — Run sẽ xoay IP qua extension."
+                    ? " Hiện admin đã bật proxy — Run sẽ xoay IP qua extension nhưng chỉ cho traffic Google/captcha."
                     : " Hiện proxy đang tắt — Run dùng IP trình duyệt của bạn."}
                 </li>
               </ul>

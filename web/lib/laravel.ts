@@ -5,6 +5,7 @@ import { IMPERSONATE_UID_COOKIE, readClientCookie } from "@/lib/auth";
 
 let tokenPromise: Promise<string | undefined> | null = null;
 let tokenExpiresAt = 0;
+const LARAVEL_REQUEST_TIMEOUT_MS = 20_000;
 
 async function getAuthHeaders() {
   const now = Date.now();
@@ -99,10 +100,26 @@ export async function laravelRequest<T>(path: string, init?: RequestInit) {
     delete mergedHeaders["X-Impersonate-Uid"];
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: mergedHeaders
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort("timeout"), LARAVEL_REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: mergedHeaders,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Laravel API phản hồi quá lâu. Kiểm tra web/api rồi thử lại.");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   return parse<T>(response);
 }

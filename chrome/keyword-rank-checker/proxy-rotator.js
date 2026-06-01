@@ -4,13 +4,17 @@ let proxyRotationIndex = 0;
 /** @type {{ username: string, password: string } | null} */
 let activeProxyAuth = null;
 
-const PROXY_BYPASS_LIST = [
-  "<local>",
-  "127.0.0.1",
-  "localhost",
-  "*.clickon.vn",
-  "clickon.vn",
-  "audit.clickon.vn",
+const PROXY_TARGET_HOSTS = [
+  "google.com",
+  ".google.com",
+  "google.com.vn",
+  ".google.com.vn",
+  "gstatic.com",
+  ".gstatic.com",
+  "googleusercontent.com",
+  ".googleusercontent.com",
+  "recaptcha.net",
+  ".recaptcha.net",
 ];
 
 /**
@@ -87,16 +91,13 @@ export function parseProxyList(lines) {
  * @param {ParsedProxy} proxy
  */
 export async function applyProxy(proxy) {
+  const pacScript = buildPacScript(proxy);
+
   await chrome.proxy.settings.set({
     value: {
-      mode: "fixed_servers",
-      rules: {
-        singleProxy: {
-          scheme: proxy.scheme,
-          host: proxy.host,
-          port: proxy.port,
-        },
-        bypassList: PROXY_BYPASS_LIST,
+      mode: "pac_script",
+      pacScript: {
+        data: pacScript,
       },
     },
     scope: "regular",
@@ -145,4 +146,59 @@ export function getActiveProxyAuth() {
 export function resetProxyRotation() {
   proxyRotationIndex = 0;
   activeProxyAuth = null;
+}
+
+/**
+ * Chỉ proxy traffic Google SERP/captcha; phần còn lại của trình duyệt đi DIRECT.
+ * Như vậy không làm ảnh hưởng web app Clickon hoặc việc duyệt web thông thường.
+ *
+ * @param {ParsedProxy} proxy
+ * @returns {string}
+ */
+function buildPacScript(proxy) {
+  const directive = pacProxyDirective(proxy);
+  const hostMatchers = PROXY_TARGET_HOSTS.map(
+    (host) => `dnsDomainIs(normalizedHost, "${escapePacString(host)}")`,
+  ).join(" ||\n        ");
+
+  return `
+function FindProxyForURL(url, host) {
+  var normalizedHost = String(host || "").toLowerCase();
+  if (
+        ${hostMatchers}
+  ) {
+    return "${directive}; DIRECT";
+  }
+
+  return "DIRECT";
+}
+`.trim();
+}
+
+/**
+ * @param {ParsedProxy} proxy
+ * @returns {string}
+ */
+function pacProxyDirective(proxy) {
+  const endpoint = `${proxy.host}:${proxy.port}`;
+
+  switch (proxy.scheme) {
+    case "socks4":
+      return `SOCKS ${endpoint}`;
+    case "socks5":
+      return `SOCKS5 ${endpoint}`;
+    case "https":
+      return `HTTPS ${endpoint}`;
+    case "http":
+    default:
+      return `PROXY ${endpoint}`;
+  }
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapePacString(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

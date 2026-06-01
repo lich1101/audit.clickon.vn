@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminUserController;
+use App\Http\Controllers\Api\AiUsageReconciliationController;
 use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\CreditTransactionController;
 use App\Http\Controllers\Api\AuditRunController;
@@ -95,6 +96,8 @@ Route::prefix('admin')
         Route::get('/plans/{planId}', [PlanController::class, 'show']);
         Route::put('/plans/{planId}', [PlanController::class, 'update']);
         Route::get('/credit-transactions', [CreditTransactionController::class, 'index']);
+        Route::get('/ai-usage-reconciliation', [AiUsageReconciliationController::class, 'index']);
+        Route::post('/ai-usage-reconciliation/backfill', [AiUsageReconciliationController::class, 'backfill']);
         Route::get('/plan-requests', [PlanRequestController::class, 'adminIndex']);
         Route::post('/plan-requests/{planRequest}/approve', [PlanRequestController::class, 'approve']);
         Route::post('/plan-requests/{planRequest}/reject', [PlanRequestController::class, 'reject']);

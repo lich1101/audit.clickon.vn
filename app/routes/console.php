@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\AuditConfigurationCheckService;
+use App\Services\AiUsageBillingReconciliationService;
 use App\Services\AuditRunService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -459,6 +460,103 @@ Artisan::command('audit:stop-active-runs {--message=} {--purge-jobs} {--json}', 
 
     return SymfonyCommand::SUCCESS;
 })->purpose('Dừng toàn bộ audit run còn item active và purge audit jobs còn nằm trong DB queue');
+
+Artisan::command('audit:reconcile-ai-usage {--status=undercharged} {--provider=} {--user=} {--run=} {--limit=500} {--apply} {--json}', function (AiUsageBillingReconciliationService $reconciliationService) {
+    $filters = [
+        'status' => (string) $this->option('status'),
+        'provider' => $this->option('provider') ? (string) $this->option('provider') : null,
+        'userUid' => $this->option('user') ? (string) $this->option('user') : null,
+        'runPublicId' => $this->option('run') ? (string) $this->option('run') : null,
+        'limit' => max(1, min(5000, (int) $this->option('limit'))),
+    ];
+
+    if ((bool) $this->option('apply')) {
+        $result = $reconciliationService->backfill($filters);
+        $payload = [
+            'mode' => 'apply',
+            ...$result,
+        ];
+
+        if ((bool) $this->option('json')) {
+            $this->line((string) json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return SymfonyCommand::SUCCESS;
+        }
+
+        $summary = $result['summary'];
+        $this->line(sprintf(
+            'Applied AI billing backfill | candidates=%d applied=%d failed=%d usd=%0.6f credits=%d',
+            (int) $summary['candidateEventCount'],
+            (int) $summary['appliedEventCount'],
+            (int) $summary['failedEventCount'],
+            (float) $summary['appliedUsdDelta'],
+            (int) $summary['appliedCreditDelta'],
+        ));
+
+        foreach ($result['results'] as $row) {
+            if (($row['applied'] ?? false) === true) {
+                $this->line(sprintf(
+                    '  OK event#%d run=%s delta=%0.6f usd / %d credit',
+                    (int) ($row['eventId'] ?? 0),
+                    (string) ($row['runPublicId'] ?? ''),
+                    (float) ($row['usdDelta'] ?? 0),
+                    (int) ($row['creditDelta'] ?? 0),
+                ));
+
+                continue;
+            }
+
+            $this->error(sprintf(
+                '  FAIL event#%d run=%s: %s',
+                (int) ($row['eventId'] ?? 0),
+                (string) ($row['runPublicId'] ?? ''),
+                (string) ($row['error'] ?? $row['reason'] ?? 'unknown error'),
+            ));
+        }
+
+        return SymfonyCommand::SUCCESS;
+    }
+
+    $report = $reconciliationService->report($filters);
+
+    if ((bool) $this->option('json')) {
+        $this->line((string) json_encode([
+            'mode' => 'report',
+            ...$report,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return SymfonyCommand::SUCCESS;
+    }
+
+    $summary = $report['summary'];
+    $this->line(sprintf(
+        'AI usage reconciliation | scanned=%d affected=%d under=%d over=%d aligned=%d runs=%d delta=%0.6f usd / %d credit',
+        (int) $summary['scannedEventCount'],
+        (int) $summary['affectedEventCount'],
+        (int) $summary['underchargedEventCount'],
+        (int) $summary['overchargedEventCount'],
+        (int) $summary['alignedEventCount'],
+        (int) $summary['affectedRunCount'],
+        (float) $summary['usdDelta'],
+        (int) $summary['creditDelta'],
+    ));
+
+    foreach (array_slice($report['runs'], 0, 25) as $run) {
+        $this->line(sprintf(
+            '  - %s | %s/%s | events=%d affected=%d charged=%0.6f expected=%0.6f delta=%0.6f',
+            (string) ($run['runPublicId'] ?? ''),
+            (string) ($run['workflow'] ?? ''),
+            (string) ($run['pipelineMode'] ?? ''),
+            (int) ($run['eventCount'] ?? 0),
+            (int) ($run['affectedEventCount'] ?? 0),
+            (float) ($run['chargedUsd'] ?? 0),
+            (float) ($run['expectedUsd'] ?? 0),
+            (float) ($run['usdDelta'] ?? 0),
+        ));
+    }
+
+    return SymfonyCommand::SUCCESS;
+})->purpose('Report or backfill AI usage events whose charged USD/credits no longer match current billing rules');
 
 if ((bool) config('services.audit.stale_run_recovery_enabled', true)) {
     Schedule::command('audit:recover-stale-runs --quiet')

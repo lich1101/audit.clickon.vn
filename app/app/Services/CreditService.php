@@ -189,6 +189,78 @@ class CreditService
     }
 
     /**
+     * Apply an exact USD + credits delta without re-deriving credits from USD.
+     * Useful for billing reconciliation where the legacy ceil() conversion would
+     * otherwise introduce a second rounding error on the delta itself.
+     *
+     * @return array{credits:int,balanceUsd:float,log:array<string,mixed>}
+     */
+    public function mutateUsdWithExactCredits(
+        string $firebaseUid,
+        string $type,
+        float $amountUsd,
+        int $creditDelta,
+        string $reason,
+        string $source = 'system',
+        ?string $referenceType = null,
+        ?string $referenceId = null,
+    ): array {
+        if (! in_array($type, ['add', 'subtract'], true)) {
+            throw new RuntimeException('Invalid credit mutation type.');
+        }
+
+        $amountUsd = round($amountUsd, 6);
+        $creditDelta = max(0, $creditDelta);
+
+        if ($amountUsd <= 0 && $creditDelta <= 0) {
+            throw new RuntimeException('USD amount or credit delta must be greater than zero.');
+        }
+
+        return DB::transaction(function () use ($firebaseUid, $type, $amountUsd, $creditDelta, $reason, $source, $referenceType, $referenceId): array {
+            /** @var AppUser $user */
+            $user = AppUser::query()->where('firebase_uid', $firebaseUid)->lockForUpdate()->firstOrFail();
+            $beforeUsd = round((float) $user->balance_usd, 6);
+            $afterUsd = round($type === 'add' ? $beforeUsd + $amountUsd : $beforeUsd - $amountUsd, 6);
+
+            if ($afterUsd < -0.000001) {
+                throw new RuntimeException('Insufficient balance.');
+            }
+
+            $beforeCredits = (int) $user->credits;
+            $afterCredits = $type === 'add'
+                ? $beforeCredits + $creditDelta
+                : max(0, $beforeCredits - $creditDelta);
+
+            $user->forceFill([
+                'balance_usd' => max(0, $afterUsd),
+                'credits' => $afterCredits,
+            ])->save();
+
+            $transaction = CreditTransaction::query()->create([
+                'public_id' => (string) Str::ulid(),
+                'user_uid' => $firebaseUid,
+                'type' => $type,
+                'amount' => $creditDelta,
+                'amount_usd' => $amountUsd,
+                'balance_before' => $beforeCredits,
+                'balance_after' => $afterCredits,
+                'balance_before_usd' => $beforeUsd,
+                'balance_after_usd' => max(0, $afterUsd),
+                'reason' => $reason,
+                'source' => $source,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+            ]);
+
+            return [
+                'credits' => $afterCredits,
+                'balanceUsd' => max(0, $afterUsd),
+                'log' => $this->serializeTransaction($transaction),
+            ];
+        });
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function serializeTransaction(CreditTransaction $transaction): array

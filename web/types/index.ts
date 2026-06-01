@@ -170,8 +170,115 @@ export type CreditLog = {
   balanceBeforeUsd: number;
   balanceAfterUsd: number;
   reason: string;
-  source: "admin" | "api" | "plan" | "audit" | "system";
+  source: "admin" | "api" | "plan" | "audit" | "audit_reconcile" | "system";
   createdAt: string;
+};
+
+export type AiUsageReconciliationEventStatus = "undercharged" | "overcharged" | "aligned";
+
+export type AiUsageReconciliationSummary = {
+  scannedEventCount: number;
+  affectedEventCount: number;
+  underchargedEventCount: number;
+  overchargedEventCount: number;
+  alignedEventCount: number;
+  affectedRunCount: number;
+  chargedUsd: number;
+  expectedUsd: number;
+  usdDelta: number;
+  chargedCredits: number;
+  expectedCredits: number;
+  creditDelta: number;
+};
+
+export type AiUsageReconciliationRun = {
+  runPublicId: string;
+  websiteName: string;
+  websiteUrl: string;
+  userUid: string;
+  workflow: string;
+  pipelineMode: string;
+  eventCount: number;
+  affectedEventCount: number;
+  chargedUsd: number;
+  expectedUsd: number;
+  usdDelta: number;
+  chargedCredits: number;
+  expectedCredits: number;
+  creditDelta: number;
+  latestEventAt?: string | null;
+  status: AiUsageReconciliationEventStatus;
+};
+
+export type AiUsageReconciliationEvent = {
+  eventId: number;
+  itemId: number;
+  itemPublicId: string;
+  position: number;
+  targetUrl: string;
+  runPublicId: string;
+  userUid: string;
+  websiteName: string;
+  websiteUrl: string;
+  workflow: string;
+  pipelineMode: string;
+  step: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  citationTokens: number;
+  reasoningTokens: number;
+  searchQueries: number;
+  providerReportedCostUsd?: number | null;
+  chargedUsd: number;
+  expectedUsd: number;
+  usdDelta: number;
+  chargedCredits: number;
+  expectedCredits: number;
+  creditDelta: number;
+  status: AiUsageReconciliationEventStatus;
+  pricingSource: string;
+  isExact: boolean;
+  createdAt?: string | null;
+};
+
+export type AiUsageReconciliationReport = {
+  filters: {
+    status: string;
+    provider?: string | null;
+    userUid?: string | null;
+    runPublicId?: string | null;
+    limit: number;
+  };
+  summary: AiUsageReconciliationSummary;
+  runs: AiUsageReconciliationRun[];
+  events: AiUsageReconciliationEvent[];
+};
+
+export type AiUsageReconciliationBackfillRow = {
+  eventId: number;
+  runPublicId: string;
+  itemPublicId: string;
+  applied: boolean;
+  usdDelta?: number;
+  creditDelta?: number;
+  newUsdCharged?: number;
+  newCreditsCharged?: number;
+  error?: string;
+  reason?: string;
+};
+
+export type AiUsageReconciliationBackfillResult = {
+  summary: {
+    candidateEventCount: number;
+    appliedEventCount: number;
+    appliedUsdDelta: number;
+    appliedCreditDelta: number;
+    failedEventCount: number;
+  };
+  results: AiUsageReconciliationBackfillRow[];
 };
 
 export type PlanRequest = {

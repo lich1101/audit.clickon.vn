@@ -2,7 +2,16 @@
 
 import { laravelRequest } from "@/lib/laravel";
 import { IMPERSONATE_UID_COOKIE, readClientCookie, ROLE_COOKIE } from "@/lib/auth";
-import type { AppUser, CreditLog, Plan, Product, ProductRequest, UserRole } from "@/types";
+import type {
+  AiUsageReconciliationBackfillResult,
+  AiUsageReconciliationReport,
+  AppUser,
+  CreditLog,
+  Plan,
+  Product,
+  ProductRequest,
+  UserRole
+} from "@/types";
 
 export async function fetchMe(): Promise<AppUser> {
   const response = await laravelRequest<{ data: AppUser }>("/api/me", { method: "GET", cache: "no-store" });
@@ -139,6 +148,40 @@ export async function fetchAdminCreditTransactions(limit = 100) {
     cache: "no-store"
   });
   return response.data;
+}
+
+export async function fetchAiUsageReconciliationReport(input?: {
+  status?: "undercharged" | "overcharged" | "aligned" | "all";
+  provider?: string;
+  userUid?: string;
+  runPublicId?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (input?.status) params.set("status", input.status);
+  if (input?.provider) params.set("provider", input.provider);
+  if (input?.userUid) params.set("userUid", input.userUid);
+  if (input?.runPublicId) params.set("runPublicId", input.runPublicId);
+  if (input?.limit) params.set("limit", String(input.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+
+  return laravelRequest<AiUsageReconciliationReport>(`/api/admin/ai-usage-reconciliation${suffix}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+}
+
+export async function backfillAiUsageReconciliation(input?: {
+  provider?: string;
+  userUid?: string;
+  runPublicId?: string;
+  runPublicIds?: string[];
+  limit?: number;
+}) {
+  return laravelRequest<AiUsageReconciliationBackfillResult>("/api/admin/ai-usage-reconciliation/backfill", {
+    method: "POST",
+    body: JSON.stringify(input ?? {})
+  });
 }
 
 export async function fetchProducts(activeOnly = true) {

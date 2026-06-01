@@ -11,7 +11,7 @@ class AuditSettingsService
     private const CACHE_KEY = 'system_settings.audit';
 
     /**
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @return array<string, mixed>
      */
     public function getAuditSettings(): array
     {
@@ -83,6 +83,17 @@ class AuditSettingsService
                 $value['step3FormatterModel'] ?? env('AUDIT_STEP3_FORMATTER_MODEL', null),
                 $this->defaultFormatterModel($step3FormatterProvider),
             );
+            $fastAiProvider = $this->normalizeAiProvider($value['fastAiProvider'] ?? env('AUDIT_FAST_AI_PROVIDER', $step2AiProvider));
+            $fastAiModel = $this->normalizeOptionalModel(
+                $value['fastAiModel'] ?? env('AUDIT_FAST_AI_MODEL', $value['step2AiModel'] ?? $this->defaultModelForProvider($fastAiProvider))
+            );
+            $fastFormatterProvider = $this->normalizeFormatterProvider(
+                $value['fastFormatterProvider'] ?? env('AUDIT_FAST_FORMATTER_PROVIDER', $step2FormatterProvider)
+            );
+            $fastFormatterModel = $this->normalizeModel(
+                $value['fastFormatterModel'] ?? env('AUDIT_FAST_FORMATTER_MODEL', $value['step2FormatterModel'] ?? null),
+                $this->defaultFormatterModel($fastFormatterProvider),
+            );
 
             $geminiPdfAttachments = is_array($value['geminiPdfAttachments'] ?? null)
                 ? $value['geminiPdfAttachments']
@@ -99,6 +110,10 @@ class AuditSettingsService
                 'step2FormatterModel' => $step2FormatterModel,
                 'step3FormatterProvider' => $step3FormatterProvider,
                 'step3FormatterModel' => $step3FormatterModel,
+                'fastAiProvider' => $fastAiProvider,
+                'fastAiModel' => $fastAiModel,
+                'fastFormatterProvider' => $fastFormatterProvider,
+                'fastFormatterModel' => $fastFormatterModel,
                 'step3FlowMode' => $step3FlowMode,
                 'auditPipelineMode' => $auditPipelineMode,
                 'fastBatchSize' => $fastBatchSize,
@@ -136,8 +151,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
     public function previewAuditSettings(array $payload): array
     {
@@ -145,8 +160,8 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
     public function updateAuditSettings(array $payload): array
     {
@@ -163,9 +178,9 @@ class AuditSettingsService
     }
 
     /**
-     * @param  array{aiProvider?: string, aiModel?: string|null, step2AiProvider?: string, step2AiModel?: string|null, step3AiProvider?: string, step3AiModel?: string|null, step2FormatterProvider?: string, step2FormatterModel?: string|null, step3FormatterProvider?: string, step3FormatterModel?: string|null, step3FlowMode?: string, maxParallelItems?: int, step2BatchSize?: int, step3BatchSize?: int, deepResearchBatchSize?: int, deepResearchResearchProvider?: string, deepResearchResearchModel?: string|null, deepResearchReasoningProvider?: string, deepResearchReasoningModel?: string|null, deepResearchFormatterProvider?: string, deepResearchFormatterModel?: string|null}  $payload
-     * @param  array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}  $current
-     * @return array{aiProvider: string, aiModel: string|null, step2AiProvider: string, step2AiModel: string|null, step3AiProvider: string, step3AiModel: string|null, step2FormatterProvider: string, step2FormatterModel: string|null, step3FormatterProvider: string, step3FormatterModel: string|null, step3FlowMode: string, maxParallelItems: int, step2BatchSize: int, step3BatchSize: int, deepResearchBatchSize: int, deepResearchResearchProvider: string, deepResearchResearchModel: string|null, deepResearchReasoningProvider: string, deepResearchReasoningModel: string|null, deepResearchFormatterProvider: string, deepResearchFormatterModel: string|null}
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $current
+     * @return array<string, mixed>
      */
     private function mergeAuditSettings(array $payload, array $current): array
     {
@@ -246,6 +261,18 @@ class AuditSettingsService
         $step3FormatterModel = array_key_exists('step3FormatterModel', $payload)
             ? $this->normalizeModel($payload['step3FormatterModel'], $this->defaultFormatterModel($step3FormatterProvider))
             : $current['step3FormatterModel'];
+        $fastAiProvider = array_key_exists('fastAiProvider', $payload)
+            ? $this->normalizeAiProvider($payload['fastAiProvider'])
+            : ($current['fastAiProvider'] ?? $step2AiProvider);
+        $fastAiModel = array_key_exists('fastAiModel', $payload)
+            ? $this->normalizeOptionalModel($payload['fastAiModel'])
+            : ($current['fastAiModel'] ?? $current['step2AiModel'] ?? null);
+        $fastFormatterProvider = array_key_exists('fastFormatterProvider', $payload)
+            ? $this->normalizeFormatterProvider($payload['fastFormatterProvider'])
+            : ($current['fastFormatterProvider'] ?? $step2FormatterProvider);
+        $fastFormatterModel = array_key_exists('fastFormatterModel', $payload)
+            ? $this->normalizeModel($payload['fastFormatterModel'], $this->defaultFormatterModel($fastFormatterProvider))
+            : ($current['fastFormatterModel'] ?? $current['step2FormatterModel'] ?? $this->defaultFormatterModel($fastFormatterProvider));
         $geminiPdfAttachments = array_key_exists('geminiPdfAttachments', $payload) && is_array($payload['geminiPdfAttachments'])
             ? $payload['geminiPdfAttachments']
             : ($current['geminiPdfAttachments'] ?? []);
@@ -261,6 +288,10 @@ class AuditSettingsService
             'step2FormatterModel' => $step2FormatterModel,
             'step3FormatterProvider' => $step3FormatterProvider,
             'step3FormatterModel' => $step3FormatterModel,
+            'fastAiProvider' => $fastAiProvider,
+            'fastAiModel' => $fastAiModel ?: $this->defaultModelForProvider($fastAiProvider),
+            'fastFormatterProvider' => $fastFormatterProvider,
+            'fastFormatterModel' => $fastFormatterModel,
             'step3FlowMode' => $step3FlowMode,
             'auditPipelineMode' => $auditPipelineMode,
             'fastBatchSize' => $fastBatchSize,
@@ -317,6 +348,26 @@ class AuditSettingsService
     public function fastBatchSize(): int
     {
         return (int) ($this->getAuditSettings()['fastBatchSize'] ?? 15);
+    }
+
+    public function fastAiProvider(): string
+    {
+        return (string) ($this->getAuditSettings()['fastAiProvider'] ?? $this->step2AiProvider());
+    }
+
+    public function fastAiModel(): ?string
+    {
+        return $this->getAuditSettings()['fastAiModel'] ?? $this->step2AiModel();
+    }
+
+    public function fastFormatterProvider(): string
+    {
+        return (string) ($this->getAuditSettings()['fastFormatterProvider'] ?? $this->getAuditSettings()['step2FormatterProvider'] ?? 'gemini');
+    }
+
+    public function fastFormatterModel(): ?string
+    {
+        return $this->getAuditSettings()['fastFormatterModel'] ?? $this->getAuditSettings()['step2FormatterModel'] ?? null;
     }
 
     public function deepResearchBatchSize(): int

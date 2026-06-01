@@ -57,6 +57,10 @@ class ProcessAuditRunStep3BatchJob implements ShouldQueue
             return;
         }
 
+        if ($auditRunService->retryBatchItemIdsInSmallerChunks($run, $this->itemIds, 3, $exception->getMessage())) {
+            return;
+        }
+
         $auditRunService->markBatchItemIdsFailedForAiStep(
             $run,
             $this->itemIds,

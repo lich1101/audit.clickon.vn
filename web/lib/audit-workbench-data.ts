@@ -1,5 +1,36 @@
 import type { AuditRunItem, AuditRunItemStatus, WebsiteAuditUrlResult } from "@/types";
 
+export type AuditExportColumnKey =
+  | "stt"
+  | "targetUrl"
+  | "pageTitle"
+  | "metaDescription"
+  | "contentSource"
+  | "contentExcerpt"
+  | "contentError"
+  | "status"
+  | "stage"
+  | "primaryKeyword"
+  | "categoryName"
+  | "categoryUrl"
+  | "categoryMatchReason"
+  | "auditScore"
+  | "auditRecommendations"
+  | "contentRevisionDirection"
+  | "auditFindings"
+  | "errorMessage"
+  | "canonicalUrl"
+  | "h1"
+  | "h2"
+  | "h3";
+
+export type AuditExportColumnDefinition = {
+  key: AuditExportColumnKey;
+  header: string;
+  width: number;
+  defaultSelected: boolean;
+};
+
 export type AuditWorkbenchRow = {
   targetUrl?: string;
   status?: AuditRunItemStatus;
@@ -215,27 +246,69 @@ export function buildAuditExportRow(index: number, row: AuditWorkbenchRow) {
   };
 }
 
-export const AUDIT_EXPORT_COLUMNS = [
-  "STT",
-  "URL mục tiêu",
-  "B1: Tiêu đề trang",
-  "B1: Meta description",
-  "B1: Nguồn crawl",
-  "B1: Nội dung",
-  "B1: Lỗi crawl",
-  "Trạng thái",
-  "Giai đoạn",
-  "Từ khóa chính",
-  "Danh mục",
-  "URL danh mục",
-  "Lý do chọn danh mục",
-  "Điểm audit",
-  "Đề xuất audit",
-  "Định hướng chỉnh sửa nội dung",
-  "Nhận định audit",
-  "Lỗi run",
-  "Canonical",
-  "H1",
-  "H2",
-  "H3",
-] as const;
+export const AUDIT_EXPORT_FIELD_DEFINITIONS: AuditExportColumnDefinition[] = [
+  { key: "stt", header: "STT", width: 6, defaultSelected: true },
+  { key: "targetUrl", header: "URL mục tiêu", width: 42, defaultSelected: true },
+  { key: "pageTitle", header: "B1: Tiêu đề trang", width: 34, defaultSelected: true },
+  { key: "metaDescription", header: "B1: Meta description", width: 34, defaultSelected: true },
+  { key: "contentSource", header: "B1: Nguồn crawl", width: 12, defaultSelected: true },
+  { key: "contentExcerpt", header: "B1: Nội dung", width: 48, defaultSelected: true },
+  { key: "contentError", header: "B1: Lỗi crawl", width: 28, defaultSelected: true },
+  { key: "status", header: "Trạng thái", width: 12, defaultSelected: true },
+  { key: "stage", header: "Giai đoạn", width: 24, defaultSelected: true },
+  { key: "primaryKeyword", header: "Từ khóa chính", width: 28, defaultSelected: true },
+  { key: "categoryName", header: "Danh mục", width: 24, defaultSelected: true },
+  { key: "categoryUrl", header: "URL danh mục", width: 34, defaultSelected: false },
+  { key: "categoryMatchReason", header: "Lý do chọn danh mục", width: 28, defaultSelected: false },
+  { key: "auditScore", header: "Điểm audit", width: 10, defaultSelected: true },
+  { key: "auditRecommendations", header: "Đề xuất audit", width: 42, defaultSelected: true },
+  { key: "contentRevisionDirection", header: "Định hướng chỉnh sửa nội dung", width: 42, defaultSelected: true },
+  { key: "auditFindings", header: "Nhận định audit", width: 42, defaultSelected: false },
+  { key: "errorMessage", header: "Lỗi run", width: 28, defaultSelected: true },
+  { key: "canonicalUrl", header: "Canonical", width: 34, defaultSelected: false },
+  { key: "h1", header: "H1", width: 28, defaultSelected: false },
+  { key: "h2", header: "H2", width: 28, defaultSelected: false },
+  { key: "h3", header: "H3", width: 28, defaultSelected: false },
+];
+
+export const DEFAULT_AUDIT_EXPORT_COLUMN_KEYS = AUDIT_EXPORT_FIELD_DEFINITIONS
+  .filter((field) => field.defaultSelected)
+  .map((field) => field.key);
+
+export function buildAuditExportRowForColumns(
+  index: number,
+  row: AuditWorkbenchRow,
+  selectedKeys: AuditExportColumnKey[]
+) {
+  const fullRow = buildAuditExportRow(index, row);
+  const headerMap: Record<AuditExportColumnKey, keyof typeof fullRow> = {
+    stt: "STT",
+    targetUrl: "URL mục tiêu",
+    pageTitle: "B1: Tiêu đề trang",
+    metaDescription: "B1: Meta description",
+    contentSource: "B1: Nguồn crawl",
+    contentExcerpt: "B1: Nội dung",
+    contentError: "B1: Lỗi crawl",
+    status: "Trạng thái",
+    stage: "Giai đoạn",
+    primaryKeyword: "Từ khóa chính",
+    categoryName: "Danh mục",
+    categoryUrl: "URL danh mục",
+    categoryMatchReason: "Lý do chọn danh mục",
+    auditScore: "Điểm audit",
+    auditRecommendations: "Đề xuất audit",
+    contentRevisionDirection: "Định hướng chỉnh sửa nội dung",
+    auditFindings: "Nhận định audit",
+    errorMessage: "Lỗi run",
+    canonicalUrl: "Canonical",
+    h1: "H1",
+    h2: "H2",
+    h3: "H3",
+  };
+
+  return selectedKeys.reduce<Record<string, string | number>>((result, key) => {
+    const header = headerMap[key];
+    result[header] = fullRow[header];
+    return result;
+  }, {});
+}

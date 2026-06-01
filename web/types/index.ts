@@ -279,6 +279,8 @@ export type AuditPromptStep =
   | "keyword_category_json_formatter"
   | "onpage_audit"
   | "onpage_audit_json_formatter"
+  | "fast_audit_combined"
+  | "fast_audit_json_formatter"
   | "deep_research_research"
   | "deep_research_audit"
   | "deep_research_json_formatter";
@@ -473,6 +475,10 @@ export type AuditRun = {
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider | null;
   step3FormatterModel?: string | null;
+  fastAiProvider?: AiProvider | null;
+  fastAiModel?: string | null;
+  fastFormatterProvider?: JsonFormatterProvider | null;
+  fastFormatterModel?: string | null;
   deepResearchResearchProvider?: DeepResearchResearchProvider | null;
   deepResearchResearchModel?: string | null;
   deepResearchReasoningProvider?: DeepResearchReasoningProvider | null;

@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { fetchAdminAuditSettings } from "@/lib/audit-settings";
 import { laravelRequest } from "@/lib/laravel";
 import type { AuditPromptTemplate } from "@/types";
 
@@ -251,10 +252,25 @@ function normalizeTemplate(template: AuditPromptTemplate): AuditPromptTemplate {
   };
 }
 
+type PromptMode = "standard" | "fast" | "deep_research";
+
+function promptModeForStep(step: AuditPromptTemplate["step"]): PromptMode {
+  if (step === "fast_audit_combined" || step === "fast_audit_json_formatter") {
+    return "fast";
+  }
+
+  if (step.startsWith("deep_research_")) {
+    return "deep_research";
+  }
+
+  return "standard";
+}
+
 export default function AdminAuditPromptsPage() {
   const [templates, setTemplates] = useState<AuditPromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingStep, setSavingStep] = useState<string | null>(null);
+  const [promptMode, setPromptMode] = useState<PromptMode>("standard");
 
   const stepHints = useMemo(
     () =>
@@ -265,11 +281,18 @@ export default function AdminAuditPromptsPage() {
         ["keyword_category_json_formatter", "Bước 2.5 chạy khi output bước 2 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
         ["onpage_audit", "Bước 3 chạy theo chunk: dùng kết quả bước 2 + checklist để trả điểm, đề xuất và định hướng từng dòng trong chunk."],
         ["onpage_audit_json_formatter", "Bước 3.5 chạy khi output bước 3 không phải JSON hợp lệ: chuyển raw text/report thành JSON đúng schema."],
+        ["fast_audit_combined", "Fast mode chạy theo chunk: một model duy nhất gộp luôn keyword chính + chọn danh mục + audit onpage cho toàn bộ URL trong batch."],
+        ["fast_audit_json_formatter", "Fast mode formatter chạy khi output bước gộp chưa ra JSON hợp lệ: ép raw output của fast mode về schema cuối cho đủ toàn bộ URL trong batch."],
         ["deep_research_research", "Flow audit_deep_research bước 3A chạy theo chunk: sau khi bước 2 cũ đã trả keyword/danh mục, provider research do admin cấu hình sẽ nghiên cứu thêm SERP, đối thủ, intent, freshness cho từng URL trong batch."],
         ["deep_research_audit", "Flow audit_deep_research bước 3B chạy theo chunk: provider reasoning do admin cấu hình sẽ audit đúng checklist Clickon cho toàn bộ batch, dùng dữ liệu bước 2 + research từng URL."],
         ["deep_research_json_formatter", "Flow audit_deep_research bước 3C chạy theo chunk: ép raw output reasoning về JSON cuối hợp lệ cho đủ toàn bộ items trong batch."]
       ]),
     []
+  );
+
+  const filteredTemplates = useMemo(
+    () => templates.filter((template) => promptModeForStep(template.step) === promptMode),
+    [promptMode, templates]
   );
 
   async function loadTemplates() {
@@ -278,7 +301,15 @@ export default function AdminAuditPromptsPage() {
   }
 
   useEffect(() => {
-    void loadTemplates()
+    void Promise.all([loadTemplates(), fetchAdminAuditSettings()])
+      .then(([, settings]) => {
+        if (settings.auditPipelineMode === "fast") {
+          setPromptMode("fast");
+          return;
+        }
+
+        setPromptMode(settings.step3FlowMode === "audit_deep_research" ? "deep_research" : "standard");
+      })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Không thể tải audit prompts."))
       .finally(() => setLoading(false));
   }, []);
@@ -333,9 +364,30 @@ export default function AdminAuditPromptsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit prompts"
-        description="Cấu hình prompt admin cho chunk AI: bước 2/bước 3 chuẩn giữ nguyên, còn flow audit_deep_research sẽ dùng prompt riêng để thay thế bước 3 sau khi bước 2 cũ đã chạy xong."
+        description="Prompt được lưu tách riêng theo mode. Đổi mode chỉ đổi phần đang hiển thị, prompt của mode còn lại vẫn được giữ nguyên để dùng lại sau."
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Audit Prompts" }]}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Mode prompt đang chỉnh</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button type="button" variant={promptMode === "standard" ? "default" : "outline"} onClick={() => setPromptMode("standard")}>
+            Standard
+          </Button>
+          <Button type="button" variant={promptMode === "fast" ? "default" : "outline"} onClick={() => setPromptMode("fast")}>
+            Fast mode
+          </Button>
+          <Button
+            type="button"
+            variant={promptMode === "deep_research" ? "default" : "outline"}
+            onClick={() => setPromptMode("deep_research")}
+          >
+            Deep Research
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -353,9 +405,9 @@ export default function AdminAuditPromptsPage() {
         </CardContent>
       </Card>
 
-      {templates.length ? (
+      {filteredTemplates.length ? (
         <div className="grid gap-5">
-          {templates.map((template) => (
+          {filteredTemplates.map((template) => (
             <Card key={template.step}>
               <CardHeader className="gap-2">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -437,7 +489,7 @@ export default function AdminAuditPromptsPage() {
           ))}
         </div>
       ) : (
-        <EmptyState title="Chưa có prompt template" description="Laravel API chưa trả về cấu hình prompt audit." />
+        <EmptyState title="Chưa có prompt template" description="Mode hiện tại chưa có prompt hoặc Laravel API chưa trả về dữ liệu." />
       )}
     </div>
   );

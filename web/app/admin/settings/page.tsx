@@ -49,6 +49,10 @@ export default function AdminAuditSettingsPage() {
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
+    fastAiProvider: "openai",
+    fastAiModel: null,
+    fastFormatterProvider: "gemini",
+    fastFormatterModel: "gemini-2.5-flash",
     step3FlowMode: "standard",
     auditPipelineMode: "standard",
     fastBatchSize: 15,
@@ -65,7 +69,9 @@ export default function AdminAuditSettingsPage() {
     deepResearchFormatterModel: "gpt-5.5"
   });
 
-  const isStandardStep3 = settings.step3FlowMode === "standard";
+  const isFastPipeline = settings.auditPipelineMode === "fast";
+  const isStandardStep3 = !isFastPipeline && settings.step3FlowMode === "standard";
+  const isDeepResearchStep3 = !isFastPipeline && settings.step3FlowMode === "audit_deep_research";
 
   useEffect(() => {
     void fetchAdminAuditSettings()
@@ -74,6 +80,10 @@ export default function AdminAuditSettingsPage() {
           ...data,
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
+          fastAiProvider: data.fastAiProvider ?? data.step2AiProvider ?? data.aiProvider,
+          fastAiModel: data.fastAiModel ?? data.step2AiModel ?? data.aiModel ?? null,
+          fastFormatterProvider: data.fastFormatterProvider ?? data.step2FormatterProvider ?? "gemini",
+          fastFormatterModel: data.fastFormatterModel ?? data.step2FormatterModel ?? "gemini-2.5-flash",
           step3FlowMode: data.step3FlowMode ?? "standard",
           auditPipelineMode: data.auditPipelineMode ?? "standard",
           fastBatchSize: data.fastBatchSize ?? 15,
@@ -295,63 +305,8 @@ export default function AdminAuditSettingsPage() {
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">
-              Cấu hình toàn hệ thống. Mọi user dùng chung pipeline này. Fast mode chỉ áp dụng workflow chuẩn; Deep Research vẫn tách bước. Không hỗ trợ dừng sau bước 2 (keyword-only) khi bật Fast.
+              Cấu hình toàn hệ thống. Mọi user dùng chung pipeline này. Khi chuyển mode, cấu hình prompt/model của mode còn lại vẫn được giữ nguyên để dùng lại sau.
             </p>
-          </div>
-          {settings.auditPipelineMode === "fast" ? (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="fast-batch-size">Batch fast mode (URL/lần gọi)</Label>
-              <Input
-                id="fast-batch-size"
-                type="number"
-                min={1}
-                max={100}
-                value={readNumericDraft("fastBatchSize", settings.fastBatchSize)}
-                onChange={(event) =>
-                  commitIntegerDraft("fastBatchSize", event.target.value, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      fastBatchSize: value
-                    })), 100)
-                }
-                onBlur={() =>
-                  normalizeIntegerDraft("fastBatchSize", settings.fastBatchSize, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      fastBatchSize: value
-                    })), 1, 100)
-                }
-              />
-              <p className="text-xs text-muted-foreground">Khuyến nghị 10–20 URL/batch. Dùng model bước 2 + formatter bước 2.5.</p>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Bước 3</CardTitle>
-        </CardHeader>
-        <CardContent className="grid max-w-md gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="step3-flow-mode">Flow</Label>
-            <Select
-              value={settings.step3FlowMode}
-              onValueChange={(value) =>
-                setSettings((current) => ({
-                  ...current,
-                  step3FlowMode: value as AuditWorkflow
-                }))
-              }
-            >
-              <SelectTrigger id="step3-flow-mode">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="standard">Chuẩn</SelectItem>
-                <SelectItem value="audit_deep_research">Deep Research</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </CardContent>
       </Card>
@@ -386,472 +341,632 @@ export default function AdminAuditSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Mặc định</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="admin-ai-provider">Provider</Label>
-            <Select
-              value={settings.aiProvider}
-              onValueChange={(value) =>
-                setSettings((current) => ({
-                  ...current,
-                  aiProvider: value as AiProvider,
-                  aiModel: null
-                }))
-              }
-            >
-              <SelectTrigger id="admin-ai-provider">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="gemini">Gemini</SelectItem>
-                <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <AiModelSelect
-            key={settings.aiProvider}
-            provider={settings.aiProvider}
-            value={settings.aiModel ?? ""}
-            onChange={(model) => setSettings((current) => ({ ...current, aiModel: model || null }))}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Bước 2</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-6 lg:grid-cols-2">
-          <div className="grid gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="step2-ai-provider">Provider</Label>
-              <Select
-                value={settings.step2AiProvider}
-                onValueChange={(value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    step2AiProvider: value as AiProvider,
-                    step2AiModel: null
-                  }))
-                }
-              >
-                <SelectTrigger id="step2-ai-provider">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="gemini">Gemini</SelectItem>
-                  <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <AiModelSelect
-              key={`step2-main-${settings.step2AiProvider}`}
-              id="step2-ai-model"
-              label="Model"
-              provider={settings.step2AiProvider}
-              value={settings.step2AiModel ?? ""}
-              onChange={(model) => setSettings((current) => ({ ...current, step2AiModel: model || null }))}
-            />
-            <GeminiPdfUpload
-              slot="step2_ai"
-              label="PDF"
-              provider={settings.step2AiProvider}
-              attachment={settings.geminiPdfAttachments?.step2_ai ?? null}
-              onChange={(attachment) => updateGeminiPdfAttachment("step2_ai", attachment)}
-            />
-          </div>
-
-          <div className="grid gap-4">
-            <p className="text-sm font-medium">Bước 2.5</p>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="step2-formatter-provider">Provider</Label>
-              <Select
-                value={settings.step2FormatterProvider}
-                onValueChange={(value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    step2FormatterProvider: value as JsonFormatterProvider,
-                    step2FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
-                  }))
-                }
-              >
-                <SelectTrigger id="step2-formatter-provider">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="gemini">Gemini</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <AiModelSelect
-              key={`step2-${settings.step2FormatterProvider}`}
-              provider={settings.step2FormatterProvider}
-              value={settings.step2FormatterModel ?? ""}
-              onChange={(model) => setSettings((current) => ({ ...current, step2FormatterModel: model || null }))}
-            />
-            <GeminiPdfUpload
-              slot="step2_formatter"
-              label="PDF"
-              provider={settings.step2FormatterProvider}
-              attachment={settings.geminiPdfAttachments?.step2_formatter ?? null}
-              onChange={(attachment) => updateGeminiPdfAttachment("step2_formatter", attachment)}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {isStandardStep3 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Bước 3 — Chuẩn</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-6 lg:grid-cols-2">
-            <div className="grid gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="step3-ai-provider">Provider</Label>
-                <Select
-                  value={settings.step3AiProvider}
-                  onValueChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      step3AiProvider: value as AiProvider,
-                      step3AiModel: null
-                    }))
-                  }
-                >
-                  <SelectTrigger id="step3-ai-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
-                  </SelectContent>
-                </Select>
+      {isFastPipeline ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Fast mode</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-6 lg:grid-cols-2">
+              <div className="grid gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="fast-ai-provider">Provider gộp keyword + audit</Label>
+                  <Select
+                    value={settings.fastAiProvider}
+                    onValueChange={(value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        fastAiProvider: value as AiProvider,
+                        fastAiModel: null
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="fast-ai-provider">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="gemini">Gemini</SelectItem>
+                      <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <AiModelSelect
+                  key={`fast-main-${settings.fastAiProvider}`}
+                  id="fast-ai-model"
+                  label="Model fast audit"
+                  provider={settings.fastAiProvider}
+                  value={settings.fastAiModel ?? ""}
+                  onChange={(model) => setSettings((current) => ({ ...current, fastAiModel: model || null }))}
+                  allowCustomInput
+                  description="Bước này gộp luôn keyword chính + danh mục + audit onpage trong một batch."
+                />
               </div>
-              <AiModelSelect
-                key={`step3-main-${settings.step3AiProvider}`}
-                id="step3-ai-model"
-                label="Model"
-                provider={settings.step3AiProvider}
-                value={settings.step3AiModel ?? ""}
-                onChange={(model) => setSettings((current) => ({ ...current, step3AiModel: model || null }))}
-              />
-              <GeminiPdfUpload
-                slot="step3_ai"
-                label="PDF"
-                provider={settings.step3AiProvider}
-                attachment={settings.geminiPdfAttachments?.step3_ai ?? null}
-                onChange={(attachment) => updateGeminiPdfAttachment("step3_ai", attachment)}
-              />
-            </div>
 
-            <div className="grid gap-4">
-              <p className="text-sm font-medium">Bước 3.5</p>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="step3-formatter-provider">Provider</Label>
-                <Select
-                  value={settings.step3FormatterProvider}
-                  onValueChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      step3FormatterProvider: value as JsonFormatterProvider,
-                      step3FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
-                    }))
-                  }
-                >
-                  <SelectTrigger id="step3-formatter-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid gap-4">
+                <p className="text-sm font-medium">Formatter JSON của fast mode</p>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="fast-formatter-provider">Provider</Label>
+                  <Select
+                    value={settings.fastFormatterProvider}
+                    onValueChange={(value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        fastFormatterProvider: value as JsonFormatterProvider,
+                        fastFormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="fast-formatter-provider">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="gemini">Gemini</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <AiModelSelect
+                  key={`fast-formatter-${settings.fastFormatterProvider}`}
+                  id="fast-formatter-model"
+                  label="Model formatter"
+                  provider={settings.fastFormatterProvider}
+                  value={settings.fastFormatterModel ?? ""}
+                  onChange={(model) => setSettings((current) => ({ ...current, fastFormatterModel: model || null }))}
+                  allowCustomInput
+                  description="Chỉ dùng để ép output fast mode về JSON hợp lệ nếu model chính trả prose/Markdown."
+                />
               </div>
-              <AiModelSelect
-                key={`step3-${settings.step3FormatterProvider}`}
-                provider={settings.step3FormatterProvider}
-                value={settings.step3FormatterModel ?? ""}
-                onChange={(model) => setSettings((current) => ({ ...current, step3FormatterModel: model || null }))}
-              />
-              <GeminiPdfUpload
-                slot="step3_formatter"
-                label="PDF"
-                provider={settings.step3FormatterProvider}
-                attachment={settings.geminiPdfAttachments?.step3_formatter ?? null}
-                onChange={(attachment) => updateGeminiPdfAttachment("step3_formatter", attachment)}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Batch fast mode</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="fast-batch-size">Fast mode</Label>
+                <Input
+                  id="fast-batch-size"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={readNumericDraft("fastBatchSize", settings.fastBatchSize)}
+                  onChange={(event) =>
+                    commitIntegerDraft("fastBatchSize", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        fastBatchSize: value
+                      })), 100)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("fastBatchSize", settings.fastBatchSize, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        fastBatchSize: value
+                      })), 1, 100)
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Khuyến nghị 10–20 URL/lần gọi để giảm rủi ro JSON dài.</p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="min-valid-urls-after-step1">Tối thiểu URL hợp lệ sau B1</Label>
+                <Input
+                  id="min-valid-urls-after-step1"
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={readNumericDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1)}
+                  onChange={(event) =>
+                    commitIntegerDraft("minValidUrlsAfterStep1", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        minValidUrlsAfterStep1: value
+                      })), 300)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        minValidUrlsAfterStep1: value
+                      })), 1, 300)
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="max-parallel-fast">Song song</Label>
+                <Input
+                  id="max-parallel-fast"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={readNumericDraft("maxParallelItems", settings.maxParallelItems)}
+                  onChange={(event) =>
+                    commitIntegerDraft("maxParallelItems", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        maxParallelItems: value
+                      })), 10)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("maxParallelItems", settings.maxParallelItems, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        maxParallelItems: value
+                      })), 1, 10)
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Bước 3 — Deep Research</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-6 lg:grid-cols-3">
-            <div className="grid gap-4">
-              <p className="text-sm font-medium">3A Research</p>
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Bước 2</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-6 lg:grid-cols-2">
+              <div className="grid gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="step2-ai-provider">Provider</Label>
+                  <Select
+                    value={settings.step2AiProvider}
+                    onValueChange={(value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        step2AiProvider: value as AiProvider,
+                        step2AiModel: null
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="step2-ai-provider">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="gemini">Gemini</SelectItem>
+                      <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <AiModelSelect
+                  key={`step2-main-${settings.step2AiProvider}`}
+                  id="step2-ai-model"
+                  label="Model"
+                  provider={settings.step2AiProvider}
+                  value={settings.step2AiModel ?? ""}
+                  onChange={(model) => setSettings((current) => ({ ...current, step2AiModel: model || null }))}
+                />
+                <GeminiPdfUpload
+                  slot="step2_ai"
+                  label="PDF"
+                  provider={settings.step2AiProvider}
+                  attachment={settings.geminiPdfAttachments?.step2_ai ?? null}
+                  onChange={(attachment) => updateGeminiPdfAttachment("step2_ai", attachment)}
+                />
+              </div>
+
+              <div className="grid gap-4">
+                <p className="text-sm font-medium">Bước 2.5</p>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="step2-formatter-provider">Provider</Label>
+                  <Select
+                    value={settings.step2FormatterProvider}
+                    onValueChange={(value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        step2FormatterProvider: value as JsonFormatterProvider,
+                        step2FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="step2-formatter-provider">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="gemini">Gemini</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <AiModelSelect
+                  key={`step2-${settings.step2FormatterProvider}`}
+                  provider={settings.step2FormatterProvider}
+                  value={settings.step2FormatterModel ?? ""}
+                  onChange={(model) => setSettings((current) => ({ ...current, step2FormatterModel: model || null }))}
+                />
+                <GeminiPdfUpload
+                  slot="step2_formatter"
+                  label="PDF"
+                  provider={settings.step2FormatterProvider}
+                  attachment={settings.geminiPdfAttachments?.step2_formatter ?? null}
+                  onChange={(attachment) => updateGeminiPdfAttachment("step2_formatter", attachment)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Bước 3</CardTitle>
+            </CardHeader>
+            <CardContent className="grid max-w-md gap-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="deep-research-research-provider">Provider</Label>
+                <Label htmlFor="step3-flow-mode">Flow</Label>
                 <Select
-                  value={settings.deepResearchResearchProvider}
+                  value={settings.step3FlowMode}
                   onValueChange={(value) =>
                     setSettings((current) => ({
                       ...current,
-                      deepResearchResearchProvider: value as DeepResearchResearchProvider,
-                      deepResearchResearchModel:
-                        value === "gemini_deep_research" ? "deep-research-pro-preview-12-2025" : "sonar-deep-research"
+                      step3FlowMode: value as AuditWorkflow
                     }))
                   }
                 >
-                  <SelectTrigger id="deep-research-research-provider">
+                  <SelectTrigger id="step3-flow-mode">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="perplexity">Perplexity</SelectItem>
-                    <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                    <SelectItem value="standard">Chuẩn</SelectItem>
+                    <SelectItem value="audit_deep_research">Deep Research</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <AiModelSelect
-                key={`deep-research-research-${settings.deepResearchResearchProvider}`}
-                id="deep-research-research-model"
-                label="Model"
-                provider={settings.deepResearchResearchProvider}
-                value={settings.deepResearchResearchModel ?? ""}
-                onChange={(model) =>
-                  setSettings((current) => ({
-                    ...current,
-                    deepResearchResearchModel: model || null
-                  }))
-                }
-                allowCustomInput
-              />
-            </div>
-
-            <div className="grid gap-4">
-              <p className="text-sm font-medium">3B Reasoning</p>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="deep-research-reasoning-provider">Provider</Label>
-                <Select
-                  value={settings.deepResearchReasoningProvider}
-                  onValueChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      deepResearchReasoningProvider: value as DeepResearchReasoningProvider,
-                      deepResearchReasoningModel: value === "gemini" ? "gemini-2.5-pro" : "gpt-5.5"
-                    }))
-                  }
-                >
-                  <SelectTrigger id="deep-research-reasoning-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <AiModelSelect
-                key={`deep-research-reasoning-${settings.deepResearchReasoningProvider}`}
-                id="deep-research-reasoning-model"
-                label="Model"
-                provider={settings.deepResearchReasoningProvider}
-                value={settings.deepResearchReasoningModel ?? ""}
-                onChange={(model) =>
-                  setSettings((current) => ({
-                    ...current,
-                    deepResearchReasoningModel: model || null
-                  }))
-                }
-                allowCustomInput
-              />
-            </div>
-
-            <div className="grid gap-4">
-              <p className="text-sm font-medium">3C Formatter</p>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="deep-research-formatter-provider">Provider</Label>
-                <Select
-                  value={settings.deepResearchFormatterProvider}
-                  onValueChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      deepResearchFormatterProvider: value as JsonFormatterProvider,
-                      deepResearchFormatterModel: value === "gemini" ? "gemini-2.5-flash" : "gpt-5.5"
-                    }))
-                  }
-                >
-                  <SelectTrigger id="deep-research-formatter-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <AiModelSelect
-                key={`deep-research-formatter-${settings.deepResearchFormatterProvider}`}
-                id="deep-research-formatter-model"
-                label="Model"
-                provider={settings.deepResearchFormatterProvider}
-                value={settings.deepResearchFormatterModel ?? ""}
-                onChange={(model) =>
-                  setSettings((current) => ({
-                    ...current,
-                    deepResearchFormatterModel: model || null
-                  }))
-                }
-                allowCustomInput
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Batch</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="step2-batch-size">Bước 2</Label>
-            <Input
-              id="step2-batch-size"
-              type="number"
-              min={1}
-              max={300}
-              value={readNumericDraft("step2BatchSize", settings.step2BatchSize)}
-              onChange={(event) =>
-                commitIntegerDraft("step2BatchSize", event.target.value, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    step2BatchSize: value
-                  })), 300)
-              }
-              onBlur={() =>
-                normalizeIntegerDraft("step2BatchSize", settings.step2BatchSize, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    step2BatchSize: value
-                  })), 1, 300)
-              }
-            />
-          </div>
+            </CardContent>
+          </Card>
 
           {isStandardStep3 ? (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="step3-batch-size">Bước 3</Label>
-              <Input
-                id="step3-batch-size"
-                type="number"
-                min={1}
-                max={300}
-                value={readNumericDraft("step3BatchSize", settings.step3BatchSize)}
-                onChange={(event) =>
-                  commitIntegerDraft("step3BatchSize", event.target.value, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      step3BatchSize: value
-                    })), 300)
-                }
-                onBlur={() =>
-                  normalizeIntegerDraft("step3BatchSize", settings.step3BatchSize, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      step3BatchSize: value
-                    })), 1, 300)
-                }
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="deep-research-batch-size">Bước 3 DR</Label>
-              <Input
-                id="deep-research-batch-size"
-                type="number"
-                min={1}
-                max={100}
-                value={readNumericDraft("deepResearchBatchSize", settings.deepResearchBatchSize)}
-                onChange={(event) =>
-                  commitIntegerDraft("deepResearchBatchSize", event.target.value, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      deepResearchBatchSize: value
-                    })), 100)
-                }
-                onBlur={() =>
-                  normalizeIntegerDraft("deepResearchBatchSize", settings.deepResearchBatchSize, (value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      deepResearchBatchSize: value
-                    })), 1, 100)
-                }
-              />
-            </div>
-          )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Bước 3 — Chuẩn</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-6 lg:grid-cols-2">
+                <div className="grid gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="step3-ai-provider">Provider</Label>
+                    <Select
+                      value={settings.step3AiProvider}
+                      onValueChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          step3AiProvider: value as AiProvider,
+                          step3AiModel: null
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="step3-ai-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="gemini">Gemini</SelectItem>
+                        <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AiModelSelect
+                    key={`step3-main-${settings.step3AiProvider}`}
+                    id="step3-ai-model"
+                    label="Model"
+                    provider={settings.step3AiProvider}
+                    value={settings.step3AiModel ?? ""}
+                    onChange={(model) => setSettings((current) => ({ ...current, step3AiModel: model || null }))}
+                  />
+                  <GeminiPdfUpload
+                    slot="step3_ai"
+                    label="PDF"
+                    provider={settings.step3AiProvider}
+                    attachment={settings.geminiPdfAttachments?.step3_ai ?? null}
+                    onChange={(attachment) => updateGeminiPdfAttachment("step3_ai", attachment)}
+                  />
+                </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="min-valid-urls-after-step1">Tối thiểu URL hợp lệ sau B1</Label>
-            <Input
-              id="min-valid-urls-after-step1"
-              type="number"
-              min={1}
-              max={300}
-              value={readNumericDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1)}
-              onChange={(event) =>
-                commitIntegerDraft("minValidUrlsAfterStep1", event.target.value, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    minValidUrlsAfterStep1: value
-                  })), 300)
-              }
-              onBlur={() =>
-                normalizeIntegerDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    minValidUrlsAfterStep1: value
-                  })), 1, 300)
-              }
-            />
-          </div>
+                <div className="grid gap-4">
+                  <p className="text-sm font-medium">Bước 3.5</p>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="step3-formatter-provider">Provider</Label>
+                    <Select
+                      value={settings.step3FormatterProvider}
+                      onValueChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          step3FormatterProvider: value as JsonFormatterProvider,
+                          step3FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="step3-formatter-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="gemini">Gemini</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AiModelSelect
+                    key={`step3-${settings.step3FormatterProvider}`}
+                    provider={settings.step3FormatterProvider}
+                    value={settings.step3FormatterModel ?? ""}
+                    onChange={(model) => setSettings((current) => ({ ...current, step3FormatterModel: model || null }))}
+                  />
+                  <GeminiPdfUpload
+                    slot="step3_formatter"
+                    label="PDF"
+                    provider={settings.step3FormatterProvider}
+                    attachment={settings.geminiPdfAttachments?.step3_formatter ?? null}
+                    onChange={(attachment) => updateGeminiPdfAttachment("step3_formatter", attachment)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="max-parallel">Song song</Label>
-            <Input
-              id="max-parallel"
-              type="number"
-              min={1}
-              max={10}
-              value={readNumericDraft("maxParallelItems", settings.maxParallelItems)}
-              onChange={(event) =>
-                commitIntegerDraft("maxParallelItems", event.target.value, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    maxParallelItems: value
-                  })), 10)
-              }
-              onBlur={() =>
-                normalizeIntegerDraft("maxParallelItems", settings.maxParallelItems, (value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    maxParallelItems: value
-                  })), 1, 10)
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
+          {isDeepResearchStep3 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Bước 3 — Deep Research</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-6 lg:grid-cols-3">
+                <div className="grid gap-4">
+                  <p className="text-sm font-medium">3A Research</p>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="deep-research-research-provider">Provider</Label>
+                    <Select
+                      value={settings.deepResearchResearchProvider}
+                      onValueChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          deepResearchResearchProvider: value as DeepResearchResearchProvider,
+                          deepResearchResearchModel:
+                            value === "gemini_deep_research" ? "deep-research-pro-preview-12-2025" : "sonar-deep-research"
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="deep-research-research-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="perplexity">Perplexity</SelectItem>
+                        <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AiModelSelect
+                    key={`deep-research-research-${settings.deepResearchResearchProvider}`}
+                    id="deep-research-research-model"
+                    label="Model"
+                    provider={settings.deepResearchResearchProvider}
+                    value={settings.deepResearchResearchModel ?? ""}
+                    onChange={(model) =>
+                      setSettings((current) => ({
+                        ...current,
+                        deepResearchResearchModel: model || null
+                      }))
+                    }
+                    allowCustomInput
+                  />
+                </div>
+
+                <div className="grid gap-4">
+                  <p className="text-sm font-medium">3B Reasoning</p>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="deep-research-reasoning-provider">Provider</Label>
+                    <Select
+                      value={settings.deepResearchReasoningProvider}
+                      onValueChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          deepResearchReasoningProvider: value as DeepResearchReasoningProvider,
+                          deepResearchReasoningModel: value === "gemini" ? "gemini-2.5-pro" : "gpt-5.5"
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="deep-research-reasoning-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="gemini">Gemini</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AiModelSelect
+                    key={`deep-research-reasoning-${settings.deepResearchReasoningProvider}`}
+                    id="deep-research-reasoning-model"
+                    label="Model"
+                    provider={settings.deepResearchReasoningProvider}
+                    value={settings.deepResearchReasoningModel ?? ""}
+                    onChange={(model) =>
+                      setSettings((current) => ({
+                        ...current,
+                        deepResearchReasoningModel: model || null
+                      }))
+                    }
+                    allowCustomInput
+                  />
+                </div>
+
+                <div className="grid gap-4">
+                  <p className="text-sm font-medium">3C Formatter</p>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="deep-research-formatter-provider">Provider</Label>
+                    <Select
+                      value={settings.deepResearchFormatterProvider}
+                      onValueChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          deepResearchFormatterProvider: value as JsonFormatterProvider,
+                          deepResearchFormatterModel: value === "gemini" ? "gemini-2.5-flash" : "gpt-5.5"
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="deep-research-formatter-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="gemini">Gemini</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AiModelSelect
+                    key={`deep-research-formatter-${settings.deepResearchFormatterProvider}`}
+                    id="deep-research-formatter-model"
+                    label="Model"
+                    provider={settings.deepResearchFormatterProvider}
+                    value={settings.deepResearchFormatterModel ?? ""}
+                    onChange={(model) =>
+                      setSettings((current) => ({
+                        ...current,
+                        deepResearchFormatterModel: model || null
+                      }))
+                    }
+                    allowCustomInput
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Batch</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="step2-batch-size">Bước 2</Label>
+                <Input
+                  id="step2-batch-size"
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={readNumericDraft("step2BatchSize", settings.step2BatchSize)}
+                  onChange={(event) =>
+                    commitIntegerDraft("step2BatchSize", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        step2BatchSize: value
+                      })), 300)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("step2BatchSize", settings.step2BatchSize, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        step2BatchSize: value
+                      })), 1, 300)
+                  }
+                />
+              </div>
+
+              {isStandardStep3 ? (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="step3-batch-size">Bước 3</Label>
+                  <Input
+                    id="step3-batch-size"
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={readNumericDraft("step3BatchSize", settings.step3BatchSize)}
+                    onChange={(event) =>
+                      commitIntegerDraft("step3BatchSize", event.target.value, (value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          step3BatchSize: value
+                        })), 300)
+                    }
+                    onBlur={() =>
+                      normalizeIntegerDraft("step3BatchSize", settings.step3BatchSize, (value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          step3BatchSize: value
+                        })), 1, 300)
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="deep-research-batch-size">Bước 3 DR</Label>
+                  <Input
+                    id="deep-research-batch-size"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={readNumericDraft("deepResearchBatchSize", settings.deepResearchBatchSize)}
+                    onChange={(event) =>
+                      commitIntegerDraft("deepResearchBatchSize", event.target.value, (value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          deepResearchBatchSize: value
+                        })), 100)
+                    }
+                    onBlur={() =>
+                      normalizeIntegerDraft("deepResearchBatchSize", settings.deepResearchBatchSize, (value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          deepResearchBatchSize: value
+                        })), 1, 100)
+                    }
+                  />
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="min-valid-urls-after-step1">Tối thiểu URL hợp lệ sau B1</Label>
+                <Input
+                  id="min-valid-urls-after-step1"
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={readNumericDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1)}
+                  onChange={(event) =>
+                    commitIntegerDraft("minValidUrlsAfterStep1", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        minValidUrlsAfterStep1: value
+                      })), 300)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("minValidUrlsAfterStep1", settings.minValidUrlsAfterStep1, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        minValidUrlsAfterStep1: value
+                      })), 1, 300)
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="max-parallel">Song song</Label>
+                <Input
+                  id="max-parallel"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={readNumericDraft("maxParallelItems", settings.maxParallelItems)}
+                  onChange={(event) =>
+                    commitIntegerDraft("maxParallelItems", event.target.value, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        maxParallelItems: value
+                      })), 10)
+                  }
+                  onBlur={() =>
+                    normalizeIntegerDraft("maxParallelItems", settings.maxParallelItems, (value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        maxParallelItems: value
+                      })), 1, 10)
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <Card>
         <CardHeader>

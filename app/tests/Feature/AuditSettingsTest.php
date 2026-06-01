@@ -67,6 +67,10 @@ class AuditSettingsTest extends TestCase
             'step2FormatterModel' => 'gemini-2.5-flash',
             'step3FormatterProvider' => 'gemini',
             'step3FormatterModel' => 'gemini-2.5-flash',
+            'fastAiProvider' => 'gemini',
+            'fastAiModel' => 'gemini-2.5-pro',
+            'fastFormatterProvider' => 'openai',
+            'fastFormatterModel' => 'gpt-5.5-mini',
             'step3FlowMode' => 'standard',
             'auditPipelineMode' => 'fast',
             'fastBatchSize' => 20,
@@ -84,6 +88,10 @@ class AuditSettingsTest extends TestCase
 
         $this->assertSame('fast', $settings['auditPipelineMode']);
         $this->assertSame(20, $settings['fastBatchSize']);
+        $this->assertSame('gemini', $settings['fastAiProvider']);
+        $this->assertSame('gemini-2.5-pro', $settings['fastAiModel']);
+        $this->assertSame('openai', $settings['fastFormatterProvider']);
+        $this->assertSame('gpt-5.5-mini', $settings['fastFormatterModel']);
         $this->assertTrue(app(AuditSettingsService::class)->usesFastAuditPipelineMode());
         $this->assertSame(20, app(AuditSettingsService::class)->fastBatchSize());
     }
@@ -104,6 +112,10 @@ class AuditSettingsTest extends TestCase
             'step2FormatterModel' => 'gemini-2.5-flash',
             'step3FormatterProvider' => 'gemini',
             'step3FormatterModel' => 'gemini-2.5-flash',
+            'fastAiProvider' => 'openai',
+            'fastAiModel' => 'gpt-5.5-mini',
+            'fastFormatterProvider' => 'gemini',
+            'fastFormatterModel' => 'gemini-2.5-flash',
             'step3FlowMode' => 'standard',
             'auditPipelineMode' => 'fast',
             'fastBatchSize' => 15,

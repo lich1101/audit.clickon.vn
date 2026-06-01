@@ -45,6 +45,10 @@ export type AuditSystemSettings = {
   step2FormatterModel: string | null;
   step3FormatterProvider: JsonFormatterProvider;
   step3FormatterModel: string | null;
+  fastAiProvider: AiProvider;
+  fastAiModel: string | null;
+  fastFormatterProvider: JsonFormatterProvider;
+  fastFormatterModel: string | null;
   step3FlowMode: AuditWorkflow;
   auditPipelineMode: AuditPipelineMode;
   fastBatchSize: number;
@@ -74,6 +78,10 @@ export type PublicAuditSettings = {
   step2FormatterModel?: string | null;
   step3FormatterProvider?: JsonFormatterProvider;
   step3FormatterModel?: string | null;
+  fastAiProvider?: AiProvider;
+  fastAiModel?: string | null;
+  fastFormatterProvider?: JsonFormatterProvider;
+  fastFormatterModel?: string | null;
   step3FlowMode?: AuditWorkflow;
   auditPipelineMode?: AuditPipelineMode;
   fastBatchSize?: number;

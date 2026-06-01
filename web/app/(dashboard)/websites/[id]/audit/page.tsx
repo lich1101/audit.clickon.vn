@@ -5,6 +5,7 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AuditAiStepErrorsPanel } from "@/components/dashboard/audit-ai-step-errors-panel";
+import { AuditExportDialog } from "@/components/dashboard/audit-export-dialog";
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
 import { AuditWorkbenchTable } from "@/components/dashboard/audit-workbench-table";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -21,7 +22,7 @@ import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 import { grantWebsiteSameDayReaudit, revokeWebsiteSameDayReaudit } from "@/lib/account";
 import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-step-errors";
 import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
-import { mergeAuditWorkbenchRow } from "@/lib/audit-workbench-data";
+import { mergeAuditWorkbenchRow, type AuditExportColumnKey } from "@/lib/audit-workbench-data";
 import {
   ACTIVE_AUDIT_POLL_INTERVAL_MS,
   createAuditRun,
@@ -33,7 +34,7 @@ import {
   stopAuditRun
 } from "@/lib/audit-runs";
 import { listenToAuditRunSignal, saveWebsiteAudit } from "@/lib/firestore";
-import { formatDate, formatUsd } from "@/lib/utils";
+import { formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { PublicAuditSettings } from "@/lib/audit-settings";
 import type { AuditRun, AuditRunStartStep, AuditRunStopAfterStep, AuditWorkflow, Website, WebsiteAudit, WebsiteAuditUrlResult } from "@/types";
 import type { AuditWorkbenchRow } from "@/lib/audit-workbench-data";
@@ -42,11 +43,6 @@ const workflowLabels: Record<AuditWorkflow, string> = {
   standard: "Audit chuẩn",
   audit_deep_research: "Audit Deep Research"
 };
-
-const pipelineModeLabels = {
-  standard: "Pipeline chuẩn (B2 + B3 tách)",
-  fast: "Fast mode (B2 + B3 gộp)"
-} as const;
 
 function progressFor(run?: AuditRun | null) {
   if (!run || run.totalUrls <= 0) {
@@ -132,6 +128,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
+    fastAiProvider: "openai",
+    fastAiModel: null,
+    fastFormatterProvider: "gemini",
+    fastFormatterModel: "gemini-2.5-flash",
     step3FlowMode: "standard",
     auditPipelineMode: "standard",
     fastBatchSize: 15,
@@ -152,6 +152,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [grantingReaudit, setGrantingReaudit] = useState(false);
@@ -206,6 +207,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         step2FormatterModel: "gemini-2.5-flash",
         step3FormatterProvider: "gemini",
         step3FormatterModel: "gemini-2.5-flash",
+        fastAiProvider: "openai",
+        fastAiModel: null,
+        fastFormatterProvider: "gemini",
+        fastFormatterModel: "gemini-2.5-flash",
         step3FlowMode: "standard",
         auditPipelineMode: "standard",
         fastBatchSize: 15,
@@ -406,8 +411,11 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const isPreparingRun = run?.status === "processing" && activeUrls === 0 && queuedUrls > 0 && run.processedUrls === 0;
   const configuredWorkflow: AuditWorkflow = systemAi.step3FlowMode ?? "standard";
   const configuredPipelineMode = run?.pipelineMode ?? systemAi.auditPipelineMode ?? "standard";
-  const isFastStandardPipeline = configuredWorkflow === "standard" && configuredPipelineMode === "fast";
+  const effectiveConfiguredWorkflow: AuditWorkflow = configuredPipelineMode === "fast" ? "standard" : configuredWorkflow;
+  const isFastStandardPipeline = effectiveConfiguredWorkflow === "standard" && configuredPipelineMode === "fast";
+  const activeFlowLabel = configuredPipelineMode === "fast" ? "Fast mode" : workflowLabels[effectiveConfiguredWorkflow];
   const currentBalanceUsd = profile?.balanceUsd ?? 0;
+  const currentBalanceCredits = profile?.credits ?? 0;
 
   async function persistUrlList(nextUrls: string[]) {
     if (!audit || !website || !profile) {
@@ -539,7 +547,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       const latestBalanceUsd = latestProfile?.balanceUsd ?? currentBalanceUsd;
 
       if (latestBalanceUsd <= 0) {
-        toast.error(`Không đủ số dư. Cần có số dư USD trong tài khoản để chạy audit; hệ thống sẽ trừ theo chi phí API thực tế. Hiện có ${formatUsd(latestBalanceUsd, 4)}.`);
+        if (canUseAdminDebugActions) {
+          toast.error(`Không đủ số dư. Cần có số dư USD trong tài khoản để chạy audit; hệ thống sẽ trừ theo chi phí API thực tế. Hiện có ${formatUsd(latestBalanceUsd, 4)}.`);
+        } else {
+          const latestCredits = latestProfile?.credits ?? currentBalanceCredits;
+          toast.error(`Không đủ credit để chạy audit. Hệ thống sẽ chỉ trừ tổng credit sau khi AI chạy xong. Hiện có ${formatNumber(latestCredits)} credit.`);
+        }
         return;
       }
 
@@ -632,7 +645,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function handleExport() {
+  async function handleExport(selectedColumns: AuditExportColumnKey[]) {
     const exportUrls = urlList.filter((url) => selectedUrls.includes(url));
 
     if (exportUrls.length === 0) {
@@ -653,8 +666,10 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         urls: exportUrls,
         rowsByUrl: itemsByUrl,
         fullItemsByUrl,
+        selectedColumns,
       });
       toast.success(`Đã xuất ${exportUrls.length} URL ra Excel.`);
+      setExportDialogOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể xuất file Excel.");
     } finally {
@@ -691,20 +706,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <p className="font-medium">Bảng audit</p>
             {run ? <AuditStatusBadge status={run.status} /> : null}
             <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
-              {workflowLabels[configuredWorkflow]}
+              {activeFlowLabel}
             </span>
-            {configuredWorkflow === "standard" ? (
-              <span
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                  isFastStandardPipeline
-                    ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                    : "border-border/70 bg-secondary/50"
-                }`}
-                title="Cấu hình toàn hệ thống — chỉ admin đổi trong Audit Settings"
-              >
-                {pipelineModeLabels[configuredPipelineMode]}
-              </span>
-            ) : null}
             {run?.stopAfterStep === 1 ? (
               <span className="rounded-full border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium">
                 Chỉ chạy bước 1
@@ -721,7 +724,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{urlList.length} URL</span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">{audit?.categories.length ?? 0} danh mục</span>
-            <span className="rounded-full bg-secondary/50 px-2.5 py-1">{formatUsd(currentBalanceUsd, 4)}</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">
+              {canUseAdminDebugActions ? formatUsd(currentBalanceUsd, 4) : `${formatNumber(currentBalanceCredits)} credit`}
+            </span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
             {isFastStandardPipeline ? (
               <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2+3 {stepCounts.step3Ready}/{urlList.length}</span>
@@ -870,7 +875,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <Settings className="size-4" />
             Cấu hình
           </Button>
-          <Button type="button" variant="outline" onClick={handleExport} disabled={exporting || selectedUrls.length === 0 || urlList.length === 0}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setExportDialogOpen(true)}
+            disabled={exporting || selectedUrls.length === 0 || urlList.length === 0}
+          >
             <Download className="size-4" />
             {exporting ? "Đang xuất..." : `Xuất Excel (${selectedUrls.length})`}
           </Button>
@@ -904,6 +914,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         canManageUrls={!isRunActive}
         canSelectUrls={urlList.length > 0}
         websiteId={website.id}
+      />
+
+      <AuditExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        onConfirm={handleExport}
+        exporting={exporting}
       />
 
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>

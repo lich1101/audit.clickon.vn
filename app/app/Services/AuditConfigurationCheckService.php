@@ -98,10 +98,10 @@ class AuditConfigurationCheckService
      */
     private function checkFastPipelineGroup(array $settings): array
     {
-        $provider = (string) ($settings['step2AiProvider'] ?? $settings['aiProvider'] ?? 'openai');
-        $model = $this->effectiveModelForProvider($provider, $settings['step2AiModel'] ?? $settings['aiModel'] ?? null);
-        $formatterProvider = (string) ($settings['step2FormatterProvider'] ?? 'gemini');
-        $formatterModel = $this->effectiveFormatterModel($formatterProvider, $settings['step2FormatterModel'] ?? null);
+        $provider = (string) ($settings['fastAiProvider'] ?? $settings['step2AiProvider'] ?? $settings['aiProvider'] ?? 'openai');
+        $model = $this->effectiveModelForProvider($provider, $settings['fastAiModel'] ?? $settings['step2AiModel'] ?? $settings['aiModel'] ?? null);
+        $formatterProvider = (string) ($settings['fastFormatterProvider'] ?? $settings['step2FormatterProvider'] ?? 'gemini');
+        $formatterModel = $this->effectiveFormatterModel($formatterProvider, $settings['fastFormatterModel'] ?? $settings['step2FormatterModel'] ?? null);
 
         return $this->buildGroup('fast_pipeline', 'Fast mode: keyword + audit gộp', [
             $this->okItem('Pipeline', 'Fast mode (gộp bước 2 + 3)'),
@@ -187,12 +187,13 @@ class AuditConfigurationCheckService
 
         $items = [
             $this->okItem('Pipeline audit', $auditPipelineMode === AuditRun::PIPELINE_FAST ? 'Fast mode' : 'Chuẩn (tách bước 2/3)'),
-            $this->okItem('Mode bước 3', $step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH ? 'Deep Research' : 'Chuẩn'),
             $this->parallelCheck($maxParallel),
         ];
 
-        if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {
-            $items[] = $this->warningItem('Fast + Deep Research', 'Fast mode chỉ áp dụng workflow chuẩn. Run Deep Research vẫn dùng pipeline tách bước.');
+        if ($auditPipelineMode === AuditRun::PIPELINE_FAST) {
+            $items[] = $this->okItem('Flow đang hoạt động', 'Fast mode dùng flow gộp keyword + audit. Cấu hình bước 3 chuẩn / Deep Research vẫn được giữ để dùng lại khi chuyển mode.');
+        } else {
+            $items[] = $this->okItem('Mode bước 3', $step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH ? 'Deep Research' : 'Chuẩn');
         }
 
         if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_STANDARD) {

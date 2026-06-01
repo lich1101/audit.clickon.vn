@@ -144,9 +144,15 @@ class AuditRunController extends Controller
 
         $systemSettings = $this->auditSettingsService->getAuditSettings();
         $auditUrlCount = is_array($audit['articleUrls'] ?? null) ? count($audit['articleUrls']) : 0;
+        $activeProvider = ($systemSettings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+            ? ($systemSettings['fastAiProvider'] ?? $systemSettings['step2AiProvider'] ?? $systemSettings['aiProvider'])
+            : ($systemSettings['aiProvider'] ?? 'openai');
+        $activeModel = ($systemSettings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+            ? ($systemSettings['fastAiModel'] ?? $systemSettings['step2AiModel'] ?? $systemSettings['aiModel'] ?? null)
+            : ($systemSettings['aiModel'] ?? null);
         $minimumCreditsPerRun = $this->auditRunService->minimumCreditsPerRun(
-            $systemSettings['aiProvider'],
-            $systemSettings['aiModel'],
+            $activeProvider,
+            $activeModel,
             $auditUrlCount,
             $systemSettings,
         );
@@ -178,6 +184,10 @@ class AuditRunController extends Controller
                     'step2FormatterModel' => $systemSettings['step2FormatterModel'],
                     'step3FormatterProvider' => $systemSettings['step3FormatterProvider'],
                     'step3FormatterModel' => $systemSettings['step3FormatterModel'],
+                    'fastAiProvider' => $systemSettings['fastAiProvider'],
+                    'fastAiModel' => $systemSettings['fastAiModel'],
+                    'fastFormatterProvider' => $systemSettings['fastFormatterProvider'],
+                    'fastFormatterModel' => $systemSettings['fastFormatterModel'],
                     'step3FlowMode' => $systemSettings['step3FlowMode'],
                     'auditPipelineMode' => $systemSettings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD,
                     'fastBatchSize' => (int) ($systemSettings['fastBatchSize'] ?? 15),
@@ -191,7 +201,7 @@ class AuditRunController extends Controller
                     'deepResearchReasoningModel' => $systemSettings['deepResearchReasoningModel'],
                     'deepResearchFormatterProvider' => $systemSettings['deepResearchFormatterProvider'],
                     'deepResearchFormatterModel' => $systemSettings['deepResearchFormatterModel'],
-                    'minCreditsPerAiCall' => $this->auditRunService->minimumCreditsPerAiCall($systemSettings['aiProvider'], $systemSettings['aiModel']),
+                    'minCreditsPerAiCall' => $this->auditRunService->minimumCreditsPerAiCall($activeProvider, $activeModel),
                     'minCreditsPerRun' => $minimumCreditsPerRun,
                     'minCreditsPerUrl' => $minimumCreditsPerRun,
                 ],
@@ -305,8 +315,14 @@ class AuditRunController extends Controller
         $this->auditRunService->authorizeRead($request, $run);
         $this->auditRunService->watchdogActiveRun($run);
 
+        $payload = $this->auditRunService->serializeRun($run->fresh('items'));
+
+        if (! $this->canViewAdminAuditDebug($request)) {
+            $payload = $this->redactUserRunPayload($payload);
+        }
+
         return response()->json([
-            'data' => $this->auditRunService->serializeRun($run->fresh('items')),
+            'data' => $payload,
         ]);
     }
 
@@ -351,5 +367,52 @@ class AuditRunController extends Controller
         if ($role !== 'admin' && $ownerId !== $uid) {
             throw new AccessDeniedHttpException('You do not have access to this website.');
         }
+    }
+
+    private function canViewAdminAuditDebug(Request $request): bool
+    {
+        $actorRole = (string) $request->attributes->get(
+            'actor_role',
+            (string) $request->attributes->get('firebase_role', 'user'),
+        );
+
+        return $actorRole === 'admin'
+            && ! (bool) $request->attributes->get('impersonated_by_admin', false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function redactUserRunPayload(array $payload): array
+    {
+        $usageSummary = $payload['usageSummary'] ?? null;
+        $creditsCharged = is_array($usageSummary)
+            ? (int) data_get($usageSummary, 'totals.creditsCharged', 0)
+            : 0;
+
+        $payload['usageSummary'] = [
+            'totals' => [
+                'creditsCharged' => $creditsCharged,
+            ],
+            'byStep' => [],
+            'costVisibility' => 'hidden',
+            'estimateVisibility' => 'hidden',
+        ];
+        $payload['aiStepResponses'] = [];
+
+        if (is_array($payload['items'] ?? null)) {
+            $payload['items'] = array_map(function (mixed $item): mixed {
+                if (! is_array($item)) {
+                    return $item;
+                }
+
+                unset($item['promptSnapshots']);
+
+                return $item;
+            }, $payload['items']);
+        }
+
+        return $payload;
     }
 }

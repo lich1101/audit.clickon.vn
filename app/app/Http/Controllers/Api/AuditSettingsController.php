@@ -22,8 +22,14 @@ class AuditSettingsController extends Controller
     public function showPublic(Request $request)
     {
         $settings = $this->auditSettingsService->getAuditSettings();
-        $minimumCreditsPerAiCall = $this->tokenBillingService->estimateMinimumCreditsForAiCall($settings['aiProvider'], $settings['aiModel']);
-        $minimumCreditsPerRun = $this->tokenBillingService->estimateMinimumCreditsForBatchRun($settings['aiProvider'], $settings['aiModel']);
+        $activeProvider = ($settings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+            ? ($settings['fastAiProvider'] ?? $settings['step2AiProvider'] ?? $settings['aiProvider'])
+            : ($settings['aiProvider'] ?? 'openai');
+        $activeModel = ($settings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+            ? ($settings['fastAiModel'] ?? $settings['step2AiModel'] ?? $settings['aiModel'] ?? null)
+            : ($settings['aiModel'] ?? null);
+        $minimumCreditsPerAiCall = $this->tokenBillingService->estimateMinimumCreditsForAiCall($activeProvider, $activeModel);
+        $minimumCreditsPerRun = $this->tokenBillingService->estimateMinimumCreditsForBatchRun($activeProvider, $activeModel);
 
         return response()->json([
             'data' => [
@@ -37,6 +43,10 @@ class AuditSettingsController extends Controller
                 'step2FormatterModel' => $settings['step2FormatterModel'],
                 'step3FormatterProvider' => $settings['step3FormatterProvider'],
                 'step3FormatterModel' => $settings['step3FormatterModel'],
+                'fastAiProvider' => $settings['fastAiProvider'],
+                'fastAiModel' => $settings['fastAiModel'],
+                'fastFormatterProvider' => $settings['fastFormatterProvider'],
+                'fastFormatterModel' => $settings['fastFormatterModel'],
                 'step3FlowMode' => $settings['step3FlowMode'],
                 'auditPipelineMode' => $settings['auditPipelineMode'] ?? AuditRun::PIPELINE_STANDARD,
                 'fastBatchSize' => (int) ($settings['fastBatchSize'] ?? 15),

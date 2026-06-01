@@ -89,9 +89,11 @@ class AuditRunService
         }
 
         $settings = $this->auditSettingsService->getAuditSettings();
-        $workflow = in_array(($settings['step3FlowMode'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
-            ? (string) $settings['step3FlowMode']
-            : AuditRun::WORKFLOW_STANDARD;
+        $workflow = $this->auditSettingsService->usesFastAuditPipelineMode()
+            ? AuditRun::WORKFLOW_STANDARD
+            : (in_array(($settings['step3FlowMode'] ?? AuditRun::WORKFLOW_STANDARD), AuditRun::WORKFLOWS, true)
+                ? (string) $settings['step3FlowMode']
+                : AuditRun::WORKFLOW_STANDARD);
         $requestedTargetUrls = array_values(array_unique($payload['targetUrls']));
         $startFromStep = $this->normalizeStartFromStep($payload['startFromStep'] ?? null);
         $stopAfterStep = $this->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
@@ -167,12 +169,20 @@ class AuditRunService
                 'checklist_text' => $payload['checklistText'] ?? null,
                 'ai_provider' => $settings['aiProvider'],
                 'ai_model' => $settings['aiModel'],
-                'step2_ai_provider' => $settings['step2AiProvider'] ?? $settings['aiProvider'],
-                'step2_ai_model' => $settings['step2AiModel'] ?? $settings['aiModel'],
+                'step2_ai_provider' => $pipelineMode === AuditRun::PIPELINE_FAST
+                    ? ($settings['fastAiProvider'] ?? $settings['step2AiProvider'] ?? $settings['aiProvider'])
+                    : ($settings['step2AiProvider'] ?? $settings['aiProvider']),
+                'step2_ai_model' => $pipelineMode === AuditRun::PIPELINE_FAST
+                    ? ($settings['fastAiModel'] ?? $settings['step2AiModel'] ?? $settings['aiModel'])
+                    : ($settings['step2AiModel'] ?? $settings['aiModel']),
                 'step3_ai_provider' => $settings['step3AiProvider'] ?? $settings['aiProvider'],
                 'step3_ai_model' => $settings['step3AiModel'] ?? $settings['aiModel'],
-                'step2_formatter_provider' => $settings['step2FormatterProvider'],
-                'step2_formatter_model' => $settings['step2FormatterModel'],
+                'step2_formatter_provider' => $pipelineMode === AuditRun::PIPELINE_FAST
+                    ? ($settings['fastFormatterProvider'] ?? $settings['step2FormatterProvider'])
+                    : $settings['step2FormatterProvider'],
+                'step2_formatter_model' => $pipelineMode === AuditRun::PIPELINE_FAST
+                    ? ($settings['fastFormatterModel'] ?? $settings['step2FormatterModel'])
+                    : $settings['step2FormatterModel'],
                 'step3_formatter_provider' => $settings['step3FormatterProvider'],
                 'step3_formatter_model' => $settings['step3FormatterModel'],
                 'deep_research_research_provider' => $settings['deepResearchResearchProvider'],
@@ -2372,11 +2382,6 @@ class AuditRunService
      */
     public function retryBatchItemIdsInSmallerChunks(AuditRun $run, array $itemIds, int $step, string $message): bool
     {
-        // Không tự gọi lại API bước 2 / 3 khi lỗi — tránh vượt quota cấu hình.
-        if (in_array($step, [2, 3], true)) {
-            return false;
-        }
-
         $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
 
         if (! in_array($step, [2, 3], true) || count($itemIds) <= 1 || ! $this->isRecoverableBatchShapeFailure($message)) {
@@ -3684,6 +3689,18 @@ class AuditRunService
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
             'step3FormatterModel' => $run->step3_formatter_model,
+            'fastAiProvider' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $this->stepAiProvider($run, 2)
+                : null,
+            'fastAiModel' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $this->stepAiModel($run, 2)
+                : null,
+            'fastFormatterProvider' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $run->step2_formatter_provider
+                : null,
+            'fastFormatterModel' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $run->step2_formatter_model
+                : null,
             'deepResearchResearchProvider' => $run->deep_research_research_provider,
             'deepResearchResearchModel' => $run->deep_research_research_model,
             'deepResearchReasoningProvider' => $run->deep_research_reasoning_provider,
@@ -4062,6 +4079,18 @@ class AuditRunService
             'step2FormatterModel' => $run->step2_formatter_model,
             'step3FormatterProvider' => $run->step3_formatter_provider,
             'step3FormatterModel' => $run->step3_formatter_model,
+            'fastAiProvider' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $this->stepAiProvider($run, 2)
+                : null,
+            'fastAiModel' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $this->stepAiModel($run, 2)
+                : null,
+            'fastFormatterProvider' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $run->step2_formatter_provider
+                : null,
+            'fastFormatterModel' => ($run->pipeline_mode ?? AuditRun::PIPELINE_STANDARD) === AuditRun::PIPELINE_FAST
+                ? $run->step2_formatter_model
+                : null,
             'deepResearchResearchProvider' => $run->deep_research_research_provider,
             'deepResearchResearchModel' => $run->deep_research_research_model,
             'deepResearchReasoningProvider' => $run->deep_research_reasoning_provider,

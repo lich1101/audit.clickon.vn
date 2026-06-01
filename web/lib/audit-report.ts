@@ -1,11 +1,13 @@
 "use client";
 
 import {
-  AUDIT_EXPORT_COLUMNS,
   auditRunItemToWorkbenchRow,
-  buildAuditExportRow,
+  AUDIT_EXPORT_FIELD_DEFINITIONS,
+  buildAuditExportRowForColumns,
+  DEFAULT_AUDIT_EXPORT_COLUMN_KEYS,
   enrichWorkbenchRowForExport,
   type AuditWorkbenchRow,
+  type AuditExportColumnKey,
 } from "@/lib/audit-workbench-data";
 import type { AuditRun, AuditRunItem } from "@/types";
 
@@ -24,50 +26,37 @@ type ExportAuditWorkbenchInput = {
   urls: string[];
   rowsByUrl: Record<string, AuditWorkbenchRow>;
   fullItemsByUrl?: Record<string, AuditRunItem | undefined>;
+  selectedColumns?: AuditExportColumnKey[];
 };
 
 export async function exportAuditWorkbenchToExcel(input: ExportAuditWorkbenchInput) {
   const XLSX = await import("xlsx");
   const urls = input.urls.filter((url) => url.trim() !== "");
+  const selectedColumns = (input.selectedColumns?.length ? input.selectedColumns : DEFAULT_AUDIT_EXPORT_COLUMN_KEYS)
+    .filter((key, index, all) => all.indexOf(key) === index);
 
   if (urls.length === 0) {
     throw new Error("Không có URL nào để xuất Excel.");
   }
 
+  if (selectedColumns.length === 0) {
+    throw new Error("Chọn ít nhất một trường để xuất Excel.");
+  }
+
   const rows = urls.map((url, index) => {
     const merged = input.rowsByUrl[url] ?? { targetUrl: url };
     const enriched = enrichWorkbenchRowForExport(merged, input.fullItemsByUrl?.[url]);
-    return buildAuditExportRow(index, { ...enriched, targetUrl: url });
+    return buildAuditExportRowForColumns(index, { ...enriched, targetUrl: url }, selectedColumns);
   });
+
+  const selectedFieldDefinitions = AUDIT_EXPORT_FIELD_DEFINITIONS.filter((field) => selectedColumns.includes(field.key));
+  const headers = selectedFieldDefinitions.map((field) => field.header);
 
   const worksheet = XLSX.utils.json_to_sheet(rows, {
-    header: [...AUDIT_EXPORT_COLUMNS],
+    header: headers,
   });
 
-  worksheet["!cols"] = [
-    { wch: 6 },
-    { wch: 42 },
-    { wch: 34 },
-    { wch: 34 },
-    { wch: 12 },
-    { wch: 48 },
-    { wch: 28 },
-    { wch: 12 },
-    { wch: 24 },
-    { wch: 28 },
-    { wch: 24 },
-    { wch: 34 },
-    { wch: 28 },
-    { wch: 10 },
-    { wch: 42 },
-    { wch: 42 },
-    { wch: 42 },
-    { wch: 28 },
-    { wch: 34 },
-    { wch: 28 },
-    { wch: 28 },
-    { wch: 28 },
-  ];
+  worksheet["!cols"] = selectedFieldDefinitions.map((field) => ({ wch: field.width }));
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Audit Report");
@@ -90,6 +79,7 @@ export async function exportAuditRunToExcel(
   options?: {
     urls?: string[];
     rowsByUrl?: Record<string, AuditWorkbenchRow>;
+    selectedColumns?: AuditExportColumnKey[];
   }
 ) {
   const items = [...(run.items ?? [])].sort((left, right) => left.position - right.position);
@@ -109,5 +99,6 @@ export async function exportAuditRunToExcel(
     urls,
     rowsByUrl,
     fullItemsByUrl,
+    selectedColumns: options?.selectedColumns,
   });
 }

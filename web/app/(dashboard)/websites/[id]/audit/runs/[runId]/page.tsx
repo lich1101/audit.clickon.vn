@@ -4,6 +4,7 @@ import { CircleCheckBig, FileSpreadsheet, ListChecks, TriangleAlert, Waves, Wayp
 import { use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { AuditExportDialog } from "@/components/dashboard/audit-export-dialog";
 import { AuditRunItemsTable } from "@/components/dashboard/audit-run-items-table";
 import { AuditStatusBadge } from "@/components/dashboard/audit-status-badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -16,6 +17,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDashboardMode } from "@/hooks/use-dashboard-mode";
 import { ACTIVE_AUDIT_POLL_INTERVAL_MS, getAuditRun, isActiveAuditRun, normalizeAuditRun } from "@/lib/audit-runs";
 import { exportAuditRunToExcel } from "@/lib/audit-report";
+import type { AuditExportColumnKey } from "@/lib/audit-workbench-data";
 import { getWebsiteById, listenToAuditRunSignal } from "@/lib/firestore";
 import { formatDate, formatNumber, formatUsd } from "@/lib/utils";
 import type { AuditRun, AuditRunItem, Website } from "@/types";
@@ -55,6 +57,7 @@ export default function AuditRunDetailPage({
   const [items, setItems] = useState<AuditRunItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const runFinishedRef = useRef(false);
   const runLoadedRef = useRef(false);
   const lastProfileRefreshRef = useRef(0);
@@ -169,14 +172,20 @@ export default function AuditRunDetailPage({
     };
   }, [run?.publicId, run?.status]);
 
-  async function handleExport() {
+  async function handleExport(selectedColumns: AuditExportColumnKey[]) {
     if (!run) {
       return;
     }
 
     try {
       setExporting(true);
-      await exportAuditRunToExcel({ ...run, items });
+      await exportAuditRunToExcel(
+        { ...run, items },
+        {
+          selectedColumns,
+        }
+      );
+      setExportDialogOpen(false);
       toast.success("Đã xuất báo cáo Excel.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể xuất file Excel.");
@@ -196,7 +205,9 @@ export default function AuditRunDetailPage({
   const progressPercent = run.totalUrls > 0 ? Math.min(100, Math.round((run.processedUrls / run.totalUrls) * 100)) : 0;
   const completedCount = items.filter((item) => item.status === "completed").length;
   const failedCount = items.filter((item) => item.status === "failed").length;
+  const canViewAdminAuditDebug = profile?.realRole === "admin" && mode === "admin" && !profile?.isImpersonating;
   const usageSummary = run.usageSummary ?? null;
+  const totalCreditsCharged = usageSummary?.totals?.creditsCharged ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -235,7 +246,7 @@ export default function AuditRunDetailPage({
         </CardContent>
       </Card>
 
-      {usageSummary ? (
+      {usageSummary && canViewAdminAuditDebug ? (
         <Card>
           <CardHeader>
             <CardTitle>Token / cost theo bước</CardTitle>
@@ -295,9 +306,32 @@ export default function AuditRunDetailPage({
             </div>
           </CardContent>
         </Card>
+      ) : usageSummary ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Credit đã trừ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2">
+              <StatCard
+                title="Tổng credit"
+                value={formatNumber(totalCreditsCharged)}
+                hint="User chỉ xem tổng credit đã trừ của run này."
+                icon={FileSpreadsheet}
+              />
+              <StatCard title="Tổng URL" value={formatNumber(run.totalUrls)} hint="Không hiển thị breakdown token/USD theo bước." icon={Waypoints} />
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
-      <AuditRunItemsTable run={run} items={items} onExport={handleExport} exporting={exporting} />
+      <AuditRunItemsTable run={run} items={items} onExport={() => setExportDialogOpen(true)} exporting={exporting} />
+      <AuditExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        onConfirm={handleExport}
+        exporting={exporting}
+      />
     </div>
   );
 }

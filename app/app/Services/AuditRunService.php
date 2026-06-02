@@ -2621,7 +2621,9 @@ class AuditRunService
     }
 
     /**
-     * Nếu batch có targetUrl rõ ràng thì chỉ match theo targetUrl để tránh gán nhầm kết quả khi batch trả thiếu item.
+     * Batch AI/formatter phải map tuyệt đối theo targetUrl.
+     * Không fallback theo index để tránh gán nhầm kết quả của URL A sang URL B
+     * khi model trả thiếu item, đổi thứ tự item hoặc lặp item.
      *
      * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $resultList
      * @param  \Illuminate\Support\Collection<string, array<string, mixed>>  $resultsByUrl
@@ -2639,13 +2641,7 @@ class AuditRunService
             return $matchedByUrl;
         }
 
-        if ($resultsByUrl->isNotEmpty()) {
-            return null;
-        }
-
-        $matchedByIndex = $resultList->get($index);
-
-        return is_array($matchedByIndex) ? $matchedByIndex : null;
+        return null;
     }
 
     /**

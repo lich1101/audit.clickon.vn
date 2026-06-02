@@ -103,6 +103,90 @@ class AuditFastModePartialBatchTest extends TestCase
         });
     }
 
+    public function test_fast_mode_maps_formatter_results_by_target_url_not_by_index(): void
+    {
+        Queue::fake();
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'auditPipelineMode' => AuditRun::PIPELINE_FAST,
+            'fastBatchSize' => 2,
+            'maxParallelItems' => 2,
+            'fastAiProvider' => 'openai',
+            'fastAiModel' => 'gpt-5.5',
+            'fastFormatterProvider' => 'openai',
+            'fastFormatterModel' => 'gpt-5.5',
+        ]);
+
+        $run = $this->makeRun();
+        [$first, $second] = array_slice($this->makeItems($run), 0, 2);
+
+        $seoAi = Mockery::mock(SeoAiAuditService::class);
+        $seoAi->shouldReceive('analyzeBatchFastAudit')->once()->andReturn([
+            'items' => [
+                [
+                    'targetUrl' => $second->target_url,
+                    'primaryKeyword' => 'keyword second',
+                    'categoryName' => 'Danh mục 2',
+                    'categoryUrl' => 'https://example.com/cat-2',
+                    'categoryMatchReason' => 'Matched second URL.',
+                    'auditScore' => 22,
+                    'auditFindings' => [
+                        'Điểm kỹ thuật SEO: 6/24',
+                        'Điểm nội dung: 1/6',
+                        'STT 7: Thiếu keyword trong H2',
+                        'STT 15: Thiếu internal link',
+                    ],
+                    'auditRecommendations' => [
+                        'Fix second title',
+                        'Fix second internal links',
+                        'Fix second FAQ',
+                        'Fix second CTA',
+                    ],
+                    'contentRevisionDirection' => 'Viết lại. URL thứ hai cần chỉnh lại gần như toàn bộ. Ưu tiên tối ưu nội dung và cấu trúc. Sau đó bổ sung liên kết nội bộ.',
+                ],
+                [
+                    'targetUrl' => $first->target_url,
+                    'primaryKeyword' => 'keyword first',
+                    'categoryName' => 'Danh mục 1',
+                    'categoryUrl' => 'https://example.com/cat-1',
+                    'categoryMatchReason' => 'Matched first URL.',
+                    'auditScore' => 81,
+                    'auditFindings' => [
+                        'Điểm kỹ thuật SEO: 20/24',
+                        'Điểm nội dung: 5/6',
+                        'STT 7: Keyword placement tốt',
+                        'STT 23: Có freshness',
+                    ],
+                    'auditRecommendations' => [
+                        'Keep first title',
+                        'Add one more image',
+                        'Expand FAQ',
+                        'Sharpen CTA',
+                    ],
+                    'contentRevisionDirection' => 'Giữ nguyên. URL thứ nhất đã khá tốt và đúng intent. Chỉ cần tinh chỉnh nhẹ CTA và hình ảnh. Ưu tiên giữ nguyên cấu trúc hiện tại.',
+                ],
+            ],
+            'promptSnapshot' => [],
+            'formatterPromptSnapshot' => null,
+            'usageEvents' => [],
+        ]);
+        $this->app->instance(SeoAiAuditService::class, $seoAi);
+
+        app(AuditRunService::class)->processStep2Batch($run, [$first->id, $second->id]);
+
+        $first->refresh();
+        $second->refresh();
+
+        $this->assertSame('completed', $first->status);
+        $this->assertSame('completed', $second->status);
+        $this->assertSame(81, $first->audit_score);
+        $this->assertSame(22, $second->audit_score);
+        $this->assertSame('Danh mục 1', $first->category_name);
+        $this->assertSame('Danh mục 2', $second->category_name);
+        $this->assertSame('keyword first', $first->primary_keyword);
+        $this->assertSame('keyword second', $second->primary_keyword);
+    }
+
     private function makeRun(): AuditRun
     {
         return AuditRun::query()->create([

@@ -278,9 +278,11 @@ TEXT;
         $pdfAttachment = $this->resolveGeminiPdfAttachment('gemini', $persistStep);
 
         $payload = [
-            'systemInstruction' => [
-                'parts' => [
-                    ['text' => $promptBundle['prompts']['system']],
+            'generateContentConfig' => [
+                'systemInstruction' => [
+                    'parts' => [
+                        ['text' => $promptBundle['prompts']['system']],
+                    ],
                 ],
             ],
             'contents' => [

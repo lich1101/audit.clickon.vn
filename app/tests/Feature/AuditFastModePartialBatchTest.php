@@ -187,6 +187,128 @@ class AuditFastModePartialBatchTest extends TestCase
         $this->assertSame('keyword second', $second->primary_keyword);
     }
 
+    public function test_fast_mode_gemini_shrinks_batch_by_count_tokens_before_calling_ai(): void
+    {
+        Queue::fake();
+
+        config()->set('services.audit.gemini_fast_input_token_soft_limit', 190000);
+
+        app(AuditSettingsService::class)->updateAuditSettings([
+            'auditPipelineMode' => AuditRun::PIPELINE_FAST,
+            'fastBatchSize' => 4,
+            'maxParallelItems' => 2,
+            'fastAiProvider' => 'gemini',
+            'fastAiModel' => 'gemini-2.5-pro',
+            'fastFormatterProvider' => 'gemini',
+            'fastFormatterModel' => 'gemini-2.5-flash',
+        ]);
+
+        $run = $this->makeRun();
+        $run->forceFill([
+            'step2_ai_provider' => 'gemini',
+            'step2_ai_model' => 'gemini-2.5-pro',
+            'step2_formatter_provider' => 'gemini',
+            'step2_formatter_model' => 'gemini-2.5-flash',
+        ])->save();
+
+        [$first, $second, $third, $fourth] = $this->makeItems($run);
+
+        AuditRunItem::query()
+            ->whereIn('id', [$third->id, $fourth->id])
+            ->update([
+                'status' => 'fetching',
+                'extraction_source' => 'url_only_batch_step2_running',
+            ]);
+
+        $seoAi = Mockery::mock(SeoAiAuditService::class);
+        $seoAi->shouldReceive('countFastAuditGeminiInputTokens')
+            ->times(3)
+            ->andReturn(210000, 205000, 180000);
+        $seoAi->shouldReceive('analyzeBatchFastAudit')
+            ->once()
+            ->withArgs(function (
+                array $targetUrls,
+                array $categories,
+                ?string $checklistText,
+                string $provider,
+                ?string $model,
+                ...$rest
+            ) use ($first, $second): bool {
+                return $targetUrls === [$first->target_url, $second->target_url]
+                    && $provider === 'gemini'
+                    && $model === 'gemini-2.5-pro';
+            })
+            ->andReturn([
+                'items' => [
+                    [
+                        'targetUrl' => $first->target_url,
+                        'primaryKeyword' => 'keyword first',
+                        'categoryName' => 'Danh mục 1',
+                        'categoryUrl' => 'https://example.com/cat-1',
+                        'categoryMatchReason' => 'Matched first URL.',
+                        'auditScore' => 81,
+                        'auditFindings' => [
+                            'Điểm kỹ thuật SEO: 20/24',
+                            'Điểm nội dung: 5/6',
+                            'STT 7: Keyword placement tốt',
+                            'STT 23: Có freshness',
+                        ],
+                        'auditRecommendations' => [
+                            'Keep first title',
+                            'Add one more image',
+                            'Expand FAQ',
+                            'Sharpen CTA',
+                        ],
+                        'contentRevisionDirection' => 'Giữ nguyên. URL thứ nhất đã khá tốt và đúng intent. Chỉ cần tinh chỉnh nhẹ CTA và hình ảnh. Ưu tiên giữ nguyên cấu trúc hiện tại.',
+                    ],
+                    [
+                        'targetUrl' => $second->target_url,
+                        'primaryKeyword' => 'keyword second',
+                        'categoryName' => 'Danh mục 2',
+                        'categoryUrl' => 'https://example.com/cat-2',
+                        'categoryMatchReason' => 'Matched second URL.',
+                        'auditScore' => 22,
+                        'auditFindings' => [
+                            'Điểm kỹ thuật SEO: 6/24',
+                            'Điểm nội dung: 1/6',
+                            'STT 7: Thiếu keyword trong H2',
+                            'STT 15: Thiếu internal link',
+                        ],
+                        'auditRecommendations' => [
+                            'Fix second title',
+                            'Fix second internal links',
+                            'Fix second FAQ',
+                            'Fix second CTA',
+                        ],
+                        'contentRevisionDirection' => 'Viết lại. URL thứ hai cần chỉnh lại gần như toàn bộ. Ưu tiên tối ưu nội dung và cấu trúc. Sau đó bổ sung liên kết nội bộ.',
+                    ],
+                ],
+                'promptSnapshot' => [],
+                'formatterPromptSnapshot' => null,
+                'usageEvents' => [],
+            ]);
+        $this->app->instance(SeoAiAuditService::class, $seoAi);
+
+        app(AuditRunService::class)->processStep2Batch($run, [$first->id, $second->id, $third->id, $fourth->id]);
+
+        $first->refresh();
+        $second->refresh();
+        $third->refresh();
+        $fourth->refresh();
+
+        $this->assertSame('completed', $first->status);
+        $this->assertSame('completed', $second->status);
+        $this->assertSame('fetching', $third->status);
+        $this->assertSame('fetching', $fourth->status);
+        $this->assertSame('url_only_batch_step2_running', $third->extraction_source);
+        $this->assertSame('url_only_batch_step2_running', $fourth->extraction_source);
+
+        Queue::assertPushed(ProcessAuditRunStep2BatchJob::class, function (ProcessAuditRunStep2BatchJob $job) use ($run, $third, $fourth): bool {
+            return $job->runId === $run->id
+                && $job->itemIds === [$third->id, $fourth->id];
+        });
+    }
+
     private function makeRun(): AuditRun
     {
         return AuditRun::query()->create([

@@ -253,6 +253,65 @@ TEXT;
     }
 
     /**
+     * Đếm input tokens thực tế của fast mode Gemini trước khi gửi generateContent.
+     *
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     */
+    public function countFastAuditGeminiInputTokens(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        ?string $model = null,
+        ?string $persistStep = null,
+        array $batchPages = [],
+    ): int {
+        $apiKey = config('services.gemini.api_key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('GEMINI_API_KEY is not configured.');
+        }
+
+        $resolvedModel = $model ?: (string) config('services.gemini.model', 'gemini-2.5-pro');
+        $promptBundle = $this->buildFastAuditPromptBundle($targetUrls, $categories, $checklistText, $batchPages);
+        $pdfAttachment = $this->resolveGeminiPdfAttachment('gemini', $persistStep);
+
+        $payload = [
+            'systemInstruction' => [
+                'parts' => [
+                    ['text' => $promptBundle['prompts']['system']],
+                ],
+            ],
+            'contents' => [
+                [
+                    'role' => 'user',
+                    'parts' => $this->geminiPdfAttachmentService->buildGeminiCountTokensParts(
+                        $promptBundle['prompts']['user'],
+                        $pdfAttachment,
+                    ),
+                ],
+            ],
+        ];
+
+        $response = $this->sendAiRequest(
+            fn (): Response => Http::withHeaders([
+                'x-goog-api-key' => $apiKey,
+                'Content-Type' => 'application/json',
+            ])
+                ->acceptJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->post("https://generativelanguage.googleapis.com/v1beta/models/{$resolvedModel}:countTokens", $payload),
+            'Gemini'
+        );
+
+        $this->throwIfAiRequestFailed($response, 'Gemini');
+
+        return max(0, (int) ($response->json('totalTokens') ?? 0));
+    }
+
+    /**
      * @param  array<string, mixed>  $page
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
@@ -621,6 +680,53 @@ TEXT;
         ?string $formatterModel = null,
         array $batchPages = [],
     ): array {
+        $promptBundle = $this->buildFastAuditPromptBundle($targetUrls, $categories, $checklistText, $batchPages);
+        $categoryPayload = $promptBundle['categoryPayload'];
+        $checklist = $promptBundle['checklist'];
+        $prompts = $promptBundle['prompts'];
+
+        $rawResponse = $this->requestAiRaw(
+            provider: $provider,
+            model: $model,
+            systemPrompt: $prompts['system'],
+            userPrompt: $prompts['user'],
+            schema: $this->batchOnpageSchema(),
+            auditRunId: $auditRunId,
+            persistStep: $persistStep ?? 'batch_fast_audit',
+        );
+
+        $normalized = $this->normalizeBatchFastAuditRawResponse(
+            provider: $provider,
+            model: $model,
+            targetUrls: $targetUrls,
+            categoryPayload: $categoryPayload,
+            checklistText: $checklist,
+            batchPages: $batchPages,
+            rawResponse: $rawResponse,
+            auditRunId: $auditRunId,
+            persistStep: $persistStep,
+            formatterProvider: $formatterProvider,
+            formatterModel: $formatterModel,
+        );
+
+        return [
+            ...$normalized,
+            'promptSnapshot' => $this->promptSnapshot('fast_audit_combined', $provider, $model, $prompts),
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     * @return array{categoryPayload: array<int, array<string, mixed>>, checklist: string, prompts: array<string, string>}
+     */
+    private function buildFastAuditPromptBundle(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        array $batchPages = [],
+    ): array {
         $categoryPayload = array_map(
             fn (array $category): array => [
                 'name' => $category['name'] ?? null,
@@ -670,33 +776,10 @@ TEXT;
 
         $prompts['user'] .= "\n\n".implode("\n", $userAppendix);
 
-        $rawResponse = $this->requestAiRaw(
-            provider: $provider,
-            model: $model,
-            systemPrompt: $prompts['system'],
-            userPrompt: $prompts['user'],
-            schema: $this->batchOnpageSchema(),
-            auditRunId: $auditRunId,
-            persistStep: $persistStep ?? 'batch_fast_audit',
-        );
-
-        $normalized = $this->normalizeBatchFastAuditRawResponse(
-            provider: $provider,
-            model: $model,
-            targetUrls: $targetUrls,
-            categoryPayload: $categoryPayload,
-            checklistText: $checklist,
-            batchPages: $batchPages,
-            rawResponse: $rawResponse,
-            auditRunId: $auditRunId,
-            persistStep: $persistStep,
-            formatterProvider: $formatterProvider,
-            formatterModel: $formatterModel,
-        );
-
         return [
-            ...$normalized,
-            'promptSnapshot' => $this->promptSnapshot('fast_audit_combined', $provider, $model, $prompts),
+            'categoryPayload' => $categoryPayload,
+            'checklist' => $checklist,
+            'prompts' => $prompts,
         ];
     }
 

@@ -22,6 +22,7 @@ import { grantWebsiteSameDayReaudit, revokeWebsiteSameDayReaudit } from "@/lib/a
 import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-step-errors";
 import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
 import { mergeAuditWorkbenchRow, type AuditExportColumnKey } from "@/lib/audit-workbench-data";
+import { startImpersonation } from "@/lib/impersonation";
 import {
   ACTIVE_AUDIT_POLL_INTERVAL_MS,
   createAuditRun,
@@ -154,6 +155,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [startingOwnerImpersonation, setStartingOwnerImpersonation] = useState(false);
   const [grantingReaudit, setGrantingReaudit] = useState(false);
   const [urlList, setUrlList] = useState<string[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
@@ -660,6 +662,29 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  async function handleStartOwnerImpersonation() {
+    if (!website?.userId || !website.ownerEmail) {
+      toast.error("Website này chưa có đủ thông tin chủ tài khoản để đăng nhập nhanh.");
+      return;
+    }
+
+    try {
+      setStartingOwnerImpersonation(true);
+      const result = await startImpersonation({
+        uid: website.userId,
+        email: website.ownerEmail,
+        displayName: website.ownerDisplayName ?? website.name,
+      });
+      await refreshProfile();
+      toast.success(result.message ?? `Đã đăng nhập nhanh vào ${website.ownerEmail}.`);
+      window.location.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể đăng nhập nhanh vào chủ website này.");
+    } finally {
+      setStartingOwnerImpersonation(false);
+    }
+  }
+
   async function handleExport(selectedColumns: AuditExportColumnKey[]) {
     const exportUrls = urlList.filter((url) => selectedUrls.includes(url));
 
@@ -775,9 +800,18 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             Bước 1 chỉ lọc và crawl nội dung. Muốn hệ thống tự chạy tiếp bước AI, số URL hợp lệ sau bước 1 phải đạt ít nhất {minValidUrlsAfterStep1} URL theo cấu hình hiện tại.
           </p>
           {!canOperateAsOwner && canUseAdminDebugActions ? (
-            <p className="text-xs text-muted-foreground">
-              Website này thuộc user khác. Dùng đăng nhập nhanh vào tài khoản chủ website nếu cần chạy audit như người dùng đó.
-            </p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <p>Website này thuộc user khác. Hãy đăng nhập nhanh vào tài khoản chủ website để chạy audit như người dùng đó.</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleStartOwnerImpersonation()}
+                disabled={startingOwnerImpersonation || !website.ownerEmail}
+              >
+                {startingOwnerImpersonation ? "Đang chuyển..." : "Đăng nhập nhanh vào chủ website"}
+              </Button>
+            </div>
           ) : null}
           {otherWebsiteActiveRun ? (
             <p className="text-xs text-muted-foreground">

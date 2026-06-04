@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditRun;
+use App\Models\AppUser;
 use App\Models\CaptchaSolveTask;
 use App\Models\KeywordRankRun;
 use App\Models\Website;
@@ -270,10 +271,15 @@ class WebsiteDataService
     public function serializeWebsite(Website $website): array
     {
         $grantUntil = $website->same_day_reaudit_granted_until;
+        $owner = AppUser::query()
+            ->where('firebase_uid', $website->user_uid)
+            ->first(['firebase_uid', 'email', 'display_name']);
 
         return [
             'id' => $website->id,
             'userId' => $website->user_uid,
+            'ownerEmail' => $owner?->email,
+            'ownerDisplayName' => $owner?->display_name,
             'name' => $website->name,
             'url' => $website->url,
             'sameDayReauditGrantedUntil' => $grantUntil instanceof CarbonInterface

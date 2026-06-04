@@ -96,6 +96,8 @@ export type WebsiteActiveRunSummary = {
 export type Website = {
   id: string;
   userId: string;
+  ownerEmail?: string | null;
+  ownerDisplayName?: string | null;
   name: string;
   url: string;
   sameDayReauditGrantedUntil?: string | null;

@@ -1554,6 +1554,12 @@ class AuditRunService
      */
     private function processFastAuditBatch(AuditRun $run, \Illuminate\Support\Collection $items): void
     {
+        $items = $this->fitFastGeminiBatchToTokenBudget($run, $items);
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
         $batchPages = $items
             ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
             ->values()
@@ -1597,6 +1603,123 @@ class AuditRunService
         );
 
         $this->dispatchStep2Batches($run->fresh());
+    }
+
+    /**
+     * Với fast mode + Gemini, co batch xuống dưới soft limit input tokens trước khi gọi AI.
+     * Các item bị cắt khỏi tail sẽ được trả về queued để batch kế tiếp thử lại từ batch size cấu hình ban đầu.
+     *
+     * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
+     * @return \Illuminate\Support\Collection<int, AuditRunItem>
+     */
+    private function fitFastGeminiBatchToTokenBudget(AuditRun $run, \Illuminate\Support\Collection $items): \Illuminate\Support\Collection
+    {
+        if (! $this->usesFastAuditPipeline($run) || $this->stepAiProvider($run, 2) !== 'gemini' || $items->count() <= 1) {
+            return $items->values();
+        }
+
+        $softLimit = max(1000, (int) config('services.audit.gemini_fast_input_token_soft_limit', 190000));
+        $candidateCount = $items->count();
+        $lastMeasuredTokens = null;
+
+        while ($candidateCount > 1) {
+            $candidate = $items->take($candidateCount)->values();
+            $batchPages = $candidate
+                ->map(fn (AuditRunItem $item): array => $this->step2BatchPagePayload($item))
+                ->values()
+                ->all();
+
+            try {
+                $lastMeasuredTokens = $this->seoAiAuditService->countFastAuditGeminiInputTokens(
+                    targetUrls: $candidate->pluck('target_url')->values()->all(),
+                    categories: $run->categories ?? [],
+                    checklistText: $run->checklist_text,
+                    model: $this->stepAiModel($run, 2),
+                    persistStep: $this->chunkStepKey('batch_fast_audit', $candidate),
+                    batchPages: $batchPages,
+                );
+            } catch (\Throwable $exception) {
+                Log::warning('Fast mode Gemini countTokens failed; keep configured batch size.', [
+                    'runId' => $run->id,
+                    'batchSize' => $items->count(),
+                    'candidateCount' => $candidateCount,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                return $items->values();
+            }
+
+            if ($lastMeasuredTokens <= $softLimit) {
+                break;
+            }
+
+            $candidateCount--;
+        }
+
+        $fitted = $items->take($candidateCount)->values();
+
+        if ($candidateCount === 1 && is_int($lastMeasuredTokens) && $lastMeasuredTokens > $softLimit) {
+            Log::warning('Single fast-mode Gemini item still exceeds soft token limit; proceeding with one URL.', [
+                'runId' => $run->id,
+                'softLimit' => $softLimit,
+                'measuredTokens' => $lastMeasuredTokens,
+                'targetUrl' => $fitted->first()?->target_url,
+            ]);
+        }
+
+        if ($fitted->count() === $items->count()) {
+            return $fitted;
+        }
+
+        $overflowItemIds = $items
+            ->slice($fitted->count())
+            ->pluck('id')
+            ->values()
+            ->all();
+
+        $this->requeueFastStep2OverflowItems($run, $overflowItemIds);
+
+        Log::info('Fast mode Gemini batch shrunk by countTokens.', [
+            'runId' => $run->id,
+            'originalCount' => $items->count(),
+            'fittedCount' => $fitted->count(),
+            'overflowCount' => count($overflowItemIds),
+            'softLimit' => $softLimit,
+            'measuredTokens' => $lastMeasuredTokens,
+        ]);
+
+        return $fitted;
+    }
+
+    /**
+     * @param  array<int, int>  $itemIds
+     */
+    private function requeueFastStep2OverflowItems(AuditRun $run, array $itemIds): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        DB::transaction(function () use ($run, $itemIds): void {
+            $freshRun = AuditRun::query()->lockForUpdate()->find($run->id);
+
+            if (! $freshRun || $this->isRunCancelled($freshRun)) {
+                return;
+            }
+
+            $freshRun->items()
+                ->whereIn('id', $itemIds)
+                ->where('status', 'fetching')
+                ->where('extraction_source', self::SOURCE_STEP2_RUNNING)
+                ->update([
+                    'status' => 'queued',
+                    'extraction_source' => self::SOURCE_STEP1_DONE,
+                    'error_message' => null,
+                    'updated_at' => now(),
+                ]);
+        });
+
+        $this->syncRunIfEnabled($run->fresh());
     }
 
     /**

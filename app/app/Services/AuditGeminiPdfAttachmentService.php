@@ -165,7 +165,42 @@ class AuditGeminiPdfAttachmentService
             ['text' => $userPrompt],
         ];
 
+        $fileData = $this->buildFileDataPart($attachment);
+
+        if ($fileData !== null) {
+            $parts[] = $fileData;
+
+            return $parts;
+        }
+
         $inline = $this->buildInlineDataPart($attachment);
+
+        if ($inline !== null) {
+            $parts[] = $inline;
+        }
+
+        return $parts;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $attachment
+     * @return array<int, array<string, mixed>>
+     */
+    public function buildGeminiCountTokensParts(string $userPrompt, ?array $attachment): array
+    {
+        $parts = [
+            ['text' => $userPrompt],
+        ];
+
+        $fileData = $this->buildFileDataPart($attachment);
+
+        if ($fileData !== null) {
+            $parts[] = $fileData;
+
+            return $parts;
+        }
+
+        $inline = $this->buildInlineDataPart($attachment, camelCase: true);
 
         if ($inline !== null) {
             $parts[] = $inline;
@@ -200,7 +235,7 @@ class AuditGeminiPdfAttachmentService
      * @param  array<string, mixed>|null  $attachment
      * @return array<string, mixed>|null
      */
-    private function buildInlineDataPart(?array $attachment): ?array
+    private function buildInlineDataPart(?array $attachment, bool $camelCase = false): ?array
     {
         if ($attachment === null) {
             return null;
@@ -218,10 +253,43 @@ class AuditGeminiPdfAttachmentService
             return null;
         }
 
+        if ($camelCase) {
+            return [
+                'inlineData' => [
+                    'mimeType' => 'application/pdf',
+                    'data' => base64_encode($binary),
+                ],
+            ];
+        }
+
         return [
             'inline_data' => [
                 'mime_type' => 'application/pdf',
                 'data' => base64_encode($binary),
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $attachment
+     * @return array<string, mixed>|null
+     */
+    private function buildFileDataPart(?array $attachment): ?array
+    {
+        if ($attachment === null) {
+            return null;
+        }
+
+        $fileUri = trim((string) ($attachment['geminiFileUri'] ?? ''));
+
+        if ($fileUri === '') {
+            return null;
+        }
+
+        return [
+            'fileData' => [
+                'mimeType' => 'application/pdf',
+                'fileUri' => $fileUri,
             ],
         ];
     }

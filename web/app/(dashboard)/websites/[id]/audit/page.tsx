@@ -394,6 +394,40 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       step3Missing: Math.max(0, urlList.length - step3Ready)
     };
   }, [itemsByUrl, urlList]);
+  const selectedStepCounts = useMemo(() => {
+    let step1Ready = 0;
+    let step2Ready = 0;
+    let step3Ready = 0;
+
+    for (const url of selectedUrls) {
+      const row = itemsByUrl[url];
+
+      if (!row) {
+        continue;
+      }
+
+      if (hasStep1SeedData(row)) {
+        step1Ready += 1;
+      }
+
+      if (hasStep2SeedData(row)) {
+        step2Ready += 1;
+      }
+
+      if (hasStep3SeedData(row)) {
+        step3Ready += 1;
+      }
+    }
+
+    return {
+      step1Ready,
+      step1Missing: Math.max(0, selectedUrls.length - step1Ready),
+      step2Ready,
+      step2Missing: Math.max(0, selectedUrls.length - step2Ready),
+      step3Ready,
+      step3Missing: Math.max(0, selectedUrls.length - step3Ready)
+    };
+  }, [itemsByUrl, selectedUrls]);
 
   const progressPercent = progressFor(run);
   const displayErrors = useMemo(
@@ -796,6 +830,20 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               </>
             )}
           </div>
+          {selectedUrls.length > 0 && selectedUrls.length !== urlList.length ? (
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground/80">Trong {selectedUrls.length} URL đã chọn:</span>
+              <span>B1 {selectedStepCounts.step1Ready}/{selectedUrls.length}</span>
+              {isFastStandardPipeline ? (
+                <span>B2+3 {selectedStepCounts.step3Ready}/{selectedUrls.length}</span>
+              ) : (
+                <>
+                  <span>B2 {selectedStepCounts.step2Ready}/{selectedUrls.length}</span>
+                  <span>B3 {selectedStepCounts.step3Ready}/{selectedUrls.length}</span>
+                </>
+              )}
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             Bước 1 chỉ lọc và crawl nội dung. Muốn hệ thống tự chạy tiếp bước AI, số URL hợp lệ sau bước 1 phải đạt ít nhất {minValidUrlsAfterStep1} URL theo cấu hình hiện tại.
           </p>

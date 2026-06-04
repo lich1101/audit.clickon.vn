@@ -121,33 +121,61 @@ export function mergeAuditWorkbenchRow(
   persisted?: WebsiteAuditUrlResult | null,
   current?: AuditRunItem | null
 ): AuditWorkbenchRow {
+  const useCurrentStep1Fields = Boolean(current);
+  const useCurrentDerivedFields = Boolean(current);
   const errorMessage = current
     ? current.status === "failed"
       ? preferFilledString(current.errorMessage, persisted?.errorMessage)
       : preferFilledString(current.errorMessage)
-    : preferFilledString(persisted?.errorMessage);
+      : preferFilledString(persisted?.errorMessage);
 
   return {
     targetUrl,
     status: current?.status ?? persisted?.status,
     extractionSource: current?.extractionSource ?? null,
-    contentSource: preferFilledString(persisted?.contentSource, current?.contentSource),
-    contentError: preferFilledString(persisted?.contentError, current?.contentError),
+    contentSource: useCurrentStep1Fields
+      ? preferFilledString(current?.contentSource, persisted?.contentSource)
+      : preferFilledString(persisted?.contentSource, current?.contentSource),
+    contentError: useCurrentStep1Fields
+      ? preferFilledString(current?.contentError, persisted?.contentError)
+      : preferFilledString(persisted?.contentError, current?.contentError),
     readerUrl: preferFilledString(current?.readerUrl, persisted?.readerUrl),
-    pageTitle: preferFilledString(persisted?.pageTitle, current?.pageTitle),
-    metaDescription: preferFilledString(persisted?.metaDescription, current?.metaDescription),
-    canonicalUrl: preferFilledString(persisted?.canonicalUrl, current?.canonicalUrl),
-    headings: persisted?.headings && Object.keys(persisted.headings).length > 0 ? persisted.headings : current?.headings,
-    metrics: persisted?.metrics && Object.keys(persisted.metrics).length > 0 ? persisted.metrics : current?.metrics,
-    primaryKeyword: preferFilledString(current?.primaryKeyword, persisted?.primaryKeyword),
-    categoryName: preferFilledString(current?.categoryName, persisted?.categoryName),
-    categoryUrl: preferFilledString(current?.categoryUrl, persisted?.categoryUrl),
-    categoryMatchReason: preferFilledString(current?.categoryMatchReason, persisted?.categoryMatchReason),
-    auditScore: current?.auditScore ?? persisted?.auditScore ?? null,
-    auditFindings: preferStringArray(current?.auditFindings, persisted?.auditFindings),
-    auditRecommendations: preferStringArray(current?.auditRecommendations, persisted?.auditRecommendations),
-    contentRevisionDirection: preferFilledString(current?.contentRevisionDirection, persisted?.contentRevisionDirection),
-    contentExcerpt: preferFilledString(persisted?.contentExcerpt, current?.contentExcerpt),
+    pageTitle: useCurrentStep1Fields
+      ? preferFilledString(current?.pageTitle, persisted?.pageTitle)
+      : preferFilledString(persisted?.pageTitle, current?.pageTitle),
+    metaDescription: useCurrentStep1Fields
+      ? preferFilledString(current?.metaDescription, persisted?.metaDescription)
+      : preferFilledString(persisted?.metaDescription, current?.metaDescription),
+    canonicalUrl: useCurrentStep1Fields
+      ? preferFilledString(current?.canonicalUrl, persisted?.canonicalUrl)
+      : preferFilledString(persisted?.canonicalUrl, current?.canonicalUrl),
+    headings: useCurrentStep1Fields
+      ? (current?.headings && Object.keys(current.headings).length > 0 ? current.headings : persisted?.headings)
+      : (persisted?.headings && Object.keys(persisted.headings).length > 0 ? persisted.headings : current?.headings),
+    metrics: useCurrentStep1Fields
+      ? (current?.metrics && Object.keys(current.metrics).length > 0 ? current.metrics : persisted?.metrics)
+      : (persisted?.metrics && Object.keys(persisted.metrics).length > 0 ? persisted.metrics : current?.metrics),
+    primaryKeyword: useCurrentDerivedFields
+      ? preferFilledString(current?.primaryKeyword)
+      : preferFilledString(current?.primaryKeyword, persisted?.primaryKeyword),
+    categoryName: useCurrentDerivedFields
+      ? preferFilledString(current?.categoryName)
+      : preferFilledString(current?.categoryName, persisted?.categoryName),
+    categoryUrl: useCurrentDerivedFields
+      ? preferFilledString(current?.categoryUrl)
+      : preferFilledString(current?.categoryUrl, persisted?.categoryUrl),
+    categoryMatchReason: useCurrentDerivedFields
+      ? preferFilledString(current?.categoryMatchReason)
+      : preferFilledString(current?.categoryMatchReason, persisted?.categoryMatchReason),
+    auditScore: useCurrentDerivedFields ? (current?.auditScore ?? null) : (current?.auditScore ?? persisted?.auditScore ?? null),
+    auditFindings: useCurrentDerivedFields ? preferStringArray(current?.auditFindings) : preferStringArray(current?.auditFindings, persisted?.auditFindings),
+    auditRecommendations: useCurrentDerivedFields ? preferStringArray(current?.auditRecommendations) : preferStringArray(current?.auditRecommendations, persisted?.auditRecommendations),
+    contentRevisionDirection: useCurrentDerivedFields
+      ? preferFilledString(current?.contentRevisionDirection)
+      : preferFilledString(current?.contentRevisionDirection, persisted?.contentRevisionDirection),
+    contentExcerpt: useCurrentStep1Fields
+      ? preferFilledString(current?.contentExcerpt, persisted?.contentExcerpt)
+      : preferFilledString(persisted?.contentExcerpt, current?.contentExcerpt),
     errorMessage,
   };
 }

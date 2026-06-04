@@ -459,6 +459,36 @@ class AuditRunService
         return is_array($tokens) ? count($tokens) : 0;
     }
 
+    private function step1InvalidReasonFromContent(
+        mixed $contentSource,
+        mixed $contentError,
+        mixed $contentExcerpt,
+        mixed $extractedMetrics = null,
+    ): string {
+        $source = strtolower(trim((string) ($contentSource ?? '')));
+        $error = strtolower(trim((string) ($contentError ?? '')));
+
+        if ($source === '' || $source === 'url_only') {
+            return 'Bước 1: URL không hợp lệ vì crawler chỉ lấy được URL/meta tối thiểu (`url_only`), chưa lấy được nội dung bài viết để audit.';
+        }
+
+        if ($error !== '' && (str_contains($error, '404') || str_contains($error, 'not found'))) {
+            return 'Bước 1: URL không hợp lệ vì trang trả về 404 / not found khi crawler truy cập.';
+        }
+
+        if (is_array($extractedMetrics) && ($extractedMetrics['auditReady'] ?? false) === true) {
+            return 'Bước 1: URL được đánh dấu audit-ready nhưng không vượt qua bộ lọc hợp lệ nội bộ. Kiểm tra lại metrics crawl.';
+        }
+
+        $content = trim((string) ($contentExcerpt ?? ''));
+        $minWords = max(50, (int) config('services.audit.min_audit_content_words', 80));
+        $minChars = max(200, (int) config('services.audit.min_audit_content_chars', 500));
+        $chars = mb_strlen($content);
+        $words = $this->countAuditWords($content);
+
+        return "Bước 1: URL không hợp lệ vì nội dung crawl chưa đủ để audit ({$chars} ký tự / {$words} từ; yêu cầu tối thiểu {$minChars} ký tự và {$minWords} từ).";
+    }
+
     public function hasStep2SeedData(WebsiteAuditUrlResult $result): bool
     {
         return $this->filledText($result->primary_keyword)
@@ -3819,11 +3849,10 @@ class AuditRunService
     private function finalizeStep1Gate(AuditRun $run): array
     {
         $minRequired = $this->auditSettingsService->minValidUrlsAfterStep1();
-        $invalidMessage = 'Bước 1: URL không hợp lệ (404, url_only hoặc thiếu nội dung crawl).';
         $validCount = 0;
         $invalidCount = 0;
 
-        DB::transaction(function () use ($run, $minRequired, $invalidMessage, &$validCount, &$invalidCount): void {
+        DB::transaction(function () use ($run, $minRequired, &$validCount, &$invalidCount): void {
             $freshRun = AuditRun::query()->lockForUpdate()->findOrFail($run->id);
 
             if ($freshRun->cancelled_at !== null || in_array($freshRun->status, ['completed', 'failed', 'partial'], true)) {
@@ -3844,7 +3873,12 @@ class AuditRunService
                 $invalidCount++;
                 $item->forceFill([
                     'status' => 'failed',
-                    'error_message' => $invalidMessage,
+                    'error_message' => $this->step1InvalidReasonFromContent(
+                        $item->content_source,
+                        $item->content_error,
+                        $item->content_excerpt,
+                        $item->extracted_metrics,
+                    ),
                     'completed_at' => now(),
                 ])->save();
             }

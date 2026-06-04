@@ -488,6 +488,9 @@ export default function AdminAuditSettingsPage() {
                       })), 1, 300)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Đây là ngưỡng URL hợp lệ còn lại sau bước 1 để hệ thống tự chạy tiếp bước AI. Đây không phải kích thước batch bước 1.
+                </p>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -951,6 +954,9 @@ export default function AdminAuditSettingsPage() {
                       })), 1, 300)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Nếu số URL hợp lệ sau bước 1 thấp hơn ngưỡng này, run sẽ dừng trước bước AI. Dùng số nhỏ hơn nếu bạn thường chạy ít URL.
+                </p>
               </div>
 
               <div className="flex flex-col gap-2">

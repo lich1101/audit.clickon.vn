@@ -194,6 +194,7 @@ class AuditRunController extends Controller
                     'maxParallelItems' => $systemSettings['maxParallelItems'],
                     'step2BatchSize' => $systemSettings['step2BatchSize'],
                     'step3BatchSize' => $systemSettings['step3BatchSize'],
+                    'minValidUrlsAfterStep1' => (int) ($systemSettings['minValidUrlsAfterStep1'] ?? 50),
                     'deepResearchBatchSize' => $systemSettings['deepResearchBatchSize'],
                     'deepResearchResearchProvider' => $systemSettings['deepResearchResearchProvider'],
                     'deepResearchResearchModel' => $systemSettings['deepResearchResearchModel'],

@@ -53,6 +53,7 @@ class AuditSettingsController extends Controller
                 'maxParallelItems' => $settings['maxParallelItems'],
                 'step2BatchSize' => $settings['step2BatchSize'],
                 'step3BatchSize' => $settings['step3BatchSize'],
+                'minValidUrlsAfterStep1' => (int) ($settings['minValidUrlsAfterStep1'] ?? 50),
                 'deepResearchBatchSize' => $settings['deepResearchBatchSize'],
                 'deepResearchResearchProvider' => $settings['deepResearchResearchProvider'],
                 'deepResearchResearchModel' => $settings['deepResearchResearchModel'],

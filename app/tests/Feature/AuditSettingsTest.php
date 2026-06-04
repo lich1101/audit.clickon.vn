@@ -74,6 +74,7 @@ class AuditSettingsTest extends TestCase
             'step3FlowMode' => 'standard',
             'auditPipelineMode' => 'fast',
             'fastBatchSize' => 20,
+            'minValidUrlsAfterStep1' => 50,
             'maxParallelItems' => 3,
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
@@ -88,6 +89,7 @@ class AuditSettingsTest extends TestCase
 
         $this->assertSame('fast', $settings['auditPipelineMode']);
         $this->assertSame(20, $settings['fastBatchSize']);
+        $this->assertSame(50, $settings['minValidUrlsAfterStep1']);
         $this->assertSame('gemini', $settings['fastAiProvider']);
         $this->assertSame('gemini-2.5-pro', $settings['fastAiModel']);
         $this->assertSame('openai', $settings['fastFormatterProvider']);
@@ -119,6 +121,7 @@ class AuditSettingsTest extends TestCase
             'step3FlowMode' => 'standard',
             'auditPipelineMode' => 'fast',
             'fastBatchSize' => 15,
+            'minValidUrlsAfterStep1' => 40,
             'maxParallelItems' => 3,
             'step2BatchSize' => 60,
             'step3BatchSize' => 30,
@@ -137,6 +140,10 @@ class AuditSettingsTest extends TestCase
         $groupIds = collect($report['groups'])->pluck('id')->all();
         $this->assertContains('fast_pipeline', $groupIds);
         $this->assertNotContains('step3_standard', $groupIds);
+        $runtimeGroup = collect($report['groups'])->firstWhere('id', 'runtime');
+        $this->assertNotNull($runtimeGroup);
+        $runtimeItems = collect($runtimeGroup['items'] ?? []);
+        $this->assertTrue($runtimeItems->contains(fn (array $item): bool => $item['label'] === 'Ngưỡng sau B1' && $item['status'] === 'warning'));
     }
 
     public function test_deep_research_catalog_includes_current_and_legacy_agents(): void

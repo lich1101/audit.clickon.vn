@@ -108,6 +108,7 @@ export async function fetchAuditBoard(websiteId: string): Promise<AuditBoard> {
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
+    minValidUrlsAfterStep1: 50,
     deepResearchBatchSize: 5,
     deepResearchResearchProvider: "perplexity",
     deepResearchResearchModel: "sonar-deep-research",

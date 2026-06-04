@@ -89,6 +89,7 @@ export type PublicAuditSettings = {
   maxParallelItems?: number;
   step2BatchSize?: number;
   step3BatchSize?: number;
+  minValidUrlsAfterStep1?: number;
   deepResearchBatchSize?: number;
   deepResearchResearchProvider?: DeepResearchResearchProvider;
   deepResearchResearchModel?: string | null;

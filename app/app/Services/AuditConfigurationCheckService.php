@@ -183,6 +183,7 @@ class AuditConfigurationCheckService
         $step2BatchSize = max(1, (int) ($settings['step2BatchSize'] ?? 60));
         $step3BatchSize = max(1, (int) ($settings['step3BatchSize'] ?? 30));
         $fastBatchSize = max(1, (int) ($settings['fastBatchSize'] ?? 15));
+        $minValidUrlsAfterStep1 = max(1, (int) ($settings['minValidUrlsAfterStep1'] ?? 50));
         $deepResearchBatchSize = max(1, (int) ($settings['deepResearchBatchSize'] ?? 5));
 
         $items = [
@@ -198,8 +199,28 @@ class AuditConfigurationCheckService
 
         if ($auditPipelineMode === AuditRun::PIPELINE_FAST && $step3FlowMode === AuditRun::WORKFLOW_STANDARD) {
             $items[] = $this->batchSizeCheck('Batch fast mode', $fastBatchSize, 30);
+            $items[] = $minValidUrlsAfterStep1 > $fastBatchSize
+                ? $this->warningItem(
+                    'Ngưỡng sau B1',
+                    sprintf(
+                        'Ngưỡng tối thiểu sau bước 1 đang là %d URL, lớn hơn batch fast mode %d URL. Nếu bước 1 chỉ giữ lại ít URL hợp lệ hơn ngưỡng này thì run sẽ dừng trước khi gọi AI.',
+                        $minValidUrlsAfterStep1,
+                        $fastBatchSize,
+                    )
+                )
+                : $this->okItem('Ngưỡng sau B1', sprintf('%d URL hợp lệ tối thiểu để chạy tiếp bước AI.', $minValidUrlsAfterStep1));
         } else {
             $items[] = $this->batchSizeCheck('Batch bước 2', $step2BatchSize, 150);
+            $items[] = $minValidUrlsAfterStep1 > $step2BatchSize
+                ? $this->warningItem(
+                    'Ngưỡng sau B1',
+                    sprintf(
+                        'Ngưỡng tối thiểu sau bước 1 đang là %d URL, lớn hơn batch bước 2 %d URL. Nếu bạn thường chạy ít URL, nên giảm ngưỡng này để tránh run dừng sớm.',
+                        $minValidUrlsAfterStep1,
+                        $step2BatchSize,
+                    )
+                )
+                : $this->okItem('Ngưỡng sau B1', sprintf('%d URL hợp lệ tối thiểu để chạy tiếp bước AI.', $minValidUrlsAfterStep1));
         }
 
         if ($step3FlowMode === AuditRun::WORKFLOW_AUDIT_DEEP_RESEARCH) {

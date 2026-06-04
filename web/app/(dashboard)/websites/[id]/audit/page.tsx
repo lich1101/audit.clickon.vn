@@ -136,6 +136,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     maxParallelItems: 3,
     step2BatchSize: 60,
     step3BatchSize: 30,
+    minValidUrlsAfterStep1: 50,
     deepResearchBatchSize: 5,
     deepResearchResearchProvider: "perplexity",
     deepResearchResearchModel: "sonar-deep-research",
@@ -215,6 +216,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         maxParallelItems: 3,
         step2BatchSize: 60,
         step3BatchSize: 30,
+        minValidUrlsAfterStep1: 50,
         deepResearchBatchSize: 5,
         deepResearchResearchProvider: "perplexity",
         deepResearchResearchModel: "sonar-deep-research",
@@ -258,6 +260,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const canUseAdminDebugActions = profile?.realRole === "admin" && !profile?.isImpersonating;
   const canOperateAsOwner = website?.userId === profile?.uid;
   const otherWebsiteActiveRun = userActiveRun && isActiveAuditRun(userActiveRun.status) && userActiveRun.websiteId !== website?.id ? userActiveRun : null;
+  const minValidUrlsAfterStep1 = Math.max(1, systemAi.minValidUrlsAfterStep1 ?? 50);
   const canRunAuditToday = website?.canRunAuditToday !== false;
   const canStartRun = canOperateAsOwner && canRunAuditToday && !otherWebsiteActiveRun;
   const sameDayGrantActive = Boolean(
@@ -411,6 +414,8 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const configuredPipelineMode = run?.pipelineMode ?? systemAi.auditPipelineMode ?? "standard";
   const effectiveConfiguredWorkflow: AuditWorkflow = configuredPipelineMode === "fast" ? "standard" : configuredWorkflow;
   const isFastStandardPipeline = effectiveConfiguredWorkflow === "standard" && configuredPipelineMode === "fast";
+  const showFastDebugActions = canUseAdminDebugActions && isFastStandardPipeline;
+  const showStandardDebugActions = canUseAdminDebugActions && !isFastStandardPipeline;
   const activeFlowLabel = configuredPipelineMode === "fast" ? "Fast mode" : workflowLabels[effectiveConfiguredWorkflow];
   const currentBalanceUsd = profile?.balanceUsd ?? 0;
   const currentBalanceCredits = profile?.credits ?? 0;
@@ -526,6 +531,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
     if (!canRunAuditToday) {
       toast.error("Website này đã được audit một lần trong hôm nay. Cần admin cấp quyền audit lại trong ngày để chạy thêm.");
+      return;
+    }
+
+    if (startFromStep === 1 && stopAfterStep !== 1 && selectedUrls.length < minValidUrlsAfterStep1) {
+      toast.error(
+        `Lựa chọn hiện tại có ${selectedUrls.length} URL, thấp hơn ngưỡng tối thiểu ${minValidUrlsAfterStep1} URL hợp lệ sau bước 1 để hệ thống tự chạy tiếp bước AI. Nếu bạn chỉ muốn crawl lại bước 1 thì dùng nút "Run bước 1"; nếu muốn chạy tiếp audit thì hãy giảm ngưỡng này trong Audit Settings hoặc chọn thêm URL.`
+      );
       return;
     }
 
@@ -731,6 +743,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               {canUseAdminDebugActions ? formatUsd(currentBalanceUsd, 4) : `${formatNumber(currentBalanceCredits)} credit`}
             </span>
             <span className="rounded-full bg-secondary/50 px-2.5 py-1">B1 {stepCounts.step1Ready}/{urlList.length}</span>
+            <span className="rounded-full bg-secondary/50 px-2.5 py-1">Gate B1 ≥ {minValidUrlsAfterStep1} URL hợp lệ</span>
             {isFastStandardPipeline ? (
               <span className="rounded-full bg-secondary/50 px-2.5 py-1">B2+3 {stepCounts.step3Ready}/{urlList.length}</span>
             ) : (
@@ -758,6 +771,9 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               </>
             )}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Bước 1 chỉ lọc và crawl nội dung. Muốn hệ thống tự chạy tiếp bước AI, số URL hợp lệ sau bước 1 phải đạt ít nhất {minValidUrlsAfterStep1} URL theo cấu hình hiện tại.
+          </p>
           {!canOperateAsOwner && canUseAdminDebugActions ? (
             <p className="text-xs text-muted-foreground">
               Website này thuộc user khác. Dùng đăng nhập nhanh vào tài khoản chủ website nếu cần chạy audit như người dùng đó.
@@ -788,7 +804,37 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
             <Play className="size-4" />
             {running ? "Đang khởi chạy..." : `Run (${selectedUrls.length})`}
           </Button>
-          {canUseAdminDebugActions ? (
+          {showFastDebugActions ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(1, 1)}
+                disabled={running || isRunActive || selectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run bước 1 (${selectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRun(2)}
+                disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0 || !canStartRun}
+              >
+                <Play className="size-4" />
+                {running ? "Đang khởi chạy..." : `Run từ bước 2 (${step2FromStep1ReadySelectedUrls.length})`}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSelectedUrls(step2FromStep1ReadySelectedUrls)}
+                disabled={isRunActive || step2FromStep1ReadySelectedUrls.length === 0}
+              >
+                Chọn URL đủ B1
+              </Button>
+            </>
+          ) : null}
+          {showStandardDebugActions ? (
             <>
               <Button
                 type="button"
@@ -803,18 +849,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
                 type="button"
                 variant="secondary"
                 onClick={() => void handleRun(2, 2)}
-                disabled={
-                  running ||
-                  isRunActive ||
-                  step2FromStep1ReadySelectedUrls.length === 0 ||
-                  !canStartRun ||
-                  isFastStandardPipeline
-                }
-                title={
-                  isFastStandardPipeline
-                    ? "Fast mode không hỗ trợ dừng sau bước 2. Chuyển pipeline về Chuẩn trong Audit Settings."
-                    : undefined
-                }
+                disabled={running || isRunActive || step2FromStep1ReadySelectedUrls.length === 0 || !canStartRun}
               >
                 <Play className="size-4" />
                 {running ? "Đang khởi chạy..." : `Run bước 2 only (${step2FromStep1ReadySelectedUrls.length})`}
@@ -853,20 +888,22 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
               >
                 Chọn URL đủ B2
               </Button>
-              <Button
-                type="button"
-                variant={sameDayGrantActive ? "secondary" : "outline"}
-                onClick={() => void handleGrantSameDayReaudit(!sameDayGrantActive)}
-                disabled={grantingReaudit}
-              >
-                <ShieldCheck className="size-4" />
-                {grantingReaudit
-                  ? "Đang cập nhật..."
-                  : sameDayGrantActive
-                    ? "Thu hồi re-audit hôm nay"
-                    : "Cho phép re-audit hôm nay"}
-              </Button>
             </>
+          ) : null}
+          {canUseAdminDebugActions ? (
+            <Button
+              type="button"
+              variant={sameDayGrantActive ? "secondary" : "outline"}
+              onClick={() => void handleGrantSameDayReaudit(!sameDayGrantActive)}
+              disabled={grantingReaudit}
+            >
+              <ShieldCheck className="size-4" />
+              {grantingReaudit
+                ? "Đang cập nhật..."
+                : sameDayGrantActive
+                  ? "Thu hồi re-audit hôm nay"
+                  : "Cho phép re-audit hôm nay"}
+            </Button>
           ) : null}
           {isRunActive && canUseAdminDebugActions ? (
             <Button type="button" variant="destructive" onClick={handleStop} disabled={stopping}>

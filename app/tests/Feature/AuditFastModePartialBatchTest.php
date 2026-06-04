@@ -191,7 +191,7 @@ class AuditFastModePartialBatchTest extends TestCase
     {
         Queue::fake();
 
-        config()->set('services.audit.gemini_fast_input_token_soft_limit', 190000);
+        config()->set('services.audit.gemini_fast_input_token_soft_limit', 120000);
 
         app(AuditSettingsService::class)->updateAuditSettings([
             'auditPipelineMode' => AuditRun::PIPELINE_FAST,

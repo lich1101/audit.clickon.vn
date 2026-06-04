@@ -1618,7 +1618,7 @@ class AuditRunService
             return $items->values();
         }
 
-        $softLimit = max(1000, (int) config('services.audit.gemini_fast_input_token_soft_limit', 190000));
+        $softLimit = max(1000, (int) config('services.audit.gemini_fast_input_token_soft_limit', 120000));
         $candidateCount = $items->count();
         $lastMeasuredTokens = null;
 

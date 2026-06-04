@@ -96,7 +96,7 @@ return [
         'ai_demand_retry_sleep_ms' => (int) env('AUDIT_AI_DEMAND_RETRY_SLEEP_MS', 5000),
         'ai_demand_retry_max_attempts' => (int) env('AUDIT_AI_DEMAND_RETRY_MAX_ATTEMPTS', 0),
         'gemini_max_input_tokens' => (int) env('AUDIT_GEMINI_MAX_INPUT_TOKENS', 1048576),
-        'gemini_fast_input_token_soft_limit' => (int) env('AUDIT_GEMINI_FAST_INPUT_TOKEN_SOFT_LIMIT', 190000),
+        'gemini_fast_input_token_soft_limit' => (int) env('AUDIT_GEMINI_FAST_INPUT_TOKEN_SOFT_LIMIT', 120000),
         'gemini_prompt_reserve_tokens' => (int) env('AUDIT_GEMINI_PROMPT_RESERVE_TOKENS', 200000),
         'gemini_temperature' => (float) env('AUDIT_GEMINI_TEMPERATURE', 0.2),
         'gemini_top_p' => (float) env('AUDIT_GEMINI_TOP_P', 0.95),

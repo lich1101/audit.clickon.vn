@@ -277,34 +277,38 @@ TEXT;
         $promptBundle = $this->buildFastAuditPromptBundle($targetUrls, $categories, $checklistText, $batchPages);
         $pdfAttachment = $this->resolveGeminiPdfAttachment('gemini', $persistStep);
 
+        // countTokens REST: generateContentConfig không được API chấp nhận; dùng
+        // generateContentRequest với cùng systemInstruction + contents (text + fileData).
         $payload = [
-            'generateContentConfig' => [
+            'generateContentRequest' => [
+                'model' => 'models/'.$resolvedModel,
                 'systemInstruction' => [
                     'parts' => [
                         ['text' => $promptBundle['prompts']['system']],
                     ],
                 ],
-            ],
-            'contents' => [
-                [
-                    'role' => 'user',
-                    'parts' => $this->geminiPdfAttachmentService->buildGeminiCountTokensParts(
-                        $promptBundle['prompts']['user'],
-                        $pdfAttachment,
-                    ),
+                'contents' => [
+                    [
+                        'parts' => $this->geminiPdfAttachmentService->buildGeminiCountTokensParts(
+                            $promptBundle['prompts']['user'],
+                            $pdfAttachment,
+                        ),
+                    ],
                 ],
             ],
         ];
 
         $response = $this->sendAiRequest(
             fn (): Response => Http::withHeaders([
-                'x-goog-api-key' => $apiKey,
                 'Content-Type' => 'application/json',
             ])
                 ->acceptJson()
                 ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
                 ->timeout($this->aiHttpTimeoutSeconds())
-                ->post("https://generativelanguage.googleapis.com/v1beta/models/{$resolvedModel}:countTokens", $payload),
+                ->post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/{$resolvedModel}:countTokens?key={$apiKey}",
+                    $payload,
+                ),
             'Gemini'
         );
 

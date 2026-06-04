@@ -372,7 +372,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     for (const url of urlList) {
       const row = itemsByUrl[url];
 
-      if (hasStep1SeedData(row)) {
+      if (isStep1ValidForAudit(row)) {
         step1Ready += 1;
       }
 
@@ -406,7 +406,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         continue;
       }
 
-      if (hasStep1SeedData(row)) {
+      if (isStep1ValidForAudit(row)) {
         step1Ready += 1;
       }
 

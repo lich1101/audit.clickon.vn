@@ -66,6 +66,7 @@ function isStep1ValidForAudit(row?: {
   contentExcerpt?: string | null;
   contentSource?: string | null;
   contentError?: string | null;
+  metrics?: Record<string, number | boolean | string | null>;
 } | null) {
   const source = (row?.contentSource ?? "").trim().toLowerCase();
 
@@ -73,7 +74,7 @@ function isStep1ValidForAudit(row?: {
     return false;
   }
 
-  if (source !== "jina" && source !== "html") {
+  if (source !== "jina" && source !== "html" && source !== "firecrawl") {
     return false;
   }
 
@@ -83,11 +84,18 @@ function isStep1ValidForAudit(row?: {
     return false;
   }
 
-  if (row?.pageTitle?.trim() || row?.metaDescription?.trim()) {
+  const metrics = row?.metrics ?? {};
+
+  if (metrics.auditReady === true) {
     return true;
   }
 
-  return (row?.contentExcerpt?.trim().length ?? 0) > 20;
+  const content = row?.contentExcerpt?.trim() ?? "";
+  const plain = content.replace(/[#*\[\]()>`_\-]+/gu, " ").trim();
+  const words = plain ? plain.split(/\s+/u).filter(Boolean).length : 0;
+  const chars = content.length;
+
+  return chars >= 500 && words >= 80;
 }
 
 function hasStep1SeedData(row?: {

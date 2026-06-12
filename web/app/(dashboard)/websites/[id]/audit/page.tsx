@@ -261,10 +261,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   const isRunActive = isActiveAuditRun(run?.status);
   const canUseAdminDebugActions = profile?.realRole === "admin" && !profile?.isImpersonating;
   const canOperateAsOwner = website?.userId === profile?.uid;
+  const canAdminRunAnyWebsite = canUseAdminDebugActions;
+  const canOperateRun = canOperateAsOwner || canAdminRunAnyWebsite;
   const otherWebsiteActiveRun = userActiveRun && isActiveAuditRun(userActiveRun.status) && userActiveRun.websiteId !== website?.id ? userActiveRun : null;
   const minValidUrlsAfterStep1 = Math.max(1, systemAi.minValidUrlsAfterStep1 ?? 50);
   const canRunAuditToday = website?.canRunAuditToday !== false;
-  const canStartRun = canOperateAsOwner && canRunAuditToday && !otherWebsiteActiveRun;
+  const canStartRun = canOperateRun && canRunAuditToday && !otherWebsiteActiveRun;
   const sameDayGrantActive = Boolean(
     website?.sameDayReauditGrantedUntil && new Date(website.sameDayReauditGrantedUntil).getTime() > Date.now()
   );
@@ -553,7 +555,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       return;
     }
 
-    if (!canOperateAsOwner) {
+    if (!canOperateRun) {
       toast.error("Website này không thuộc phiên người dùng hiện tại. Hãy dùng đăng nhập nhanh vào đúng tài khoản chủ website để chạy audit.");
       return;
     }
@@ -849,7 +851,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
           </p>
           {!canOperateAsOwner && canUseAdminDebugActions ? (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <p>Website này thuộc user khác. Hãy đăng nhập nhanh vào tài khoản chủ website để chạy audit như người dùng đó.</p>
+              <p>Website này thuộc user khác. Bạn có thể chạy trực tiếp bằng tài khoản admin hiện tại, hoặc đăng nhập nhanh vào chủ website nếu muốn dùng đúng quota/lịch sử của tài khoản đó.</p>
               <Button
                 type="button"
                 size="sm"

@@ -78,7 +78,7 @@ class AuditRunService
     /**
      * @param  array<string, mixed>  $payload
      */
-    public function createRun(string $userUid, string $userEmail, array $payload): AuditRun
+    public function createRun(string $userUid, string $userEmail, array $payload, bool $allowAdminForeignWebsite = false): AuditRun
     {
         $websiteId = (string) $payload['websiteId'];
         $website = $this->websiteDataService->getWebsite($websiteId);
@@ -88,7 +88,7 @@ class AuditRunService
             throw new RuntimeException('Website does not exist.');
         }
 
-        if (($website['userId'] ?? null) !== $userUid) {
+        if (! $allowAdminForeignWebsite && ($website['userId'] ?? null) !== $userUid) {
             throw new AuthorizationException('You are not allowed to run audit for this website.');
         }
 

@@ -69,6 +69,36 @@ function hasStep1Data(row?: AuditWorkbenchRow | null) {
   );
 }
 
+function isStep1Valid(row?: AuditWorkbenchRow | null) {
+  const source = row?.contentSource?.trim().toLowerCase() ?? "";
+  const error = row?.contentError?.trim().toLowerCase() ?? "";
+  const content = row?.contentExcerpt?.trim() ?? "";
+  const metrics = row?.metrics ?? {};
+  const auditReady = metrics.auditReady === true;
+
+  if (!source || source === "url_only") {
+    return false;
+  }
+
+  if (!["jina", "html", "firecrawl"].includes(source)) {
+    return false;
+  }
+
+  if (error && (error.includes("404") || error.includes("not found"))) {
+    return false;
+  }
+
+  if (auditReady) {
+    return true;
+  }
+
+  const plain = content.replace(/[#*\[\]()>`_\-]+/gu, " ").trim();
+  const words = plain ? plain.split(/\s+/u).filter(Boolean).length : 0;
+  const chars = content.length;
+
+  return chars >= 500 && words >= 80;
+}
+
 function hasStep2Data(row?: AuditWorkbenchRow | null) {
   return Boolean(row?.primaryKeyword?.trim() && row?.categoryName?.trim() && row?.categoryUrl?.trim());
 }
@@ -136,7 +166,7 @@ export function AuditWorkbenchTable({
         active.push(url);
       }
 
-      if (hasStep1Data(item)) {
+      if (isStep1Valid(item)) {
         step1Ready.push(url);
       } else {
         step1Missing.push(url);
@@ -350,10 +380,10 @@ export function AuditWorkbenchTable({
               Hoàn tất ({quickGroups.completed.length})
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step1Ready)} disabled={!canSelectUrls || quickGroups.step1Ready.length === 0}>
-              Có dữ liệu B1 ({quickGroups.step1Ready.length})
+              B1 hợp lệ ({quickGroups.step1Ready.length})
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step1Missing)} disabled={!canSelectUrls || quickGroups.step1Missing.length === 0}>
-              Thiếu dữ liệu B1 ({quickGroups.step1Missing.length})
+              B1 chưa hợp lệ ({quickGroups.step1Missing.length})
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => applyQuickSelection(quickGroups.step2Ready)} disabled={!canSelectUrls || quickGroups.step2Ready.length === 0}>
               Có dữ liệu B2 ({quickGroups.step2Ready.length})

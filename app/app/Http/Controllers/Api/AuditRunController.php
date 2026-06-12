@@ -233,6 +233,9 @@ class AuditRunController extends Controller
         $startFromStep = $this->auditRunService->normalizeStartFromStep($payload['startFromStep'] ?? null);
         $stopAfterStep = $this->auditRunService->normalizeStopAfterStep($payload['stopAfterStep'] ?? null, $startFromStep);
         $role = (string) $request->attributes->get('firebase_role', 'user');
+        $actorRole = (string) $request->attributes->get('actor_role', $role);
+        $impersonatedByAdmin = (bool) $request->attributes->get('impersonated_by_admin', false);
+        $allowAdminForeignWebsite = $actorRole === 'admin' && ! $impersonatedByAdmin;
 
         if ($role !== 'admin' && ($startFromStep !== AuditRunService::START_FROM_STEP_1 || $stopAfterStep !== null)) {
             return response()->json([
@@ -245,6 +248,7 @@ class AuditRunController extends Controller
                 userUid: (string) $request->attributes->get('firebase_uid'),
                 userEmail: (string) $request->attributes->get('firebase_email'),
                 payload: $payload,
+                allowAdminForeignWebsite: $allowAdminForeignWebsite,
             );
         } catch (RuntimeException $exception) {
             $message = $exception->getMessage();

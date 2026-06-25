@@ -69,6 +69,24 @@ class AuditGeminiPdfAttachmentServiceTest extends TestCase
         $this->assertSame(base64_encode('%PDF-1.4 sample'), $parts[1]['inline_data']['data']);
     }
 
+    public function test_build_gemini_user_parts_prefers_inline_over_stale_gemini_file_uri(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('audit-gemini-attachments/fast_audit.pdf', '%PDF-1.4 sample');
+
+        $service = new AuditGeminiPdfAttachmentService(Mockery::mock(AuditSettingsService::class));
+        $parts = $service->buildGeminiUserParts('Audit these URLs', [
+            'slot' => 'fast_audit',
+            'path' => 'audit-gemini-attachments/fast_audit.pdf',
+            'originalName' => 'checklist.pdf',
+            'geminiFileUri' => 'https://generativelanguage.googleapis.com/v1beta/files/rh793vvebz04',
+        ]);
+
+        $this->assertSame('Audit these URLs', $parts[0]['text']);
+        $this->assertArrayHasKey('inline_data', $parts[1]);
+        $this->assertArrayNotHasKey('fileData', $parts[1]);
+    }
+
     public function test_build_deep_research_pdf_appendix_mentions_filename_and_uri(): void
     {
         $service = new AuditGeminiPdfAttachmentService(Mockery::mock(AuditSettingsService::class));

@@ -165,18 +165,10 @@ class AuditGeminiPdfAttachmentService
             ['text' => $userPrompt],
         ];
 
-        $fileData = $this->buildFileDataPart($attachment);
+        $pdfPart = $this->buildPdfPartForGemini($attachment);
 
-        if ($fileData !== null) {
-            $parts[] = $fileData;
-
-            return $parts;
-        }
-
-        $inline = $this->buildInlineDataPart($attachment);
-
-        if ($inline !== null) {
-            $parts[] = $inline;
+        if ($pdfPart !== null) {
+            $parts[] = $pdfPart;
         }
 
         return $parts;
@@ -192,18 +184,10 @@ class AuditGeminiPdfAttachmentService
             ['text' => $userPrompt],
         ];
 
-        $fileData = $this->buildFileDataPart($attachment);
+        $pdfPart = $this->buildPdfPartForGemini($attachment, camelCase: true);
 
-        if ($fileData !== null) {
-            $parts[] = $fileData;
-
-            return $parts;
-        }
-
-        $inline = $this->buildInlineDataPart($attachment, camelCase: true);
-
-        if ($inline !== null) {
-            $parts[] = $inline;
+        if ($pdfPart !== null) {
+            $parts[] = $pdfPart;
         }
 
         return $parts;
@@ -268,6 +252,24 @@ class AuditGeminiPdfAttachmentService
                 'data' => base64_encode($binary),
             ],
         ];
+    }
+
+    /**
+     * Ưu tiên PDF local (inline) vì geminiFileUri trên Files API chỉ sống ~48 giờ.
+     * Chỉ dùng fileUri khi không còn bản local — tránh HTTP 403 khi URI hết hạn hoặc đổi API key.
+     *
+     * @param  array<string, mixed>|null  $attachment
+     * @return array<string, mixed>|null
+     */
+    private function buildPdfPartForGemini(?array $attachment, bool $camelCase = false): ?array
+    {
+        $inline = $this->buildInlineDataPart($attachment, camelCase: $camelCase);
+
+        if ($inline !== null) {
+            return $inline;
+        }
+
+        return $this->buildFileDataPart($attachment);
     }
 
     /**

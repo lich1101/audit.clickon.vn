@@ -30,6 +30,7 @@ services:
     volumes:
       - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
       - ./app/storage/app/private/audit-ai-responses:/var/www/html/storage/app/private/audit-ai-responses
+      - ./app/storage/app/private/audit-gemini-attachments:/var/www/html/storage/app/private/audit-gemini-attachments
     deploy:
       resources:
         limits:
@@ -48,6 +49,7 @@ services:
     volumes:
       - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
       - ./app/storage/app/private/audit-ai-responses:/var/www/html/storage/app/private/audit-ai-responses
+      - ./app/storage/app/private/audit-gemini-attachments:/var/www/html/storage/app/private/audit-gemini-attachments
     depends_on:
       api:
         condition: service_started
@@ -70,6 +72,7 @@ services:
     volumes:
       - ./app/storage/app/firebase-service-account.json:/var/www/html/storage/app/firebase-service-account.json:ro
       - ./app/storage/app/private/audit-ai-responses:/var/www/html/storage/app/private/audit-ai-responses
+      - ./app/storage/app/private/audit-gemini-attachments:/var/www/html/storage/app/private/audit-gemini-attachments
     depends_on:
       api:
         condition: service_started

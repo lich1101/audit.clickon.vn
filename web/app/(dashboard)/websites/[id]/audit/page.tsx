@@ -23,6 +23,7 @@ import { collectRunDisplayErrors, resolveAiStepRowState } from "@/lib/audit-ai-s
 import { exportAuditWorkbenchToExcel } from "@/lib/audit-report";
 import { mergeAuditWorkbenchRow, type AuditExportColumnKey } from "@/lib/audit-workbench-data";
 import { startImpersonation } from "@/lib/impersonation";
+import { LaravelRequestError } from "@/lib/laravel";
 import {
   ACTIVE_AUDIT_POLL_INTERVAL_MS,
   createAuditRun,
@@ -159,6 +160,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [boardError, setBoardError] = useState<{ message: string; status?: number } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -205,6 +207,7 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
       setRun(board.run);
       setUserActiveRun(board.userActiveRun ?? null);
       setUrlResults(board.urlResults ?? []);
+      setBoardError(null);
       setSystemAi(board.systemAi ?? {
         aiProvider: "openai",
         aiModel: null,
@@ -244,7 +247,13 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
         setAudit(null);
         setRun(null);
         setUserActiveRun(null);
-        toast.error(error instanceof Error ? error.message : "Không thể tải dữ liệu audit.");
+        setUrlResults([]);
+        const message = error instanceof Error ? error.message : "Không thể tải dữ liệu audit.";
+        setBoardError({
+          message,
+          status: error instanceof LaravelRequestError ? error.status : undefined,
+        });
+        toast.error(message);
       }
     } finally {
       if (!options?.silent) {
@@ -255,6 +264,12 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
 
   useEffect(() => {
     boardLoadedRef.current = false;
+    setBoardError(null);
+    setWebsite(null);
+    setAudit(null);
+    setRun(null);
+    setUserActiveRun(null);
+    setUrlResults([]);
   }, [id]);
 
   useEffect(() => {
@@ -765,7 +780,26 @@ export default function WebsiteAuditPage({ params }: { params: Promise<{ id: str
     return <LoadingState title="Đang tải audit..." description="Đang lấy cấu hình website và bảng kết quả." />;
   }
 
-  if (!website || !profile) {
+  if (!profile) {
+    return <LoadingState title="Đang tải phiên đăng nhập..." description="Đang kiểm tra thông tin tài khoản hiện tại." />;
+  }
+
+  if (boardError && !website) {
+    const title =
+      boardError.status === 404
+        ? "Không tìm thấy website"
+        : boardError.status === 403
+          ? "Bạn không có quyền truy cập website này"
+          : "Không thể tải bảng audit";
+    const description =
+      boardError.status === 404
+        ? "Website không tồn tại hoặc đã bị xóa khỏi tài khoản hiện tại."
+        : boardError.message;
+
+    return <EmptyState title={title} description={description} action={{ label: "Về websites", href: "/websites" }} />;
+  }
+
+  if (!website) {
     return <EmptyState title="Không tìm thấy website" description="Website không tồn tại hoặc không thuộc tài khoản hiện tại." action={{ label: "Về websites", href: "/websites" }} />;
   }
 

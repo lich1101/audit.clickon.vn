@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ListChecks, Pencil, Plus, Rows3, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ListChecks, Pencil, Plus, Rows3, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -132,14 +132,21 @@ export function AuditWorkbenchTable({
   canSelectUrls?: boolean;
   websiteId: string;
 }) {
+  const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
   const [newUrl, setNewUrl] = useState("");
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
+  const [pageSize, setPageSize] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState(1);
   const selectedSet = useMemo(() => new Set(selectedUrls), [selectedUrls]);
   const lastToggledIndexRef = useRef<number | null>(null);
   const allSelected = urls.length > 0 && selectedUrls.length === urls.length;
+  const totalPages = Math.max(1, Math.ceil(urls.length / pageSize));
+  const pageStartIndex = (currentPage - 1) * pageSize;
+  const pageEndIndex = Math.min(urls.length, pageStartIndex + pageSize);
+  const visibleUrls = useMemo(() => urls.slice(pageStartIndex, pageEndIndex), [pageEndIndex, pageStartIndex, urls]);
   const quickGroups = useMemo(() => {
     const completed: string[] = [];
     const failed: string[] = [];
@@ -198,6 +205,10 @@ export function AuditWorkbenchTable({
       setEditingValue("");
     }
   }, [canManageUrls, editingUrl, urls]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, Math.max(1, Math.ceil(urls.length / pageSize))));
+  }, [pageSize, urls.length]);
 
   function toggleAll(checked: boolean) {
     onSelectedChange(checked ? [...urls] : []);
@@ -399,6 +410,62 @@ export function AuditWorkbenchTable({
             </Button>
           </div>
         </div>
+
+        <div className="flex flex-col gap-2 border-t border-border/60 pt-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Hiển thị {urls.length === 0 ? 0 : pageStartIndex + 1}-{pageEndIndex} / {urls.length} URL
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2">
+              <span>Trang</span>
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                value={currentPage}
+                onChange={(event) => setCurrentPage(Number(event.target.value))}
+              >
+                {Array.from({ length: totalPages }, (_, index) => {
+                  const page = index + 1;
+
+                  return (
+                    <option key={page} value={page}>
+                      {page}/{totalPages}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span>Mỗi trang</span>
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" size="icon" variant="outline" className="size-8" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage <= 1}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-8"
+              onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -429,10 +496,11 @@ export function AuditWorkbenchTable({
                 </TableCell>
               </TableRow>
             ) : (
-              urls.map((url, index) => {
+              visibleUrls.map((url, pageIndex) => {
                 const item = itemsByUrl[url];
                 const status = item?.status;
                 const stageLabel = stageLabelForSource(item?.extractionSource);
+                const index = pageStartIndex + pageIndex;
 
                 return (
                   <TableRow key={url} className={selectedSet.has(url) ? "bg-primary/5" : undefined}>

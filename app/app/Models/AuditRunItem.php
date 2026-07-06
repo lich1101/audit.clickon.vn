@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AuditRunItem extends Model
 {
+    public const BOARD_CONTENT_EXCERPT_LIMIT = 1200;
+
     /**
      * Cột cần cho audit-board / serializeItemSummary — không load prompt_snapshots (có thể rất lớn).
      *
@@ -38,7 +40,6 @@ class AuditRunItem extends Model
             'audit_findings',
             'audit_recommendations',
             'content_revision_direction',
-            'content_excerpt',
             'error_message',
             'updated_at',
         ];
@@ -49,8 +50,11 @@ class AuditRunItem extends Model
      */
     public function scopeForBoardSummary(Builder $query): Builder
     {
-        return $query->select(static::boardSummaryColumns());
+        return $query
+            ->select(static::boardSummaryColumns())
+            ->selectRaw('substr(content_excerpt, 1, ?) as content_excerpt', [static::BOARD_CONTENT_EXCERPT_LIMIT]);
     }
+
     protected $fillable = [
         'public_id',
         'audit_run_id',

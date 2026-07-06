@@ -7,6 +7,17 @@ let tokenPromise: Promise<string | undefined> | null = null;
 let tokenExpiresAt = 0;
 const LARAVEL_REQUEST_TIMEOUT_MS = 20_000;
 
+export class LaravelRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly payload?: unknown,
+  ) {
+    super(message);
+    this.name = "LaravelRequestError";
+  }
+}
+
 async function getAuthHeaders() {
   const now = Date.now();
   const user = auth.currentUser;
@@ -76,7 +87,11 @@ async function parse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(messageFromPayload(payload) ?? `Laravel API request failed (${response.status}).`);
+    throw new LaravelRequestError(
+      messageFromPayload(payload) ?? `Laravel API request failed (${response.status}).`,
+      response.status,
+      payload,
+    );
   }
 
   return payload as T;

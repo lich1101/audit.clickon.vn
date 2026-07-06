@@ -96,31 +96,31 @@ class AuditRunController extends Controller
 
         $audit = $this->websiteDataService->getAuditByWebsiteId($websiteId);
 
+        $activeRun = AuditRun::query()
+            ->where('website_id', $websiteId)
+            ->whereIn('status', ['queued', 'processing'])
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($activeRun) {
+            $this->auditRunService->watchdogActiveRun($activeRun);
+        }
+
         $boardItemsRelation = fn ($query) => $query
             ->forBoardSummary()
             ->orderBy('position');
 
         /** @var AuditRun|null $latestRun */
-        $activeRun = AuditRun::query()
-            ->where('website_id', $websiteId)
-            ->whereIn('status', ['queued', 'processing'])
-            ->orderByDesc('created_at')
-            ->with(['items' => $boardItemsRelation])
-            ->first();
-
-        $latestRun = $activeRun ?? AuditRun::query()
-            ->where('website_id', $websiteId)
-            ->orderByDesc('created_at')
-            ->with(['items' => $boardItemsRelation])
-            ->first();
-
-        if ($activeRun) {
-            $this->auditRunService->watchdogActiveRun($activeRun);
-            $latestRun = AuditRun::query()
+        $latestRun = $activeRun
+            ? AuditRun::query()
                 ->where('id', $activeRun->id)
                 ->with(['items' => $boardItemsRelation])
+                ->first()
+            : AuditRun::query()
+                ->where('website_id', $websiteId)
+                ->orderByDesc('created_at')
+                ->with(['items' => $boardItemsRelation])
                 ->first();
-        }
 
         $runPayload = null;
 
@@ -136,6 +136,7 @@ class AuditRunController extends Controller
 
         $urlResults = WebsiteAuditUrlResult::query()
             ->where('website_id', $websiteId)
+            ->forBoardSummary()
             ->orderBy('target_url')
             ->get()
             ->map(fn (WebsiteAuditUrlResult $result): array => $this->urlResultService->serialize($result))

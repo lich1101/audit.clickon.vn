@@ -696,7 +696,7 @@ TEXT;
             model: $model,
             systemPrompt: $prompts['system'],
             userPrompt: $prompts['user'],
-            schema: $this->batchOnpageSchema(),
+            schema: $this->batchFastAuditSchema(),
             auditRunId: $auditRunId,
             persistStep: $persistStep ?? 'batch_fast_audit',
         );
@@ -878,7 +878,7 @@ TEXT;
     ): array {
         $provider = $this->jsonFormatterProvider($formatterProvider);
         $model = $formatterModel ?: $this->defaultJsonFormatterModel($provider);
-        $schema = $this->batchOnpageSchema();
+        $schema = $this->batchFastAuditSchema();
 
         $prompts = $this->promptTemplateService->render(AuditPromptTemplate::STEP_FAST_AUDIT_JSON_FORMATTER, [
             'raw_ai_output' => $rawOutput,
@@ -2388,6 +2388,49 @@ TEXT;
         ];
     }
 
+    private function batchFastAuditSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'items' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'targetUrl' => ['type' => 'string'],
+                            'primaryKeyword' => ['type' => 'string'],
+                            'categoryName' => ['type' => 'string'],
+                            'categoryUrl' => ['type' => 'string'],
+                            'categoryMatchReason' => ['type' => 'string'],
+                            'auditScore' => ['type' => 'number'],
+                            'auditFindings' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string'],
+                            ],
+                            'auditRecommendations' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string'],
+                            ],
+                            'contentRevisionDirection' => ['type' => 'string'],
+                        ],
+                        'required' => [
+                            'targetUrl',
+                            'primaryKeyword',
+                            'categoryName',
+                            'categoryUrl',
+                            'categoryMatchReason',
+                            'auditScore',
+                            'auditFindings',
+                            'auditRecommendations',
+                            'contentRevisionDirection',
+                        ],
+                    ],
+                ],
+            ],
+            'required' => ['items'],
+        ];
+    }
     private function usesGeminiDeepResearchBrowseMode(string $provider): bool
     {
         return $provider === 'gemini_deep_research';

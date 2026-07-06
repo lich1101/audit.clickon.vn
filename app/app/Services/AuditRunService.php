@@ -1584,7 +1584,7 @@ class AuditRunService
      */
     private function processFastAuditBatch(AuditRun $run, \Illuminate\Support\Collection $items): void
     {
-        $items = $this->fitFastGeminiBatchToTokenBudget($run, $items);
+        $items = $this->fitFastBatchToTokenBudget($run, $items);
 
         if ($items->isEmpty()) {
             return;
@@ -1636,19 +1636,23 @@ class AuditRunService
     }
 
     /**
-     * Với fast mode + Gemini, co batch xuống dưới soft limit input tokens trước khi gọi AI.
+     * Với fast mode, co batch xuống dưới soft limit input tokens trước khi gọi AI.
      * Các item bị cắt khỏi tail sẽ được trả về queued để batch kế tiếp thử lại từ batch size cấu hình ban đầu.
      *
      * @param  \Illuminate\Support\Collection<int, AuditRunItem>  $items
      * @return \Illuminate\Support\Collection<int, AuditRunItem>
      */
-    private function fitFastGeminiBatchToTokenBudget(AuditRun $run, \Illuminate\Support\Collection $items): \Illuminate\Support\Collection
+    private function fitFastBatchToTokenBudget(AuditRun $run, \Illuminate\Support\Collection $items): \Illuminate\Support\Collection
     {
-        if (! $this->usesFastAuditPipeline($run) || $this->stepAiProvider($run, 2) !== 'gemini' || $items->count() <= 1) {
+        $provider = $this->stepAiProvider($run, 2);
+
+        if (! $this->usesFastAuditPipeline($run) || ! in_array($provider, ['gemini', 'deepseek'], true) || $items->count() <= 1) {
             return $items->values();
         }
 
-        $softLimit = max(1000, (int) config('services.audit.gemini_fast_input_token_soft_limit', 120000));
+        $softLimit = $provider === 'deepseek'
+            ? max(1000, (int) config('services.audit.deepseek_fast_input_token_soft_limit', 80000))
+            : max(1000, (int) config('services.audit.gemini_fast_input_token_soft_limit', 120000));
         $candidateCount = $items->count();
         $lastMeasuredTokens = null;
 
@@ -1660,17 +1664,27 @@ class AuditRunService
                 ->all();
 
             try {
-                $lastMeasuredTokens = $this->seoAiAuditService->countFastAuditGeminiInputTokens(
-                    targetUrls: $candidate->pluck('target_url')->values()->all(),
-                    categories: $run->categories ?? [],
-                    checklistText: $run->checklist_text,
-                    model: $this->stepAiModel($run, 2),
-                    persistStep: $this->chunkStepKey('batch_fast_audit', $candidate),
-                    batchPages: $batchPages,
-                );
+                if ($provider === 'deepseek') {
+                    $lastMeasuredTokens = $this->seoAiAuditService->countFastAuditDeepSeekInputTokens(
+                        targetUrls: $candidate->pluck('target_url')->values()->all(),
+                        categories: $run->categories ?? [],
+                        checklistText: $run->checklist_text,
+                        batchPages: $batchPages,
+                    );
+                } else {
+                    $lastMeasuredTokens = $this->seoAiAuditService->countFastAuditGeminiInputTokens(
+                        targetUrls: $candidate->pluck('target_url')->values()->all(),
+                        categories: $run->categories ?? [],
+                        checklistText: $run->checklist_text,
+                        model: $this->stepAiModel($run, 2),
+                        persistStep: $this->chunkStepKey('batch_fast_audit', $candidate),
+                        batchPages: $batchPages,
+                    );
+                }
             } catch (\Throwable $exception) {
-                Log::warning('Fast mode Gemini countTokens failed; keep configured batch size.', [
+                Log::warning('Fast mode token preflight failed; keep configured batch size.', [
                     'runId' => $run->id,
+                    'provider' => $provider,
                     'batchSize' => $items->count(),
                     'candidateCount' => $candidateCount,
                     'error' => $exception->getMessage(),
@@ -1689,8 +1703,9 @@ class AuditRunService
         $fitted = $items->take($candidateCount)->values();
 
         if ($candidateCount === 1 && is_int($lastMeasuredTokens) && $lastMeasuredTokens > $softLimit) {
-            Log::warning('Single fast-mode Gemini item still exceeds soft token limit; proceeding with one URL.', [
+            Log::warning('Single fast-mode item still exceeds soft token limit; proceeding with one URL.', [
                 'runId' => $run->id,
+                'provider' => $provider,
                 'softLimit' => $softLimit,
                 'measuredTokens' => $lastMeasuredTokens,
                 'targetUrl' => $fitted->first()?->target_url,
@@ -1709,8 +1724,9 @@ class AuditRunService
 
         $this->requeueFastStep2OverflowItems($run, $overflowItemIds);
 
-        Log::info('Fast mode Gemini batch shrunk by countTokens.', [
+        Log::info('Fast mode batch shrunk by token preflight.', [
             'runId' => $run->id,
+            'provider' => $provider,
             'originalCount' => $items->count(),
             'fittedCount' => $fitted->count(),
             'overflowCount' => count($overflowItemIds),
@@ -2951,7 +2967,7 @@ class AuditRunService
     {
         $provider = $step === 2 ? $run->step2_ai_provider : $run->step3_ai_provider;
 
-        return in_array($provider, ['openai', 'gemini', 'gemini_deep_research'], true)
+        return in_array($provider, ['openai', 'deepseek', 'gemini', 'gemini_deep_research'], true)
             ? (string) $provider
             : (string) ($run->ai_provider ?: 'openai');
     }

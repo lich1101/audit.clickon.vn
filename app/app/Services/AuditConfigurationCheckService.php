@@ -100,7 +100,7 @@ class AuditConfigurationCheckService
     {
         $provider = (string) ($settings['fastAiProvider'] ?? $settings['step2AiProvider'] ?? $settings['aiProvider'] ?? 'openai');
         $model = $this->effectiveModelForProvider($provider, $settings['fastAiModel'] ?? $settings['step2AiModel'] ?? $settings['aiModel'] ?? null);
-        $formatterProvider = (string) ($settings['fastFormatterProvider'] ?? $settings['step2FormatterProvider'] ?? 'gemini');
+        $formatterProvider = (string) ($settings['fastFormatterProvider'] ?? 'deepseek');
         $formatterModel = $this->effectiveFormatterModel($formatterProvider, $settings['fastFormatterModel'] ?? $settings['step2FormatterModel'] ?? null);
 
         return $this->buildGroup('fast_pipeline', 'Fast mode: keyword + audit gộp', [
@@ -260,6 +260,7 @@ class AuditConfigurationCheckService
     {
         [$envName, $value] = match ($provider) {
             'openai' => ['OPENAI_API_KEY', (string) config('services.openai.api_key', '')],
+            'deepseek' => ['DEEPSEEK_API_KEY', (string) config('services.deepseek.api_key', '')],
             'gemini', 'gemini_deep_research' => ['GEMINI_API_KEY', (string) config('services.gemini.api_key', '')],
             'perplexity' => ['PERPLEXITY_API_KEY', (string) config('services.perplexity.api_key', '')],
             default => [null, ''],
@@ -372,6 +373,7 @@ class AuditConfigurationCheckService
         }
 
         return match ($provider) {
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
             'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
             'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
             default => (string) config('services.openai.model', 'gpt-5.5'),
@@ -386,9 +388,11 @@ class AuditConfigurationCheckService
             return $configured;
         }
 
-        return $provider === 'openai'
-            ? (string) config('services.openai.model', 'gpt-5.5')
-            : 'gemini-2.5-flash';
+        return match ($provider) {
+            'openai' => (string) config('services.openai.model', 'gpt-5.5'),
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
+            default => 'gemini-2.5-flash',
+        };
     }
 
     private function effectiveDeepResearchResearchModel(string $provider, mixed $configuredModel): string

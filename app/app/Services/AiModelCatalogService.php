@@ -16,6 +16,7 @@ class AiModelCatalogService
         return Cache::remember("ai_models.{$provider}", now()->addHour(), function () use ($provider): array {
             return match ($provider) {
                 'openai' => $this->listOpenAiModels(),
+                'deepseek' => $this->listDeepSeekModels(),
                 'gemini' => $this->listGeminiModels(),
                 'gemini_deep_research' => $this->listDeepResearchAgents(),
                 'perplexity' => $this->listPerplexityModels(),
@@ -72,6 +73,25 @@ class AiModelCatalogService
         } catch (\Throwable) {
             return $this->payload('openai', $defaultModel, $fallback, 'fallback');
         }
+    }
+
+    /**
+     * @return array{provider:string,defaultModel:string,models:array<int,array{id:string,label:string,default?:bool}>,source:string}
+     */
+    private function listDeepSeekModels(): array
+    {
+        $defaultModel = (string) config('services.deepseek.model', 'deepseek-v4-flash');
+        $configuredModels = $this->csvModels((string) config('services.deepseek.models', ''));
+        $models = $this->uniqueModels([
+            $defaultModel,
+            ...$configuredModels,
+            'deepseek-v4-flash',
+            'deepseek-v4-pro',
+            'deepseek-chat',
+            'deepseek-reasoner',
+        ]);
+
+        return $this->payload('deepseek', $defaultModel, $models, 'config');
     }
 
     /**

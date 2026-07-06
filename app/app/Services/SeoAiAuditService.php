@@ -318,6 +318,28 @@ TEXT;
     }
 
     /**
+     * DeepSeek is OpenAI-compatible but does not expose a countTokens REST API.
+     * This conservative estimator is only used to shrink fast-mode batches before the call;
+     * actual billing still uses provider-reported usage from the completion response.
+     *
+     * @param  array<int, string>  $targetUrls
+     * @param  array<int, array<string, mixed>>  $categories
+     * @param  array<int, array<string, mixed>>  $batchPages
+     */
+    public function countFastAuditDeepSeekInputTokens(
+        array $targetUrls,
+        array $categories,
+        ?string $checklistText,
+        array $batchPages = [],
+    ): int {
+        $promptBundle = $this->buildFastAuditPromptBundle($targetUrls, $categories, $checklistText, $batchPages);
+
+        return $this->estimateDeepSeekPromptTokens(
+            $this->deepSeekJsonSystemPrompt($promptBundle['prompts']['system'])."\n\n".$promptBundle['prompts']['user'],
+        );
+    }
+
+    /**
      * @param  array<string, mixed>  $page
      * @param  array<int, array<string, mixed>>  $categoryContexts
      * @return array<string, mixed>
@@ -1088,6 +1110,7 @@ TEXT;
 
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
+            'deepseek' => $this->requestDeepSeekRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment, $persistStep),
             'gemini_deep_research' => $this->requestGeminiDeepResearchRaw(
                 $resolvedModel,
@@ -1135,6 +1158,7 @@ TEXT;
         $resolvedModel = $model ?: $this->defaultModelForProvider($provider);
         $providerLabel = match ($provider) {
             'openai' => 'OpenAI',
+            'deepseek' => 'DeepSeek',
             'gemini' => 'Gemini',
             'gemini_deep_research' => 'Gemini Deep Research',
             default => $provider,
@@ -1157,6 +1181,7 @@ TEXT;
 
         $raw = match ($provider) {
             'openai' => $this->requestOpenAiRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
+            'deepseek' => $this->requestDeepSeekRaw($resolvedModel, $systemPrompt, $userPrompt, $provider),
             'gemini' => $this->requestGeminiRaw($resolvedModel, $systemPrompt, $userPrompt, $schema, $provider, $pdfAttachment, $persistStep),
             'gemini_deep_research' => $this->requestGeminiDeepResearchRaw($resolvedModel, $systemPrompt, $userPrompt, $auditRunId, $provider, $persistStep, false, $pdfAttachment),
             default => throw new RuntimeException("Unsupported AI provider [{$provider}]."),
@@ -1467,20 +1492,23 @@ TEXT;
 
     private function jsonFormatterProvider(?string $provider): string
     {
-        return in_array($provider, ['openai', 'gemini'], true) ? $provider : 'gemini';
+        return in_array($provider, ['openai', 'deepseek', 'gemini'], true) ? $provider : 'gemini';
     }
 
     private function defaultJsonFormatterModel(string $provider): string
     {
-        return $provider === 'openai'
-            ? (string) config('services.openai.model', 'gpt-5.5')
-            : 'gemini-2.5-flash';
+        return match ($provider) {
+            'openai' => (string) config('services.openai.model', 'gpt-5.5'),
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
+            default => 'gemini-2.5-flash',
+        };
     }
 
     private function providerLabel(string $provider): string
     {
         return match ($provider) {
             'openai' => 'OpenAI',
+            'deepseek' => 'DeepSeek',
             'gemini' => 'Gemini',
             'gemini_deep_research' => 'Gemini Deep Research',
             default => $provider,
@@ -1576,6 +1604,81 @@ TEXT;
                 'total_tokens' => $inputTokens + $outputTokens,
             ],
         ];
+    }
+
+    /**
+     * @return array{rawText: string, usage: array{provider: string, model: string, input_tokens: int, output_tokens: int, total_tokens: int}}
+     */
+    private function requestDeepSeekRaw(string $model, string $systemPrompt, string $userPrompt, string $provider): array
+    {
+        $apiKey = config('services.deepseek.api_key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('DEEPSEEK_API_KEY is not configured.');
+        }
+
+        $baseUrl = rtrim((string) config('services.deepseek.base_url', 'https://api.deepseek.com'), '/');
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => $this->deepSeekJsonSystemPrompt($systemPrompt),
+                ],
+                [
+                    'role' => 'user',
+                    'content' => $userPrompt,
+                ],
+            ],
+            'response_format' => [
+                'type' => 'json_object',
+            ],
+            'temperature' => 0.1,
+        ];
+
+        $response = $this->sendAiRequest(
+            fn (): Response => Http::withToken($apiKey)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout($this->aiHttpConnectTimeoutSeconds())
+                ->timeout($this->aiHttpTimeoutSeconds())
+                ->post($baseUrl.'/chat/completions', $payload),
+            'DeepSeek'
+        );
+
+        $this->throwIfAiRequestFailed($response, 'DeepSeek');
+
+        $body = $response->json();
+        $text = Arr::get($body, 'choices.0.message.content');
+
+        if (! is_string($text) || trim($text) === '') {
+            throw new RuntimeException('Unable to extract text from DeepSeek response.');
+        }
+
+        $usageMeta = is_array($body['usage'] ?? null) ? $body['usage'] : [];
+        $inputTokens = (int) ($usageMeta['prompt_tokens'] ?? $usageMeta['input_tokens'] ?? 0);
+        $outputTokens = (int) ($usageMeta['completion_tokens'] ?? $usageMeta['output_tokens'] ?? 0);
+        $totalTokens = (int) ($usageMeta['total_tokens'] ?? ($inputTokens + $outputTokens));
+        $cacheHitTokens = (int) ($usageMeta['prompt_cache_hit_tokens'] ?? 0);
+        $cacheMissTokens = (int) ($usageMeta['prompt_cache_miss_tokens'] ?? 0);
+
+        return [
+            'rawText' => $text,
+            'usage' => [
+                'provider' => $provider,
+                'model' => $model,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'total_tokens' => $totalTokens,
+                'prompt_cache_hit_tokens' => $cacheHitTokens,
+                'prompt_cache_miss_tokens' => $cacheMissTokens,
+            ],
+        ];
+    }
+
+    private function deepSeekJsonSystemPrompt(string $systemPrompt): string
+    {
+        return trim($systemPrompt)."\n\nDeepSeek JSON mode requirement: output exactly one valid JSON object. Do not output Markdown, code fences, prose, or whitespace outside JSON.";
     }
 
     /**
@@ -2278,10 +2381,26 @@ TEXT;
     private function defaultModelForProvider(string $provider): string
     {
         return match ($provider) {
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
             'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
             'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
             default => (string) config('services.openai.model', 'gpt-5.5'),
         };
+    }
+
+    private function estimateDeepSeekPromptTokens(string $text): int
+    {
+        $normalized = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+
+        if ($normalized === '') {
+            return 0;
+        }
+
+        preg_match_all('/[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}]|[A-Za-z0-9_]+|[^\s]/u', $normalized, $matches);
+        $lexicalEstimate = count($matches[0] ?? []);
+        $charEstimate = (int) ceil(mb_strlen($normalized, 'UTF-8') / 3.8);
+
+        return max($lexicalEstimate, $charEstimate);
     }
 
     /**

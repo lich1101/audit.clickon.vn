@@ -29,6 +29,8 @@ class TokenBillingService
      *   citation_tokens?:int,
      *   reasoning_tokens?:int,
      *   search_queries?:int,
+     *   prompt_cache_hit_tokens?:int,
+     *   prompt_cache_miss_tokens?:int,
      *   provider_reported_cost_usd?:float|int|string|null
      * }  $usage
      */
@@ -96,6 +98,8 @@ class TokenBillingService
      *   citation_tokens?:int,
      *   reasoning_tokens?:int,
      *   search_queries?:int,
+     *   prompt_cache_hit_tokens?:int,
+     *   prompt_cache_miss_tokens?:int,
      *   provider_reported_cost_usd?:float|int|string|null
      * }  $usage
      * @return array{amount:float,isExact:bool,source:string}
@@ -125,6 +129,8 @@ class TokenBillingService
             'citation_tokens' => (int) ($usage['citation_tokens'] ?? 0),
             'reasoning_tokens' => (int) ($usage['reasoning_tokens'] ?? 0),
             'search_queries' => (int) ($usage['search_queries'] ?? 0),
+            'prompt_cache_hit_tokens' => (int) ($usage['prompt_cache_hit_tokens'] ?? 0),
+            'prompt_cache_miss_tokens' => (int) ($usage['prompt_cache_miss_tokens'] ?? 0),
         ]);
 
         if ($estimated['amount'] !== null) {
@@ -181,7 +187,9 @@ class TokenBillingService
      *   output_tokens?:int,
      *   citation_tokens?:int,
      *   reasoning_tokens?:int,
-     *   search_queries?:int
+     *   search_queries?:int,
+     *   prompt_cache_hit_tokens?:int,
+     *   prompt_cache_miss_tokens?:int
      * }  $usage
      * @return array{amount:?float,isExact:bool,missingComponents:string[]}
      */
@@ -204,16 +212,39 @@ class TokenBillingService
         $citationTokens = max(0, (int) ($usage['citation_tokens'] ?? 0));
         $reasoningTokens = max(0, (int) ($usage['reasoning_tokens'] ?? 0));
         $searchQueries = max(0, (int) ($usage['search_queries'] ?? 0));
+        $cacheHitTokens = max(0, (int) ($usage['prompt_cache_hit_tokens'] ?? 0));
+        $cacheMissTokens = max(0, (int) ($usage['prompt_cache_miss_tokens'] ?? 0));
         $pricing = $this->applyUsagePricingAdjustments($pricing, $provider, $model, $inputTokens);
 
         $missingComponents = [];
         $amount = 0.0;
 
-        $inputUsd = $this->estimateScaledUsd($inputTokens, $pricing['usd_per_1m_input'] ?? null, self::PRICE_SCALE_PER_MILLION);
-        if ($inputUsd === null && $inputTokens > 0) {
-            $missingComponents[] = 'input_tokens';
+        if ($provider === 'deepseek' && ($cacheHitTokens + $cacheMissTokens) > 0) {
+            $cacheHitRate = $this->deepSeekCacheHitUsdPerMillion($model);
+            $cacheRemainderTokens = max(0, $inputTokens - $cacheHitTokens - $cacheMissTokens);
+            $cacheMissTokens += $cacheRemainderTokens;
+
+            $cacheHitUsd = $this->estimateScaledUsd($cacheHitTokens, $cacheHitRate, self::PRICE_SCALE_PER_MILLION);
+            $cacheMissUsd = $this->estimateScaledUsd($cacheMissTokens, $pricing['usd_per_1m_input'] ?? null, self::PRICE_SCALE_PER_MILLION);
+
+            if ($cacheHitUsd === null && $cacheHitTokens > 0) {
+                $missingComponents[] = 'prompt_cache_hit_tokens';
+            } else {
+                $amount += $cacheHitUsd ?? 0.0;
+            }
+
+            if ($cacheMissUsd === null && $cacheMissTokens > 0) {
+                $missingComponents[] = 'prompt_cache_miss_tokens';
+            } else {
+                $amount += $cacheMissUsd ?? 0.0;
+            }
         } else {
-            $amount += $inputUsd ?? 0.0;
+            $inputUsd = $this->estimateScaledUsd($inputTokens, $pricing['usd_per_1m_input'] ?? null, self::PRICE_SCALE_PER_MILLION);
+            if ($inputUsd === null && $inputTokens > 0) {
+                $missingComponents[] = 'input_tokens';
+            } else {
+                $amount += $inputUsd ?? 0.0;
+            }
         }
 
         $outputUsd = $this->estimateScaledUsd($outputTokens, $pricing['usd_per_1m_output'] ?? null, self::PRICE_SCALE_PER_MILLION);
@@ -420,6 +451,7 @@ class TokenBillingService
     private function defaultModelForProvider(string $provider): string
     {
         return match ($provider) {
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
             'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
             'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
             default => (string) config('services.openai.model', 'gpt-5.5'),
@@ -500,6 +532,13 @@ class TokenBillingService
                 str_starts_with($normalized, 'o3-mini') => 'o3-mini',
                 str_starts_with($normalized, 'o3-pro') => 'o3-pro',
                 str_starts_with($normalized, 'o3') => 'o3',
+                default => $model,
+            },
+            'deepseek' => match (true) {
+                str_starts_with($normalized, 'deepseek-v4-flash') => 'deepseek-v4-flash',
+                str_starts_with($normalized, 'deepseek-v4-pro') => 'deepseek-v4-pro',
+                str_starts_with($normalized, 'deepseek-chat') => 'deepseek-chat',
+                str_starts_with($normalized, 'deepseek-reasoner') => 'deepseek-reasoner',
                 default => $model,
             },
             'gemini' => match (true) {
@@ -593,6 +632,13 @@ class TokenBillingService
             $parts[] = sprintf('%d search', $searchQueries);
         }
 
+        $cacheHitTokens = (int) ($usage['prompt_cache_hit_tokens'] ?? 0);
+        $cacheMissTokens = (int) ($usage['prompt_cache_miss_tokens'] ?? 0);
+
+        if ($cacheHitTokens > 0 || $cacheMissTokens > 0) {
+            $parts[] = sprintf('%d cache hit / %d cache miss', $cacheHitTokens, $cacheMissTokens);
+        }
+
         $parts[] = sprintf('$%.6f', $usdCharged);
 
         return implode(' · ', $parts);
@@ -609,6 +655,15 @@ class TokenBillingService
         }
 
         return ($quantity / $scale) * (float) $rate;
+    }
+
+    private function deepSeekCacheHitUsdPerMillion(string $model): ?float
+    {
+        return match ($this->canonicalizeModelForPricing('deepseek', $model)) {
+            'deepseek-v4-pro' => 0.003625,
+            'deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner' => 0.0028,
+            default => null,
+        };
     }
 
     private function normalizeNullableFloat(mixed $value): ?float

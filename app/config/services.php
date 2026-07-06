@@ -42,6 +42,14 @@ return [
         'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 180),
     ],
 
+    'deepseek' => [
+        'api_key' => env('DEEPSEEK_API_KEY'),
+        'base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
+        'model' => env('DEEPSEEK_MODEL', 'deepseek-v4-flash'),
+        'models' => env('DEEPSEEK_MODELS', 'deepseek-v4-flash,deepseek-v4-pro,deepseek-chat,deepseek-reasoner'),
+        'timeout_seconds' => (int) env('DEEPSEEK_TIMEOUT_SECONDS', env('OPENAI_TIMEOUT_SECONDS', 180)),
+    ],
+
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-2.5-pro'),
@@ -98,6 +106,7 @@ return [
         'gemini_max_input_tokens' => (int) env('AUDIT_GEMINI_MAX_INPUT_TOKENS', 1048576),
         'gemini_fast_input_token_soft_limit' => (int) env('AUDIT_GEMINI_FAST_INPUT_TOKEN_SOFT_LIMIT', 120000),
         'gemini_prompt_reserve_tokens' => (int) env('AUDIT_GEMINI_PROMPT_RESERVE_TOKENS', 200000),
+        'deepseek_fast_input_token_soft_limit' => (int) env('AUDIT_DEEPSEEK_FAST_INPUT_TOKEN_SOFT_LIMIT', 80000),
         'gemini_temperature' => (float) env('AUDIT_GEMINI_TEMPERATURE', 0.2),
         'gemini_top_p' => (float) env('AUDIT_GEMINI_TOP_P', 0.95),
         'gemini_top_k' => (int) env('AUDIT_GEMINI_TOP_K', 40),

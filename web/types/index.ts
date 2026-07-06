@@ -74,7 +74,7 @@ export type Plan = {
 
 export type AuditRunStatus = "queued" | "processing" | "completed" | "partial" | "failed";
 export type AuditRunItemStatus = "queued" | "fetching" | "analyzing" | "completed" | "failed";
-export type AiProvider = "openai" | "gemini" | "gemini_deep_research" | "perplexity";
+export type AiProvider = "openai" | "deepseek" | "gemini" | "gemini_deep_research" | "perplexity";
 export type AuditWorkflow = "standard" | "audit_deep_research";
 export type AuditPipelineMode = "standard" | "fast";
 export type AuditRunStartStep = 1 | 2 | 3;
@@ -390,7 +390,7 @@ export type CaptchaSolveTask = {
   captchaCredits: number;
 };
 
-export type JsonFormatterProvider = "openai" | "gemini";
+export type JsonFormatterProvider = "openai" | "deepseek" | "gemini";
 
 export type AuditPromptStep =
   | "keyword_category_mapping"

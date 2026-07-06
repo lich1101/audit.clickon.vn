@@ -877,7 +877,7 @@ class DeepResearchSeoAuditService
             $provider = (string) config('services.audit.deep_research_formatter_provider', 'openai');
         }
 
-        return in_array($provider, ['openai', 'gemini'], true) ? $provider : 'openai';
+        return in_array($provider, ['openai', 'deepseek', 'gemini'], true) ? $provider : 'openai';
     }
 
     private function formatterModel(?string $providerOverride = null, ?string $modelOverride = null): string
@@ -892,9 +892,11 @@ class DeepResearchSeoAuditService
             return $configured;
         }
 
-        return $this->formatterProvider($providerOverride) === 'gemini'
-            ? 'gemini-2.5-flash'
-            : (string) config('services.openai.model', 'gpt-5.5');
+        return match ($this->formatterProvider($providerOverride)) {
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
+            'gemini' => 'gemini-2.5-flash',
+            default => (string) config('services.openai.model', 'gpt-5.5'),
+        };
     }
 
     /**
@@ -1089,11 +1091,16 @@ class DeepResearchSeoAuditService
         ]);
 
         $raw = match ($provider) {
+            'deepseek' => $this->requestDeepSeekFormatterRaw($model, $systemPrompt, $userPrompt),
             'gemini' => $this->requestGeminiRaw($model, $systemPrompt, $userPrompt, $schema, $persistStep),
             default => $this->requestOpenAiFormatterRaw($model, $systemPrompt, $userPrompt),
         };
 
-        $data = $this->decodeJsonText($raw['rawText'], $provider === 'gemini' ? 'Gemini' : 'OpenAI');
+        $data = $this->decodeJsonText($raw['rawText'], match ($provider) {
+            'deepseek' => 'DeepSeek',
+            'gemini' => 'Gemini',
+            default => 'OpenAI',
+        });
 
         $this->persistAiStepResponse($auditRunId, $persistStep, [
             'step' => $persistStep,
@@ -1166,6 +1173,79 @@ class DeepResearchSeoAuditService
                 'total_tokens' => (int) (($usageMeta['input_tokens'] ?? $usageMeta['prompt_tokens'] ?? 0) + ($usageMeta['output_tokens'] ?? $usageMeta['completion_tokens'] ?? 0)),
             ],
         ];
+    }
+
+    /**
+     * @return array{rawText: string, usage: array<string, mixed>}
+     */
+    private function requestDeepSeekFormatterRaw(string $model, string $systemPrompt, string $userPrompt): array
+    {
+        $apiKey = config('services.deepseek.api_key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('DEEPSEEK_API_KEY is not configured.');
+        }
+
+        $baseUrl = rtrim((string) config('services.deepseek.base_url', 'https://api.deepseek.com'), '/');
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => $this->deepSeekJsonSystemPrompt($systemPrompt),
+                ],
+                [
+                    'role' => 'user',
+                    'content' => $userPrompt,
+                ],
+            ],
+            'response_format' => [
+                'type' => 'json_object',
+            ],
+            'temperature' => 0.1,
+        ];
+
+        $response = $this->sendRequest(
+            fn (): Response => Http::withToken($apiKey)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout($this->connectTimeoutSeconds())
+                ->timeout($this->timeoutSeconds())
+                ->post($baseUrl.'/chat/completions', $payload),
+            'DeepSeek'
+        );
+
+        $this->throwIfRequestFailed($response, 'DeepSeek');
+        $body = $response->json();
+        $text = Arr::get($body, 'choices.0.message.content');
+
+        if (! is_string($text) || trim($text) === '') {
+            throw new RuntimeException('Unable to extract text from DeepSeek response.');
+        }
+
+        $usageMeta = is_array($body['usage'] ?? null) ? $body['usage'] : [];
+        $inputTokens = (int) ($usageMeta['prompt_tokens'] ?? $usageMeta['input_tokens'] ?? 0);
+        $outputTokens = (int) ($usageMeta['completion_tokens'] ?? $usageMeta['output_tokens'] ?? 0);
+        $cacheHitTokens = (int) ($usageMeta['prompt_cache_hit_tokens'] ?? 0);
+        $cacheMissTokens = (int) ($usageMeta['prompt_cache_miss_tokens'] ?? 0);
+
+        return [
+            'rawText' => $text,
+            'usage' => [
+                'provider' => 'deepseek',
+                'model' => $model,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'total_tokens' => (int) ($usageMeta['total_tokens'] ?? ($inputTokens + $outputTokens)),
+                'prompt_cache_hit_tokens' => $cacheHitTokens,
+                'prompt_cache_miss_tokens' => $cacheMissTokens,
+            ],
+        ];
+    }
+
+    private function deepSeekJsonSystemPrompt(string $systemPrompt): string
+    {
+        return trim($systemPrompt)."\n\nDeepSeek JSON mode requirement: output exactly one valid JSON object. Do not output Markdown, code fences, prose, or whitespace outside JSON.";
     }
 
     /**

@@ -31,6 +31,34 @@ import type {
   JsonFormatterProvider
 } from "@/types";
 
+function defaultModelForProvider(provider: AiProvider) {
+  if (provider === "deepseek") {
+    return "deepseek-v4-flash";
+  }
+
+  if (provider === "gemini") {
+    return "gemini-2.5-pro";
+  }
+
+  if (provider === "gemini_deep_research") {
+    return "deep-research-pro-preview-12-2025";
+  }
+
+  return "gpt-5.5";
+}
+
+function defaultFormatterModel(provider: JsonFormatterProvider) {
+  if (provider === "deepseek") {
+    return "deepseek-v4-flash";
+  }
+
+  if (provider === "gemini") {
+    return "gemini-2.5-flash";
+  }
+
+  return "gpt-5.5";
+}
+
 export default function AdminAuditSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,10 +77,10 @@ export default function AdminAuditSettingsPage() {
     step2FormatterModel: "gemini-2.5-flash",
     step3FormatterProvider: "gemini",
     step3FormatterModel: "gemini-2.5-flash",
-    fastAiProvider: "openai",
-    fastAiModel: null,
-    fastFormatterProvider: "gemini",
-    fastFormatterModel: "gemini-2.5-flash",
+    fastAiProvider: "deepseek",
+    fastAiModel: "deepseek-v4-flash",
+    fastFormatterProvider: "deepseek",
+    fastFormatterModel: "deepseek-v4-flash",
     step3FlowMode: "standard",
     auditPipelineMode: "standard",
     fastBatchSize: 15,
@@ -80,10 +108,10 @@ export default function AdminAuditSettingsPage() {
           ...data,
           step2AiProvider: data.step2AiProvider ?? data.aiProvider,
           step3AiProvider: data.step3AiProvider ?? data.aiProvider,
-          fastAiProvider: data.fastAiProvider ?? data.step2AiProvider ?? data.aiProvider,
-          fastAiModel: data.fastAiModel ?? data.step2AiModel ?? data.aiModel ?? null,
-          fastFormatterProvider: data.fastFormatterProvider ?? data.step2FormatterProvider ?? "gemini",
-          fastFormatterModel: data.fastFormatterModel ?? data.step2FormatterModel ?? "gemini-2.5-flash",
+          fastAiProvider: data.fastAiProvider ?? "deepseek",
+          fastAiModel: data.fastAiModel ?? "deepseek-v4-flash",
+          fastFormatterProvider: data.fastFormatterProvider ?? "deepseek",
+          fastFormatterModel: data.fastFormatterModel ?? "deepseek-v4-flash",
           step3FlowMode: data.step3FlowMode ?? "standard",
           auditPipelineMode: data.auditPipelineMode ?? "standard",
           fastBatchSize: data.fastBatchSize ?? 15,
@@ -354,20 +382,21 @@ export default function AdminAuditSettingsPage() {
                   <Select
                     value={settings.fastAiProvider}
                     onValueChange={(value) =>
-                      setSettings((current) => ({
-                        ...current,
-                        fastAiProvider: value as AiProvider,
-                        fastAiModel: null
-                      }))
+	                      setSettings((current) => ({
+	                        ...current,
+	                        fastAiProvider: value as AiProvider,
+	                        fastAiModel: defaultModelForProvider(value as AiProvider)
+	                      }))
                     }
                   >
                     <SelectTrigger id="fast-ai-provider">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="gemini">Gemini</SelectItem>
-                      <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
+	                      <SelectItem value="openai">OpenAI</SelectItem>
+	                      <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                      <SelectItem value="gemini">Gemini</SelectItem>
+	                      <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -397,19 +426,20 @@ export default function AdminAuditSettingsPage() {
                   <Select
                     value={settings.fastFormatterProvider}
                     onValueChange={(value) =>
-                      setSettings((current) => ({
-                        ...current,
-                        fastFormatterProvider: value as JsonFormatterProvider,
-                        fastFormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
-                      }))
+	                      setSettings((current) => ({
+	                        ...current,
+	                        fastFormatterProvider: value as JsonFormatterProvider,
+	                        fastFormatterModel: defaultFormatterModel(value as JsonFormatterProvider)
+	                      }))
                     }
                   >
                     <SelectTrigger id="fast-formatter-provider">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="gemini">Gemini</SelectItem>
+	                      <SelectItem value="openai">OpenAI</SelectItem>
+	                      <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                      <SelectItem value="gemini">Gemini</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -534,18 +564,19 @@ export default function AdminAuditSettingsPage() {
                     value={settings.step2AiProvider}
                     onValueChange={(value) =>
                       setSettings((current) => ({
-                        ...current,
-                        step2AiProvider: value as AiProvider,
-                        step2AiModel: null
-                      }))
+	                        ...current,
+	                        step2AiProvider: value as AiProvider,
+	                        step2AiModel: defaultModelForProvider(value as AiProvider)
+	                      }))
                     }
                   >
                     <SelectTrigger id="step2-ai-provider">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="gemini">Gemini</SelectItem>
+	                      <SelectItem value="openai">OpenAI</SelectItem>
+	                      <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                      <SelectItem value="gemini">Gemini</SelectItem>
                       <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
                     </SelectContent>
                   </Select>
@@ -575,18 +606,19 @@ export default function AdminAuditSettingsPage() {
                     value={settings.step2FormatterProvider}
                     onValueChange={(value) =>
                       setSettings((current) => ({
-                        ...current,
-                        step2FormatterProvider: value as JsonFormatterProvider,
-                        step2FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
-                      }))
+	                        ...current,
+	                        step2FormatterProvider: value as JsonFormatterProvider,
+	                        step2FormatterModel: defaultFormatterModel(value as JsonFormatterProvider)
+	                      }))
                     }
                   >
                     <SelectTrigger id="step2-formatter-provider">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="gemini">Gemini</SelectItem>
+	                      <SelectItem value="openai">OpenAI</SelectItem>
+	                      <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                      <SelectItem value="gemini">Gemini</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -648,18 +680,19 @@ export default function AdminAuditSettingsPage() {
                       value={settings.step3AiProvider}
                       onValueChange={(value) =>
                         setSettings((current) => ({
-                          ...current,
-                          step3AiProvider: value as AiProvider,
-                          step3AiModel: null
-                        }))
+	                          ...current,
+	                          step3AiProvider: value as AiProvider,
+	                          step3AiModel: defaultModelForProvider(value as AiProvider)
+	                        }))
                       }
                     >
                       <SelectTrigger id="step3-ai-provider">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="gemini">Gemini</SelectItem>
+	                        <SelectItem value="openai">OpenAI</SelectItem>
+	                        <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                        <SelectItem value="gemini">Gemini</SelectItem>
                         <SelectItem value="gemini_deep_research">Gemini Deep Research</SelectItem>
                       </SelectContent>
                     </Select>
@@ -689,18 +722,19 @@ export default function AdminAuditSettingsPage() {
                       value={settings.step3FormatterProvider}
                       onValueChange={(value) =>
                         setSettings((current) => ({
-                          ...current,
-                          step3FormatterProvider: value as JsonFormatterProvider,
-                          step3FormatterModel: value === "gemini" ? "gemini-2.5-flash" : null
-                        }))
+	                          ...current,
+	                          step3FormatterProvider: value as JsonFormatterProvider,
+	                          step3FormatterModel: defaultFormatterModel(value as JsonFormatterProvider)
+	                        }))
                       }
                     >
                       <SelectTrigger id="step3-formatter-provider">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="gemini">Gemini</SelectItem>
+	                        <SelectItem value="openai">OpenAI</SelectItem>
+	                        <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                        <SelectItem value="gemini">Gemini</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -815,18 +849,19 @@ export default function AdminAuditSettingsPage() {
                       value={settings.deepResearchFormatterProvider}
                       onValueChange={(value) =>
                         setSettings((current) => ({
-                          ...current,
-                          deepResearchFormatterProvider: value as JsonFormatterProvider,
-                          deepResearchFormatterModel: value === "gemini" ? "gemini-2.5-flash" : "gpt-5.5"
-                        }))
+	                          ...current,
+	                          deepResearchFormatterProvider: value as JsonFormatterProvider,
+	                          deepResearchFormatterModel: defaultFormatterModel(value as JsonFormatterProvider)
+	                        }))
                       }
                     >
                       <SelectTrigger id="deep-research-formatter-provider">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="gemini">Gemini</SelectItem>
+	                        <SelectItem value="openai">OpenAI</SelectItem>
+	                        <SelectItem value="deepseek">DeepSeek</SelectItem>
+	                        <SelectItem value="gemini">Gemini</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

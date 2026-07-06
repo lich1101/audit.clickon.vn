@@ -24,6 +24,7 @@ return new class extends Migration
         $step3AiProvider = env('AUDIT_STEP3_AI_PROVIDER', $defaultAiProvider);
         $defaultModelForProvider = function (string $provider): string {
             return match ($provider) {
+                'deepseek' => env('DEEPSEEK_MODEL', 'deepseek-v4-flash'),
                 'gemini' => env('GEMINI_MODEL', 'gemini-2.5-pro'),
                 'gemini_deep_research' => env('GEMINI_DEEP_RESEARCH_AGENT', 'deep-research-pro-preview-12-2025'),
                 default => env('OPENAI_MODEL', 'gpt-5.5'),

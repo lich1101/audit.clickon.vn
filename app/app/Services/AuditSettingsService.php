@@ -83,15 +83,15 @@ class AuditSettingsService
                 $value['step3FormatterModel'] ?? env('AUDIT_STEP3_FORMATTER_MODEL', null),
                 $this->defaultFormatterModel($step3FormatterProvider),
             );
-            $fastAiProvider = $this->normalizeAiProvider($value['fastAiProvider'] ?? env('AUDIT_FAST_AI_PROVIDER', $step2AiProvider));
+            $fastAiProvider = $this->normalizeAiProvider($value['fastAiProvider'] ?? env('AUDIT_FAST_AI_PROVIDER', 'deepseek'));
             $fastAiModel = $this->normalizeOptionalModel(
-                $value['fastAiModel'] ?? env('AUDIT_FAST_AI_MODEL', $value['step2AiModel'] ?? $this->defaultModelForProvider($fastAiProvider))
+                $value['fastAiModel'] ?? env('AUDIT_FAST_AI_MODEL', $this->defaultModelForProvider($fastAiProvider))
             );
             $fastFormatterProvider = $this->normalizeFormatterProvider(
-                $value['fastFormatterProvider'] ?? env('AUDIT_FAST_FORMATTER_PROVIDER', $step2FormatterProvider)
+                $value['fastFormatterProvider'] ?? env('AUDIT_FAST_FORMATTER_PROVIDER', 'deepseek')
             );
             $fastFormatterModel = $this->normalizeModel(
-                $value['fastFormatterModel'] ?? env('AUDIT_FAST_FORMATTER_MODEL', $value['step2FormatterModel'] ?? null),
+                $value['fastFormatterModel'] ?? env('AUDIT_FAST_FORMATTER_MODEL', null),
                 $this->defaultFormatterModel($fastFormatterProvider),
             );
 
@@ -263,16 +263,16 @@ class AuditSettingsService
             : $current['step3FormatterModel'];
         $fastAiProvider = array_key_exists('fastAiProvider', $payload)
             ? $this->normalizeAiProvider($payload['fastAiProvider'])
-            : ($current['fastAiProvider'] ?? $step2AiProvider);
+            : ($current['fastAiProvider'] ?? 'deepseek');
         $fastAiModel = array_key_exists('fastAiModel', $payload)
             ? $this->normalizeOptionalModel($payload['fastAiModel'])
-            : ($current['fastAiModel'] ?? $current['step2AiModel'] ?? null);
+            : ($current['fastAiModel'] ?? null);
         $fastFormatterProvider = array_key_exists('fastFormatterProvider', $payload)
             ? $this->normalizeFormatterProvider($payload['fastFormatterProvider'])
-            : ($current['fastFormatterProvider'] ?? $step2FormatterProvider);
+            : ($current['fastFormatterProvider'] ?? 'deepseek');
         $fastFormatterModel = array_key_exists('fastFormatterModel', $payload)
             ? $this->normalizeModel($payload['fastFormatterModel'], $this->defaultFormatterModel($fastFormatterProvider))
-            : ($current['fastFormatterModel'] ?? $current['step2FormatterModel'] ?? $this->defaultFormatterModel($fastFormatterProvider));
+            : ($current['fastFormatterModel'] ?? $this->defaultFormatterModel($fastFormatterProvider));
         $geminiPdfAttachments = array_key_exists('geminiPdfAttachments', $payload) && is_array($payload['geminiPdfAttachments'])
             ? $payload['geminiPdfAttachments']
             : ($current['geminiPdfAttachments'] ?? []);
@@ -362,7 +362,7 @@ class AuditSettingsService
 
     public function fastFormatterProvider(): string
     {
-        return (string) ($this->getAuditSettings()['fastFormatterProvider'] ?? $this->getAuditSettings()['step2FormatterProvider'] ?? 'gemini');
+        return (string) ($this->getAuditSettings()['fastFormatterProvider'] ?? 'deepseek');
     }
 
     public function fastFormatterModel(): ?string
@@ -437,12 +437,12 @@ class AuditSettingsService
 
     private function normalizeAiProvider(mixed $value): string
     {
-        return in_array($value, ['openai', 'gemini', 'gemini_deep_research'], true) ? (string) $value : 'openai';
+        return in_array($value, ['openai', 'deepseek', 'gemini', 'gemini_deep_research'], true) ? (string) $value : 'openai';
     }
 
     private function normalizeFormatterProvider(mixed $value): string
     {
-        return in_array($value, ['openai', 'gemini'], true) ? (string) $value : 'gemini';
+        return in_array($value, ['openai', 'deepseek', 'gemini'], true) ? (string) $value : 'gemini';
     }
 
     private function normalizeDeepResearchResearchProvider(mixed $value): string
@@ -485,9 +485,11 @@ class AuditSettingsService
 
     private function defaultFormatterModel(string $provider): string
     {
-        return $provider === 'openai'
-            ? (string) config('services.openai.model', 'gpt-5.5')
-            : 'gemini-2.5-flash';
+        return match ($provider) {
+            'openai' => (string) config('services.openai.model', 'gpt-5.5'),
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
+            default => 'gemini-2.5-flash',
+        };
     }
 
     private function defaultDeepResearchResearchModel(string $provider): string
@@ -507,6 +509,7 @@ class AuditSettingsService
     private function defaultModelForProvider(string $provider): string
     {
         return match ($provider) {
+            'deepseek' => (string) config('services.deepseek.model', 'deepseek-v4-flash'),
             'gemini' => (string) config('services.gemini.model', 'gemini-2.5-pro'),
             'gemini_deep_research' => (string) config('services.gemini.deep_research_agent', 'deep-research-pro-preview-12-2025'),
             default => (string) config('services.openai.model', 'gpt-5.5'),

@@ -56,6 +56,7 @@ export type AuditWorkbenchRow = {
   auditRecommendations?: string[];
   contentRevisionDirection?: string | null;
   contentExcerpt?: string | null;
+  hasContentExcerpt?: boolean | null;
   errorMessage?: string | null;
   stageHint?: string | null;
 };
@@ -128,6 +129,12 @@ export function mergeAuditWorkbenchRow(
       ? preferFilledString(current.errorMessage, persisted?.errorMessage)
       : preferFilledString(current.errorMessage)
       : preferFilledString(persisted?.errorMessage);
+  const hasContentExcerpt = Boolean(
+    current?.hasContentExcerpt ||
+      persisted?.hasContentExcerpt ||
+      current?.contentExcerpt?.trim() ||
+      persisted?.contentExcerpt?.trim()
+  );
 
   return {
     targetUrl,
@@ -176,6 +183,7 @@ export function mergeAuditWorkbenchRow(
     contentExcerpt: useCurrentStep1Fields
       ? preferFilledString(current?.contentExcerpt, persisted?.contentExcerpt)
       : preferFilledString(persisted?.contentExcerpt, current?.contentExcerpt),
+    hasContentExcerpt,
     errorMessage,
   };
 }
@@ -206,6 +214,7 @@ export function enrichWorkbenchRowForExport(row: AuditWorkbenchRow, fullItem?: A
     auditRecommendations: preferStringArray(fullItem.auditRecommendations, row.auditRecommendations),
     contentRevisionDirection: preferFilledString(fullItem.contentRevisionDirection, row.contentRevisionDirection),
     contentExcerpt: preferFilledString(fullItem.contentExcerpt, row.contentExcerpt),
+    hasContentExcerpt: Boolean(fullItem.hasContentExcerpt || row.hasContentExcerpt || fullItem.contentExcerpt?.trim() || row.contentExcerpt?.trim()),
     errorMessage: preferFilledString(fullItem.errorMessage, row.errorMessage),
   };
 }
@@ -232,6 +241,7 @@ export function auditRunItemToWorkbenchRow(item: AuditRunItem): AuditWorkbenchRo
     auditRecommendations: Array.isArray(item.auditRecommendations) ? item.auditRecommendations : [],
     contentRevisionDirection: item.contentRevisionDirection ?? null,
     contentExcerpt: item.contentExcerpt ?? null,
+    hasContentExcerpt: item.hasContentExcerpt ?? Boolean(item.contentExcerpt?.trim()),
     errorMessage: item.errorMessage ?? null,
   };
 }

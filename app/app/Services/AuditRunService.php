@@ -4463,6 +4463,73 @@ class AuditRunService
     /**
      * @return array<string, mixed>
      */
+    public function serializeItemBoardSummary(AuditRunItem $item, ?AuditRun $run = null): array
+    {
+        $run ??= $item->relationLoaded('run') ? $item->run : null;
+        $recommendations = $item->audit_recommendations
+            ? preg_split('/\r\n|\r|\n/', $item->audit_recommendations)
+            : [];
+
+        return [
+            'publicId' => $item->public_id,
+            'auditRunId' => $run?->public_id,
+            'websiteId' => $run?->website_id,
+            'userId' => $run?->user_uid,
+            'position' => $item->position,
+            'targetUrl' => $item->target_url,
+            'status' => $item->status,
+            'extractionSource' => $item->extraction_source,
+            'contentSource' => $item->content_source,
+            'contentError' => $item->content_error,
+            'readerUrl' => $this->readerUrlFor($item->target_url),
+            'pageTitle' => $item->page_title,
+            'metaDescription' => $item->meta_description,
+            'canonicalUrl' => null,
+            'headings' => [],
+            'metrics' => $this->compactBoardMetrics($item->extracted_metrics ?? []),
+            'primaryKeyword' => $item->primary_keyword,
+            'categoryName' => $item->category_name,
+            'categoryUrl' => $item->category_url,
+            'categoryMatchReason' => null,
+            'auditScore' => $item->audit_score,
+            'auditFindings' => [],
+            'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
+            'contentRevisionDirection' => $item->content_revision_direction,
+            'contentExcerpt' => null,
+            'hasContentExcerpt' => (bool) $item->getAttribute('has_content_excerpt'),
+            'errorMessage' => $item->error_message,
+            'updatedAt' => optional($item->updated_at)?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, int|float|bool|string|null>
+     */
+    private function compactBoardMetrics(mixed $metrics): array
+    {
+        if (! is_array($metrics)) {
+            return [];
+        }
+
+        $allowedKeys = [
+            'auditReady',
+            'wordCount',
+            'characterCount',
+            'contentLength',
+            'statusCode',
+            'imageCount',
+            'internalLinkCount',
+        ];
+
+        return collect($metrics)
+            ->only($allowedKeys)
+            ->filter(fn ($value): bool => is_scalar($value) || $value === null)
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function serializeRun(AuditRun $run): array
     {
         return [

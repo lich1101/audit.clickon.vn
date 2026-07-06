@@ -128,6 +128,7 @@ export type WebsiteAuditUrlResult = {
   };
   metrics?: Record<string, number | boolean | string | null>;
   contentExcerpt?: string | null;
+  hasContentExcerpt?: boolean | null;
   contentSource?: string | null;
   contentError?: string | null;
   readerUrl?: string | null;
@@ -464,6 +465,7 @@ export type AuditRunItem = {
   auditRecommendations: string[];
   contentRevisionDirection?: string | null;
   contentExcerpt?: string | null;
+  hasContentExcerpt?: boolean | null;
   promptSnapshots?: Record<
     string,
     {

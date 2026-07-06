@@ -128,6 +128,48 @@ class WebsiteAuditUrlResultService
         ];
     }
 
+    /**
+     * Lightweight payload for the audit board. The full step-1 content stays
+     * available through the lazy Reader endpoint to keep large boards under the
+     * PHP memory limit.
+     *
+     * @return array<string, mixed>
+     */
+    public function serializeBoardSummary(WebsiteAuditUrlResult $result): array
+    {
+        $recommendations = $result->audit_recommendations
+            ? preg_split('/\r\n|\r|\n/', $result->audit_recommendations)
+            : [];
+
+        return [
+            'targetUrl' => $result->target_url,
+            'status' => $result->status,
+            'pageTitle' => $result->page_title,
+            'metaDescription' => $result->meta_description,
+            'canonicalUrl' => null,
+            'headings' => [],
+            'metrics' => $this->compactBoardMetrics($result->extracted_metrics ?? []),
+            'contentExcerpt' => null,
+            'hasContentExcerpt' => (bool) $result->getAttribute('has_content_excerpt'),
+            'contentSource' => $result->content_source,
+            'contentError' => $result->content_error,
+            'readerUrl' => $this->readerUrlFor($result->target_url),
+            'primaryKeyword' => $result->primary_keyword,
+            'categoryName' => $result->category_name,
+            'categoryUrl' => $result->category_url,
+            'categoryMatchReason' => null,
+            'auditScore' => $result->audit_score,
+            'auditFindings' => [],
+            'auditRecommendations' => array_values(array_filter(is_array($recommendations) ? $recommendations : [])),
+            'contentRevisionDirection' => $result->content_revision_direction,
+            'errorMessage' => $result->error_message,
+            'aiProvider' => $result->ai_provider,
+            'aiModel' => $result->ai_model,
+            'auditedAt' => optional($result->audited_at)?->toIso8601String(),
+            'updatedAt' => optional($result->updated_at)?->toIso8601String(),
+        ];
+    }
+
     private function hasFreshAuditPayload(AuditRunItem $item): bool
     {
         return $item->status === 'completed'
@@ -156,6 +198,31 @@ class WebsiteAuditUrlResultService
     private function filledText(mixed $value): bool
     {
         return is_string($value) && trim($value) !== '';
+    }
+
+    /**
+     * @return array<string, int|float|bool|string|null>
+     */
+    private function compactBoardMetrics(mixed $metrics): array
+    {
+        if (! is_array($metrics)) {
+            return [];
+        }
+
+        $allowedKeys = [
+            'auditReady',
+            'wordCount',
+            'characterCount',
+            'contentLength',
+            'statusCode',
+            'imageCount',
+            'internalLinkCount',
+        ];
+
+        return collect($metrics)
+            ->only($allowedKeys)
+            ->filter(fn ($value): bool => is_scalar($value) || $value === null)
+            ->all();
     }
 
     private function readerUrlFor(string $targetUrl): string

@@ -11,6 +11,7 @@ function hasStep1PreviewData(input: {
   pageTitle?: string | null;
   metaDescription?: string | null;
   contentExcerpt?: string | null;
+  hasContentExcerpt?: boolean | null;
   contentSource?: string | null;
   contentError?: string | null;
 }) {
@@ -18,6 +19,7 @@ function hasStep1PreviewData(input: {
     input.pageTitle?.trim() ||
       input.metaDescription?.trim() ||
       input.contentExcerpt?.trim() ||
+      input.hasContentExcerpt ||
       input.contentSource?.trim() ||
       input.contentError?.trim()
   );
@@ -62,6 +64,7 @@ export function AuditStep1ReaderButton({
     pageTitle?: string | null;
     metaDescription?: string | null;
     contentExcerpt?: string | null;
+    hasContentExcerpt?: boolean | null;
     contentSource?: string | null;
     contentError?: string | null;
   };

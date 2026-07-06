@@ -128,7 +128,7 @@ class AuditRunController extends Controller
             $runPayload = [
                 ...$this->auditRunService->serializeRunSummary($latestRun),
                 'items' => $latestRun->items
-                    ->map(fn ($item): array => $this->auditRunService->serializeItemSummary($item, $latestRun))
+                    ->map(fn ($item): array => $this->auditRunService->serializeItemBoardSummary($item, $latestRun))
                     ->values()
                     ->all(),
             ];
@@ -139,7 +139,7 @@ class AuditRunController extends Controller
             ->forBoardSummary()
             ->orderBy('target_url')
             ->get()
-            ->map(fn (WebsiteAuditUrlResult $result): array => $this->urlResultService->serialize($result))
+            ->map(fn (WebsiteAuditUrlResult $result): array => $this->urlResultService->serializeBoardSummary($result))
             ->values()
             ->all();
 

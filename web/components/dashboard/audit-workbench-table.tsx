@@ -61,9 +61,10 @@ function stageLabelForSource(source?: string | null) {
 
 function hasStep1Data(row?: AuditWorkbenchRow | null) {
   return Boolean(
-    row?.pageTitle?.trim() ||
+      row?.pageTitle?.trim() ||
       row?.metaDescription?.trim() ||
       row?.contentExcerpt?.trim() ||
+      row?.hasContentExcerpt ||
       row?.contentSource?.trim() ||
       row?.contentError?.trim()
   );
@@ -89,6 +90,10 @@ function isStep1Valid(row?: AuditWorkbenchRow | null) {
   }
 
   if (auditReady) {
+    return true;
+  }
+
+  if (row?.hasContentExcerpt) {
     return true;
   }
 
@@ -556,6 +561,7 @@ export function AuditWorkbenchTable({
                                   pageTitle: item.pageTitle,
                                   metaDescription: item.metaDescription,
                                   contentExcerpt: item.contentExcerpt,
+                                  hasContentExcerpt: item.hasContentExcerpt,
                                   contentSource: item.contentSource,
                                   contentError: item.contentError
                                 }}
@@ -573,6 +579,10 @@ export function AuditWorkbenchTable({
                       {item?.contentExcerpt ? (
                         <div className="max-w-[300px]">
                           <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.contentExcerpt}</p>
+                        </div>
+                      ) : item?.hasContentExcerpt ? (
+                        <div className="max-w-[300px]">
+                          <p className="text-sm text-muted-foreground">Đã lưu nội dung. Bấm Reader để xem đầy đủ.</p>
                         </div>
                       ) : item?.contentError ? (
                         <div className="max-w-[300px]">

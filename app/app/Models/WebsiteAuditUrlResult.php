@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WebsiteAuditUrlResult extends Model
 {
-    public const BOARD_CONTENT_EXCERPT_LIMIT = 1200;
+    public const BOARD_TEXT_PREVIEW_LIMIT = 800;
 
     /**
      * @return list<string>
@@ -24,20 +24,12 @@ class WebsiteAuditUrlResult extends Model
             'status',
             'page_title',
             'meta_description',
-            'canonical_url',
-            'extracted_headings',
             'extracted_metrics',
             'content_source',
-            'content_error',
             'primary_keyword',
             'category_name',
             'category_url',
-            'category_match_reason',
             'audit_score',
-            'audit_findings',
-            'audit_recommendations',
-            'content_revision_direction',
-            'error_message',
             'ai_provider',
             'ai_model',
             'audited_at',
@@ -91,7 +83,11 @@ class WebsiteAuditUrlResult extends Model
     {
         return $query
             ->select(static::boardSummaryColumns())
-            ->selectRaw('substr(content_excerpt, 1, ?) as content_excerpt', [static::BOARD_CONTENT_EXCERPT_LIMIT]);
+            ->selectRaw('case when content_excerpt is not null and length(content_excerpt) > 0 then 1 else 0 end as has_content_excerpt')
+            ->selectRaw('substr(content_error, 1, ?) as content_error', [static::BOARD_TEXT_PREVIEW_LIMIT])
+            ->selectRaw('substr(audit_recommendations, 1, ?) as audit_recommendations', [static::BOARD_TEXT_PREVIEW_LIMIT])
+            ->selectRaw('substr(content_revision_direction, 1, ?) as content_revision_direction', [static::BOARD_TEXT_PREVIEW_LIMIT])
+            ->selectRaw('substr(error_message, 1, ?) as error_message', [static::BOARD_TEXT_PREVIEW_LIMIT]);
     }
 
     public function run(): BelongsTo

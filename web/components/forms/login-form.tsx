@@ -9,7 +9,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { auth } from "@/lib/firebase";
-import { syncClientSession } from "@/lib/session-client";
+import { isLocalAuthEnabled, setLocalAuthToken } from "@/lib/local-auth";
+import { syncClientSession, syncLocalSession } from "@/lib/session-client";
+import { useAuth } from "@/hooks/use-auth";
 import { loginSchema, type LoginValues } from "@/lib/validators";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +21,7 @@ import { Label } from "@/components/ui/label";
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refreshProfile } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -31,8 +34,14 @@ export function LoginForm() {
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       setSubmitting(true);
-      const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
-      await syncClientSession(await credential.user.getIdToken(true));
+      if (isLocalAuthEnabled()) {
+        const local = await syncLocalSession(values.email, values.password);
+        setLocalAuthToken(local.token);
+        await refreshProfile();
+      } else {
+        const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
+        await syncClientSession(await credential.user.getIdToken(true));
+      }
       const redirectPath = searchParams.get("redirect");
       const destination = redirectPath?.startsWith("/") ? redirectPath : "/dashboard";
       toast.success("Đăng nhập thành công.");

@@ -8,20 +8,27 @@ import { LoadingState } from "@/components/dashboard/loading-state";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { auth } from "@/lib/firebase";
+import { getLocalAuthToken, isLocalAuthEnabled } from "@/lib/local-auth";
+import { clearClientSession } from "@/lib/session-client";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { firebaseUser, profile, loading, error } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isAuthenticated = isLocalAuthEnabled() ? Boolean(getLocalAuthToken()) : Boolean(firebaseUser);
 
   useEffect(() => {
-    if (!loading && !firebaseUser) {
+    if (!loading && !isAuthenticated) {
       router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
     }
-  }, [firebaseUser, loading, pathname, router]);
+  }, [isAuthenticated, loading, pathname, router]);
 
-  if (loading || !firebaseUser || (!profile && !error)) {
+  if (loading || (isAuthenticated && !profile && !error)) {
     return <LoadingState title="Đang xác thực..." description="Đang kiểm tra phiên đăng nhập của bạn." />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoadingState title="Đang chuyển hướng..." description="Chuyển về trang đăng nhập." />;
   }
 
   if (!profile) {
@@ -34,6 +41,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           </div>
           <Button
             onClick={() => {
+              if (isLocalAuthEnabled()) {
+                void clearClientSession().then(() => router.replace("/login"));
+                return;
+              }
+
               void signOut(auth);
               router.replace("/login");
             }}

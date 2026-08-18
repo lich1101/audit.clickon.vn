@@ -1,8 +1,9 @@
 <?php
 
-use App\Services\AuditConfigurationCheckService;
 use App\Services\AiUsageBillingReconciliationService;
+use App\Services\AuditConfigurationCheckService;
 use App\Services\AuditRunService;
+use App\Services\IndexPublishService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -563,3 +564,23 @@ if ((bool) config('services.audit.stale_run_recovery_enabled', true)) {
         ->everyMinute()
         ->withoutOverlapping();
 }
+
+Artisan::command('index:publish-pending {--batch=50}', function (IndexPublishService $indexPublishService) {
+    $batch = max(1, min(200, (int) $this->option('batch')));
+    $results = $indexPublishService->runPendingQueue($batch);
+    $sent = collect($results)->sum(fn (array $row) => (int) ($row['sent'] ?? 0));
+    $failed = collect($results)->sum(fn (array $row) => (int) ($row['failed'] ?? 0));
+
+    $this->info(sprintf(
+        'Index pending queue | users=%d sent=%d failed=%d',
+        count($results),
+        $sent,
+        $failed,
+    ));
+
+    return SymfonyCommand::SUCCESS;
+})->purpose('Gửi tiếp URL lập chỉ mục còn PENDING theo quota ngày, không trùng link đã SENT');
+
+Schedule::command('index:publish-pending --quiet')
+    ->everyMinute()
+    ->withoutOverlapping(15);

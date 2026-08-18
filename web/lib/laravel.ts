@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/firebase";
 import { IMPERSONATE_UID_COOKIE, readClientCookie } from "@/lib/auth";
+import { getLocalAuthToken } from "@/lib/local-auth";
 
 let tokenPromise: Promise<string | undefined> | null = null;
 let tokenExpiresAt = 0;
@@ -20,7 +21,19 @@ export class LaravelRequestError extends Error {
 
 async function getAuthHeaders() {
   const now = Date.now();
-  const user = auth.currentUser;
+  const localToken = getLocalAuthToken();
+  const impersonateUid = readClientCookie(IMPERSONATE_UID_COOKIE);
+
+  if (localToken) {
+    return {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localToken}`,
+      ...(impersonateUid ? { "X-Impersonate-Uid": impersonateUid } : {})
+    };
+  }
+
+  const user = auth?.currentUser;
 
   if (!user) {
     return {
@@ -35,7 +48,6 @@ async function getAuthHeaders() {
   }
 
   const token = await tokenPromise;
-  const impersonateUid = readClientCookie(IMPERSONATE_UID_COOKIE);
 
   return {
     Accept: "application/json",

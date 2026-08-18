@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Plus,
   ReceiptText,
+  SearchCheck,
   Settings,
   SlidersHorizontal,
   Users2,
@@ -30,6 +31,7 @@ import { stopImpersonation } from "@/lib/impersonation";
 const userItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/websites", label: "Websites", icon: Globe },
+  { href: "/google-index", label: "Lập chỉ mục Google", icon: SearchCheck },
   { href: "/billing", label: "Gói cước", icon: CreditCard },
   { href: "/products", label: "Sản phẩm", icon: ReceiptText },
   { href: "/credit-history", label: "Credit History", icon: History },

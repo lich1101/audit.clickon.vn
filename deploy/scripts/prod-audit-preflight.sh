@@ -121,7 +121,17 @@ echo "==> Preflight: MySQL host"
 audit_check_host_mysql "$ENV_FILE" || STATUS=1
 
 echo
-echo "==> Preflight: Laravel audit configuration check"
+echo "==> Preflight: scheduler + queue"
+if dc ps --status running --services 2>/dev/null | grep -qx scheduler; then
+  echo "[OK] scheduler đang chạy (schedule:work — index:publish-pending mỗi phút)"
+else
+  echo "[WARN] scheduler chưa chạy. Bật bằng: docker compose ... up -d scheduler"
+fi
+if dc ps --status running --services 2>/dev/null | grep -qx queue; then
+  echo "[OK] queue đang chạy (queue:work)"
+else
+  echo "[WARN] queue chưa chạy. Bật bằng: docker compose ... up -d queue"
+fi"
 dc up -d --no-build api 2>/dev/null || true
 
 if dc run --rm --no-deps api php artisan audit:check-config; then

@@ -619,3 +619,127 @@ export type AuditRun = {
   aiStepResponses?: Record<string, AuditAiStepResponse>;
   items?: AuditRunItem[];
 };
+
+export type IndexProperty = {
+  id: number;
+  code: string;
+  name: string;
+  siteUrl: string;
+  siteOrigin: string;
+  siteHost: string;
+  gscProperty: string;
+  isOwned: boolean;
+  enabled: boolean;
+  permissionLevel?: string | null;
+  dailyPublishQuota: number;
+  dailyInspectQuota: number;
+  pendingCount: number;
+  sentCount: number;
+  failedCount: number;
+  sendingCount: number;
+  totalUrls: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type IndexUrlRow = {
+  id: number;
+  urlExact: string;
+  status: string;
+  priority: number;
+  lastError?: string | null;
+  httpStatus?: number | null;
+  inspectVerdict?: string | null;
+  sentAt?: string | null;
+  createdAt?: string | null;
+  siteName?: string | null;
+  siteHost?: string | null;
+  siteOrigin?: string | null;
+};
+
+export type IndexUrlView = "indexed" | "pending" | "failed" | "quota_today";
+
+export type IndexUrlList = {
+  view: IndexUrlView;
+  title: string;
+  total: number;
+  page: number;
+  perPage: number | "all";
+  lastPage: number;
+  urls: IndexUrlRow[];
+};
+
+export type IndexPropertyStats = {
+  pending: number;
+  sent: number;
+  failed: number;
+  sending: number;
+  total: number;
+};
+
+export type IndexPropertyDetail = {
+  property: IndexProperty;
+  stats: IndexPropertyStats;
+  urls: IndexUrlRow[];
+};
+
+export type IndexPreviewGroup = {
+  siteOrigin: string;
+  siteHost: string;
+  urls: string[];
+};
+
+export type IndexPreview = {
+  count: number;
+  groups: IndexPreviewGroup[];
+};
+
+export type IndexQuotaBucket = {
+  used: number;
+  limit: number;
+  remaining: number;
+};
+
+export type IndexQuotaStatus = {
+  dayPt: string;
+  gcpProjectKey: string;
+  dryRun: boolean;
+  publish: IndexQuotaBucket;
+  inspect: IndexQuotaBucket;
+};
+
+export type IndexImportResult = {
+  ok: boolean;
+  message?: string;
+  rejected?: boolean;
+  inserted?: number;
+  duplicates?: number;
+  skippedOtherSite?: number;
+  siteOrigin?: string;
+  propertyId?: number;
+  propertyCode?: string;
+  linkCount?: number;
+};
+
+export type IndexSettings = {
+  configured: boolean;
+  serviceAccountEmail?: string | null;
+  projectId?: string | null;
+  dryRun: boolean;
+  updatedAt?: string | null;
+  gscSiteCount?: number | null;
+};
+
+export type IndexGscSite = {
+  siteUrl: string;
+  permissionLevel?: string | null;
+};
+
+export type IndexSettingsTestResult = {
+  ok: boolean;
+  serviceAccountEmail?: string;
+  projectId?: string;
+  siteCount?: number;
+  sites?: IndexGscSite[];
+  message?: string;
+};

@@ -11,11 +11,16 @@ class AppUser extends Model
         'firebase_uid',
         'email',
         'display_name',
+        'password_hash',
         'role',
         'credits',
         'captcha_credits',
         'balance_usd',
         'keyword_rank_prefs',
+    ];
+
+    protected $hidden = [
+        'password_hash',
     ];
 
     protected function casts(): array

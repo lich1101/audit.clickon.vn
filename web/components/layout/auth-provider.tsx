@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { fetchMe } from "@/lib/account";
+import { isLocalAuthEnabled, getLocalAuthToken } from "@/lib/local-auth";
 import { clearClientSession, syncClientSession } from "@/lib/session-client";
 import { AuthContext } from "@/hooks/use-auth";
 import type { AppUser, UserRole } from "@/types";
@@ -47,6 +48,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
+    if (isLocalAuthEnabled()) {
+      if (!getLocalAuthToken()) {
+        setProfile(null);
+        return null;
+      }
+
+      const nextProfile = normalizeProfile(await fetchMe());
+      setProfile((current) => (nextProfile && isSameProfile(current, nextProfile) ? current : nextProfile));
+      return nextProfile;
+    }
+
     if (!auth.currentUser) {
       setProfile(null);
       return null;
@@ -59,6 +71,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isLocalAuthEnabled()) {
+      let disposed = false;
+
+      (async () => {
+        try {
+          if (!getLocalAuthToken()) {
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+
+          const nextProfile = normalizeProfile(await fetchMe());
+          if (!disposed) {
+            setProfile(nextProfile);
+            setError(null);
+          }
+        } catch (sessionError) {
+          if (!disposed) {
+            setProfile(null);
+            setError(sessionError instanceof Error ? sessionError.message : "Không thể đồng bộ phiên đăng nhập.");
+          }
+        } finally {
+          if (!disposed) {
+            setLoading(false);
+          }
+        }
+      })();
+
+      return () => {
+        disposed = true;
+      };
+    }
+
     if (!isFirebaseConfigured) {
       setError("Firebase chưa được cấu hình.");
       setLoading(false);

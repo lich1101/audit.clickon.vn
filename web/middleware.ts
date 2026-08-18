@@ -5,6 +5,7 @@ import { IMPERSONATE_UID_COOKIE, ROLE_COOKIE, SESSION_COOKIE } from "@/lib/auth"
 const protectedPrefixes = [
   "/dashboard",
   "/websites",
+  "/google-index",
   "/billing",
   "/credit-history",
   "/settings",

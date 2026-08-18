@@ -27,6 +27,7 @@ SKIP_CLEANUP="${SKIP_CLEANUP:-0}"
 OPTIMIZE_LARAVEL="${OPTIMIZE_LARAVEL:-1}"
 BUILD_SERVICES="${BUILD_SERVICES:-api web}"
 RESTART_QUEUE="${RESTART_QUEUE:-1}"
+RESTART_SCHEDULER="${RESTART_SCHEDULER:-1}"
 MIN_FREE_MB="${MIN_FREE_MB:-400}"
 
 # shellcheck source=/dev/null
@@ -157,6 +158,11 @@ fi
 if [[ "$RESTART_QUEUE" == "1" ]]; then
   echo "==> Restart queue worker (nhận code mới)"
   dc restart queue
+fi
+
+if [[ "$RESTART_SCHEDULER" == "1" ]]; then
+  echo "==> Restart scheduler (index:publish-pending + audit recover mỗi phút)"
+  dc restart scheduler
 fi
 
 echo "==> Restart nginx (refresh upstream DNS sau khi recreate web/api)"

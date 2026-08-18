@@ -13,13 +13,17 @@ use App\Http\Controllers\Api\KeywordRankCaptchaController;
 use App\Http\Controllers\Api\KeywordRankProxyController;
 use App\Http\Controllers\Api\KeywordRankSettingsController;
 use App\Http\Controllers\Api\KeywordRankController;
+use App\Http\Controllers\Api\LocalAuthController;
 use App\Http\Controllers\Api\MeController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\PlanRequestController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductRequestController;
+use App\Http\Controllers\Api\IndexController;
 use App\Http\Controllers\Api\WebsiteController;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/auth/local-login', [LocalAuthController::class, 'login']);
 
 Route::prefix('credits')->group(function (): void {
     Route::post('/add', [CreditController::class, 'add'])->middleware('admin.or.api-key');
@@ -61,6 +65,21 @@ Route::middleware('firebase.auth')->group(function (): void {
     Route::get('/audit-runs/{publicId}', [AuditRunController::class, 'show']);
     Route::post('/audit-runs/{publicId}/stop', [AuditRunController::class, 'stop']);
     Route::get('/audit-settings', [AuditSettingsController::class, 'showPublic']);
+    Route::get('/index/properties', [IndexController::class, 'index']);
+    Route::post('/index/properties', [IndexController::class, 'store']);
+    Route::get('/index/urls', [IndexController::class, 'urls']);
+    Route::get('/index/properties/{propertyId}', [IndexController::class, 'show']);
+    Route::get('/index/properties/{propertyId}/report', [IndexController::class, 'report']);
+    Route::post('/index/properties/{propertyId}/import', [IndexController::class, 'import']);
+    Route::post('/index/preview', [IndexController::class, 'preview']);
+    Route::post('/index/import-global', [IndexController::class, 'importGlobal']);
+    Route::post('/index/verify-ownership', [IndexController::class, 'verifyOwnership']);
+    Route::get('/index/settings', [IndexController::class, 'settings']);
+    Route::put('/index/settings', [IndexController::class, 'updateSettings']);
+    Route::post('/index/settings/test', [IndexController::class, 'testSettings']);
+    Route::post('/index/sync-gsc', [IndexController::class, 'syncGsc']);
+    Route::post('/index/publish', [IndexController::class, 'publish']);
+    Route::get('/index/quota', [IndexController::class, 'quota']);
 });
 
 Route::prefix('admin')

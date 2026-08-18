@@ -1,6 +1,7 @@
 "use client";
 
 import type { AppUser } from "@/types";
+import { clearLocalAuthToken } from "@/lib/local-auth";
 
 const SESSION_SYNC_TIMEOUT_MS = 20_000;
 const SESSION_CLEAR_TIMEOUT_MS = 10_000;
@@ -61,7 +62,31 @@ export async function syncClientSession(idToken: string) {
   return data.user;
 }
 
+export async function syncLocalSession(email: string, password: string) {
+  const response = await fetchWithTimeout("/api/auth/local-session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    credentials: "same-origin",
+    body: JSON.stringify({ email, password })
+  }, SESSION_SYNC_TIMEOUT_MS);
+
+  if (!response.ok) {
+    throw new Error(await readSessionError(response, "Không thể tạo phiên đăng nhập."));
+  }
+
+  const data = (await response.json()) as { user?: AppUser; token?: string };
+
+  if (!data.user || !data.token) {
+    throw new Error("Phiên đăng nhập không trả về hồ sơ người dùng.");
+  }
+
+  return data;
+}
+
 export async function clearClientSession() {
+  clearLocalAuthToken();
   const response = await fetchWithTimeout("/api/auth/logout", {
     method: "POST",
     credentials: "same-origin"

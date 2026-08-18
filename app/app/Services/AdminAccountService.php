@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Hash;
 use Kreait\Firebase\Exception\Auth\UserNotFound;
 use Kreait\Laravel\Firebase\Facades\Firebase;
 use RuntimeException;
@@ -23,7 +24,6 @@ class AdminAccountService
         ?string $uid = null,
         bool $emailVerified = true,
     ): array {
-        $auth = Firebase::auth();
         $normalizedEmail = mb_strtolower(trim($email));
         $normalizedPassword = trim($password);
         $normalizedDisplayName = $displayName !== null ? trim($displayName) : null;
@@ -37,7 +37,29 @@ class AdminAccountService
             throw new RuntimeException('Mật khẩu admin không được để trống.');
         }
 
+        if (LocalAuthToken::enabled()) {
+            $uid = $normalizedUid !== null && $normalizedUid !== ''
+                ? $normalizedUid
+                : 'local_'.substr(hash('sha256', $normalizedEmail), 0, 24);
+            $user = $this->creditService->ensureUser($uid, $normalizedEmail, $normalizedDisplayName !== '' ? $normalizedDisplayName : 'Admin');
+            $created = $user->wasRecentlyCreated;
+            $user->forceFill([
+                'password_hash' => Hash::make($normalizedPassword),
+                'role' => 'admin',
+                'display_name' => $normalizedDisplayName !== '' ? $normalizedDisplayName : ($user->display_name ?: 'Admin'),
+                'balance_usd' => max((float) $user->balance_usd, 100),
+            ])->save();
+
+            return [
+                'uid' => $user->firebase_uid,
+                'email' => $normalizedEmail,
+                'displayName' => $user->display_name,
+                'created' => $created,
+            ];
+        }
+
         try {
+            $auth = Firebase::auth();
             $user = $auth->getUserByEmail($normalizedEmail);
 
             if ($normalizedUid !== null && $normalizedUid !== '' && $user->uid !== $normalizedUid) {

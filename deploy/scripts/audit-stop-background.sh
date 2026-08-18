@@ -1,8 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# Dừng khẩn cấp toàn bộ audit đang chạy nền (queue + scheduler).
+# POSIX sh — chạy bằng: sh deploy/scripts/audit-stop-background.sh
 
-set -euo pipefail
+set -eu
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/deploy/env/docker.prod.env}"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.prod.yml}"
 STOP_MESSAGE="${STOP_MESSAGE:-Audit run stopped by operator before next AI stage.}"
@@ -10,14 +12,14 @@ STOP_QUEUE="${STOP_QUEUE:-1}"
 STOP_SCHEDULER="${STOP_SCHEDULER:-1}"
 
 # shellcheck source=/dev/null
-source "$ROOT_DIR/deploy/scripts/_env.sh"
+. "$ROOT_DIR/deploy/scripts/_env.sh"
 
-if [[ ! -f "$ENV_FILE" ]]; then
+if [ ! -f "$ENV_FILE" ]; then
   echo "Missing env file: $ENV_FILE" >&2
   exit 1
 fi
 
-if [[ ! -f "$COMPOSE_FILE" ]]; then
+if [ ! -f "$COMPOSE_FILE" ]; then
   echo "Missing compose file: $COMPOSE_FILE" >&2
   exit 1
 fi
@@ -28,12 +30,12 @@ dc() {
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
-if [[ "$STOP_QUEUE" == "1" ]]; then
+if [ "$STOP_QUEUE" = "1" ]; then
   echo "==> Kill queue container ngay lập tức"
   dc kill queue || true
 fi
 
-if [[ "$STOP_SCHEDULER" == "1" ]]; then
+if [ "$STOP_SCHEDULER" = "1" ]; then
   echo "==> Kill scheduler container ngay lập tức"
   dc kill scheduler || true
 fi

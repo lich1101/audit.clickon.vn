@@ -217,7 +217,7 @@ Build và chạy stack Docker production:
 
 ```bash
 cd /var/www/<repo>
-bash deploy/scripts/prod-first-run.sh
+sh deploy/scripts/prod-first-run.sh
 ```
 
 Kiểm tra container:
@@ -344,7 +344,7 @@ Hoặc dùng script:
 
 ```bash
 cd /var/www/clickon-audit
-bash deploy/scripts/prod-seed-admin.sh
+sh deploy/scripts/prod-seed-admin.sh
 ```
 
 Script này sẽ đọc:
@@ -397,24 +397,51 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 
 ## 13. Update ứng dụng
 
+Cách nhanh nhất — 1 lệnh:
+
 ```bash
-cd /var/www/clickon-audit
-bash deploy/scripts/prod-update.sh
-sudo systemctl reload nginx
+cd /var/www/audit.clickon.vn
+sh deploy.sh
 ```
 
-Script này sẽ `git pull`, build image mới, chạy migrate trước khi bật `api/queue/web` mới, rồi mới thay container production.
+`deploy.sh` chỉ là wrapper gọi `deploy/scripts/prod-update.sh`. Toàn bộ script deploy viết bằng POSIX sh nên chạy được với `sh`, không cần `bash`.
+
+Script sẽ `git pull`, build image mới, chạy migrate trước khi bật `api/queue/web` mới, rồi mới thay container production.
+
+### Chế độ nhanh (mặc định)
+
+Script so commit của lần deploy thành công gần nhất (lưu ở `deploy/.state/`) với `HEAD` để bỏ qua các bước không cần thiết:
+
+| Không đổi từ lần deploy trước | Bước được bỏ qua |
+| --- | --- |
+| `app/` | build image api |
+| `web/` | build image web |
+| `app/database/migrations/` | `artisan migrate` |
+| `docker-compose.prod.yml` | restart nginx |
+| Không build gì + env không đổi | `config:cache` / `route:cache`, restart queue + scheduler |
+
+Deploy khi không có gì đổi mất khoảng 30 giây thay vì 2–5 phút.
+
+Ghi đè khi cần:
+
+```bash
+FORCE_BUILD=1 sh deploy.sh      # build lại cả api + web
+SKIP_BUILD=1 sh deploy.sh       # không build, chỉ migrate + restart
+BUILD_SERVICES="web" sh deploy.sh   # chỉ build web
+FORCE_MIGRATE=1 sh deploy.sh    # ép chạy migrate
+OPTIMIZE_LARAVEL=1 sh deploy.sh # ép chạy config:cache/route:cache
+```
 
 Nếu bạn deploy theo branch khác `main`, có thể truyền tên branch:
 
 ```bash
-bash deploy/scripts/prod-update.sh develop
+sh deploy/scripts/prod-update.sh develop
 ```
 
 Nếu source đã được `git pull` sẵn bởi pipeline CI/CD, có thể bỏ bước pull:
 
 ```bash
-SKIP_PULL=1 bash deploy/scripts/prod-update.sh
+SKIP_PULL=1 sh deploy/scripts/prod-update.sh
 ```
 
 ## 16. Luồng audit SEO đang chạy như thế nào

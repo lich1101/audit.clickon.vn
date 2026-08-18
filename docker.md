@@ -231,7 +231,7 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 ## 2. Chạy lần đầu
 
 ```bash
-bash deploy/scripts/prod-first-run.sh
+sh deploy/scripts/prod-first-run.sh
 ```
 
 Script này làm:
@@ -261,13 +261,13 @@ Nếu đã có:
 thì chạy:
 
 ```bash
-bash deploy/scripts/prod-seed-admin.sh
+sh deploy/scripts/prod-seed-admin.sh
 ```
 
 ### Cách truyền tay
 
 ```bash
-bash deploy/scripts/prod-seed-admin.sh admin@audit.clickon.vn 'StrongPassword123!' 'Clickon Audit Admin'
+sh deploy/scripts/prod-seed-admin.sh admin@audit.clickon.vn 'StrongPassword123!' 'Clickon Audit Admin'
 ```
 
 Script sẽ gọi artisan command:
@@ -392,7 +392,7 @@ docker compose -f docker-compose.prod.yml --env-file deploy/env/docker.prod.env 
 Nếu server của bạn quản lý source bằng Git, luồng chuẩn là:
 
 ```bash
-bash deploy/scripts/prod-update.sh
+sh deploy/scripts/prod-update.sh
 ```
 
 Script này làm:
@@ -407,13 +407,13 @@ Script này làm:
 Nếu deploy branch khác:
 
 ```bash
-bash deploy/scripts/prod-update.sh develop
+sh deploy/scripts/prod-update.sh develop
 ```
 
 Nếu code đã được cập nhật sẵn bởi CI/CD hoặc bạn vừa `git pull` tay:
 
 ```bash
-SKIP_PULL=1 bash deploy/scripts/prod-update.sh
+SKIP_PULL=1 sh deploy/scripts/prod-update.sh
 ```
 
 ## 8. Xem log

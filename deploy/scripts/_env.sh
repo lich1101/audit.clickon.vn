@@ -1,37 +1,34 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# Helper dùng chung cho các script deploy. POSIX sh (dash/ash/bash đều chạy).
+# File này được `.` (source), không chạy trực tiếp.
 
+# Đọc 1 giá trị từ file .env, bỏ dấu nháy bao ngoài và ký tự CR của Windows.
 read_env_value() {
-  local file="$1"
-  local key="$2"
-  local line
+  _env_file="$1"
+  _env_key="$2"
 
-  if [[ ! -f "$file" ]]; then
-    return 1
-  fi
+  [ -f "$_env_file" ] || return 1
 
-  line="$(grep -E "^${key}=" "$file" | tail -n 1 || true)"
+  _env_line="$(grep -E "^${_env_key}=" "$_env_file" | tail -n 1 || true)"
+  [ -n "$_env_line" ] || return 1
 
-  if [[ -z "$line" ]]; then
-    return 1
-  fi
+  _env_line="${_env_line#*=}"
+  _env_line="$(printf '%s' "$_env_line" | tr -d '\r')"
 
-  line="${line#*=}"
-  line="${line%$'\r'}"
+  case "$_env_line" in
+    \"*\") _env_line="${_env_line#\"}"; _env_line="${_env_line%\"}" ;;
+    \'*\') _env_line="${_env_line#\'}"; _env_line="${_env_line%\'}" ;;
+  esac
 
-  if [[ "$line" =~ ^\".*\"$ ]]; then
-    line="${line:1:${#line}-2}"
-  elif [[ "$line" =~ ^\'.*\'$ ]]; then
-    line="${line:1:${#line}-2}"
-  fi
-
-  printf '%s' "$line"
+  printf '%s' "$_env_line"
 }
 
 # Tên project Compose (tránh tạo stack auditclickonvn_* nhầm tên thư mục).
 audit_compose_project() {
-  local env_file="${1:-${ENV_FILE:-}}"
-  if [[ -n "$env_file" && -f "$env_file" ]]; then
-    read_env_value "$env_file" COMPOSE_PROJECT_NAME 2>/dev/null || echo "clickon-audit"
+  _proj_env="${1:-${ENV_FILE:-}}"
+
+  if [ -n "$_proj_env" ] && [ -f "$_proj_env" ]; then
+    read_env_value "$_proj_env" COMPOSE_PROJECT_NAME 2>/dev/null || echo "clickon-audit"
   else
     echo "clickon-audit"
   fi
@@ -39,15 +36,14 @@ audit_compose_project() {
 
 # MySQL chạy trên host (mysql.service), không còn container mysql trong stack.
 audit_check_host_mysql() {
-  local env_file="$1"
-  local db_user db_pass db_name
+  _db_env="$1"
 
-  db_user="$(read_env_value "$env_file" DB_USERNAME || true)"
-  db_pass="$(read_env_value "$env_file" DB_PASSWORD || true)"
-  db_name="$(read_env_value "$env_file" DB_DATABASE || true)"
+  _db_user="$(read_env_value "$_db_env" DB_USERNAME || true)"
+  _db_pass="$(read_env_value "$_db_env" DB_PASSWORD || true)"
+  _db_name="$(read_env_value "$_db_env" DB_DATABASE || true)"
 
-  if [[ -z "$db_user" || -z "$db_pass" || -z "$db_name" ]]; then
-    echo "[ERROR] Thiếu DB_USERNAME / DB_PASSWORD / DB_DATABASE trong $env_file" >&2
+  if [ -z "$_db_user" ] || [ -z "$_db_pass" ] || [ -z "$_db_name" ]; then
+    echo "[ERROR] Thiếu DB_USERNAME / DB_PASSWORD / DB_DATABASE trong $_db_env" >&2
     return 1
   fi
 
@@ -61,11 +57,11 @@ audit_check_host_mysql() {
     return 0
   fi
 
-  MYSQL_PWD="$db_pass" mysql -h127.0.0.1 -P3306 -u"$db_user" -e "SELECT 1" "$db_name" >/dev/null 2>&1 || {
-    echo "[ERROR] Không kết nối MySQL host (127.0.0.1) với user=$db_user db=$db_name" >&2
+  if ! MYSQL_PWD="$_db_pass" mysql -h127.0.0.1 -P3306 -u"$_db_user" -e "SELECT 1" "$_db_name" >/dev/null 2>&1; then
+    echo "[ERROR] Không kết nối MySQL host (127.0.0.1) với user=$_db_user db=$_db_name" >&2
     return 1
-  }
+  fi
 
-  echo "[OK] MySQL host: $db_name"
+  echo "[OK] MySQL host: $_db_name"
   return 0
 }

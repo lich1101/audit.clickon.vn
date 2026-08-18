@@ -1,8 +1,16 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+# Hướng dẫn deploy Firestore rules (service account trên server không có quyền tự deploy).
+# POSIX sh — chạy bằng: sh deploy/scripts/deploy-firestore-rules.sh
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+set -eu
+
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 RULES_FILE="$ROOT_DIR/firestore.rules"
+
+if [ ! -f "$RULES_FILE" ]; then
+  echo "Missing rules file: $RULES_FILE" >&2
+  exit 1
+fi
 
 echo "Firestore rules source: $RULES_FILE"
 echo

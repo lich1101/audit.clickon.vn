@@ -12,3 +12,6 @@ web/node_modules
 web/out
 
 app/.env
+
+# state của script deploy (không commit)
+deploy/.state/

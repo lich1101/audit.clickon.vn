@@ -432,6 +432,18 @@ FORCE_MIGRATE=1 sh deploy.sh    # ép chạy migrate
 OPTIMIZE_LARAVEL=1 sh deploy.sh # ép chạy config:cache/route:cache
 ```
 
+### Dọn dẹp Docker sau deploy
+
+`deploy/scripts/docker-cleanup.sh` chạy tự động cuối mỗi lần deploy. Nó chỉ xóa
+dangling images; **build cache được giữ lại** để lần build sau không phải compile
+lại PHP extension và chạy lại `npm ci`. Cache chỉ bị xóa khi ổ đĩa còn dưới 5GB.
+
+```bash
+PRUNE_BUILD_CACHE=1 sh deploy/scripts/docker-cleanup.sh   # ép xóa build cache
+DISK_MIN_FREE_GB=10 sh deploy.sh                          # đổi ngưỡng tự dọn
+DOCKER_PRUNE_AFTER_DEPLOY=0 sh deploy.sh                  # bỏ hẳn bước dọn dẹp
+```
+
 Nếu bạn deploy theo branch khác `main`, có thể truyền tên branch:
 
 ```bash

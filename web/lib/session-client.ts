@@ -82,7 +82,7 @@ export async function syncLocalSession(email: string, password: string) {
     throw new Error("Phiên đăng nhập không trả về hồ sơ người dùng.");
   }
 
-  return data;
+  return { user: data.user, token: data.token };
 }
 
 export async function clearClientSession() {

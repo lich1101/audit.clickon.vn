@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { AlertCircle, BookOpen, Download, FileSpreadsheet, Globe, Loader2, Play, SearchCheck, Upload } from "lucide-react";
 
 import { IndexProjectChart } from "@/components/dashboard/index-project-chart";
+import { IndexQuotaReset } from "@/components/dashboard/index-quota-reset";
 import { IndexSettingsDialog } from "@/components/dashboard/index-settings-dialog";
 import { IndexUrlListDialog } from "@/components/dashboard/index-url-list-dialog";
 import { PageHeader } from "@/components/layout/page-header";
@@ -308,7 +309,10 @@ export default function GoogleIndexPage() {
           <Card className="h-full transition hover:border-primary/50 hover:shadow-sm">
             <CardHeader className="pb-2">
               <CardDescription>Quota publish hôm nay</CardDescription>
-              <CardTitle>{quota ? `${quota.publish.used}/${quota.publish.limit}` : "—"}</CardTitle>
+              <div className="flex items-end justify-between gap-3">
+                <CardTitle>{quota ? `${quota.publish.used}/${quota.publish.limit}` : "—"}</CardTitle>
+                <IndexQuotaReset resetsAt={quota?.resetsAt} />
+              </div>
             </CardHeader>
           </Card>
         </button>

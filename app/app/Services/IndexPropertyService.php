@@ -402,7 +402,9 @@ class IndexPropertyService
         $projectKey = config('index.default_gcp_project_key');
         $publishQuota = config('index.daily_publish_quota');
         $inspectQuota = config('index.daily_inspect_quota');
-        $dayPt = now('America/Los_Angeles')->toDateString();
+        $pacificNow = now('America/Los_Angeles');
+        $dayPt = $pacificNow->toDateString();
+        $resetsAt = $pacificNow->copy()->addDay()->startOfDay()->utc();
         $dryRun = $userUid ? $this->indexSettingsService->isDryRun($userUid) : (bool) config('index.dry_run');
 
         $publishUsed = (int) DB::table('index_quota_ledger')
@@ -419,6 +421,8 @@ class IndexPropertyService
 
         return [
             'dayPt' => $dayPt,
+            'timezone' => 'America/Los_Angeles',
+            'resetsAt' => $resetsAt->toIso8601String(),
             'gcpProjectKey' => $projectKey,
             'dryRun' => $dryRun,
             'publish' => [

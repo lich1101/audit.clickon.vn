@@ -702,6 +702,8 @@ export type IndexQuotaBucket = {
 
 export type IndexQuotaStatus = {
   dayPt: string;
+  timezone?: string;
+  resetsAt?: string;
   gcpProjectKey: string;
   dryRun: boolean;
   publish: IndexQuotaBucket;

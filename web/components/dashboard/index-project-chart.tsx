@@ -26,7 +26,7 @@ export function IndexProjectChart({
         </div>
         <div className="flex h-4 overflow-hidden rounded-full bg-secondary">
           <div className="bg-emerald-500" style={{ width: `${(totalIndexed / total) * 100}%` }} />
-          <div className="bg-sky-500" style={{ width: `${(totalPending / total) * 100}%` }} />
+          <div className="bg-amber-400" style={{ width: `${(totalPending / total) * 100}%` }} />
           <div className="bg-rose-500" style={{ width: `${(totalFailed / total) * 100}%` }} />
         </div>
         <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
@@ -35,7 +35,7 @@ export function IndexProjectChart({
             Đã lập chỉ mục {formatNumber(totalIndexed)}
           </button>
           <button type="button" className="flex items-center gap-1.5 hover:text-foreground" onClick={() => onOpenView?.("pending")}>
-            <span className="size-2 rounded-full bg-sky-500" />
+            <span className="size-2 rounded-full bg-amber-400" />
             Chưa lập chỉ mục {formatNumber(totalPending)}
           </button>
           <button type="button" className="flex items-center gap-1.5 hover:text-foreground" onClick={() => onOpenView?.("failed")}>
@@ -64,7 +64,7 @@ export function IndexProjectChart({
               </div>
               <div className="flex h-2.5 overflow-hidden rounded-full bg-secondary">
                 <div className="bg-emerald-500" style={{ width: `${(indexed / rowTotal) * 100}%` }} />
-                <div className="bg-sky-500" style={{ width: `${(pending / rowTotal) * 100}%` }} />
+                <div className="bg-amber-400" style={{ width: `${(pending / rowTotal) * 100}%` }} />
                 <div className="bg-rose-500" style={{ width: `${(failed / rowTotal) * 100}%` }} />
               </div>
             </div>
